@@ -412,16 +412,29 @@ impl Shell {
         window: AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        self.add_mods(instance, vec![item], None, window, cx);
+        self.add_mods(instance, vec![item], None, false, window, cx);
+    }
+
+    /// Downloads the current version of Workshop items `items` that `instance` already has.
+    pub fn update_mods(
+        &mut self,
+        instance: Instance,
+        items: Vec<u64>,
+        window: AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) {
+        self.add_mods(instance, items, None, true, window, cx);
     }
 
     /// Downloads Workshop items `items` into `instance` as one entry of the download manager.
-    /// `collection` names where they came from, for the note at the end.
+    /// `collection` names where they came from, for the note at the end; `update` says they
+    /// are already installed and this brings their current version.
     pub fn add_mods(
         &mut self,
         instance: Instance,
         items: Vec<u64>,
         collection: Option<SharedString>,
+        update: bool,
         window: AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
@@ -439,7 +452,11 @@ impl Shell {
                 let _ = events_tx.send((SharedString::from(title.to_owned()), done, total));
             },
         ));
-        let name = collection.clone().unwrap_or_else(|| "Workshop mod".into());
+        let name = match (&collection, update) {
+            (Some(name), _) => name.clone(),
+            (None, true) => "Mod updates".into(),
+            (None, false) => "Workshop mod".into(),
+        };
         let download = install::Download::new(name, install::Kind::Mods, Some(task.abort_handle()));
         self.installs.insert(key.clone(), download);
         self.changed(cx);
@@ -463,6 +480,13 @@ impl Shell {
                 shell.changed(cx);
             });
             let note = match added {
+                Ok(Ok(added)) if update => crate::ui::toast::done(match added.with.len() {
+                    0 => format!("{} is up to date", added.title),
+                    many => format!("Fresh! {} mods are up to date", many + 1),
+                }),
+                Ok(Err(why)) if update => {
+                    crate::ui::toast::failed_because("That update didn't make it", why)
+                }
                 Ok(Ok(added)) => crate::ui::toast::done(match (&collection, added.with.len()) {
                     (Some(name), many) => {
                         format!("{name} is in! All {} mods are ready to go", many + 1)
@@ -733,7 +757,7 @@ impl Shell {
                     shell.go(ix.map_or(Page::Library, Page::Instance), cx);
                     // Mods download anonymously, alongside the game.
                     if let Some((collection, items)) = mods {
-                        shell.add_mods(created.clone(), items, Some(collection), handle, cx);
+                        shell.add_mods(created.clone(), items, Some(collection), false, handle, cx);
                     }
                 });
                 // A new instance has nothing to run yet: start its install right away, as its

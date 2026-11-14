@@ -2,7 +2,7 @@
 //! filter above, and a bar of actions for the rows that are checked (Modrinth App's content
 //! tab).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use gpui_kit::assets::IconName;
@@ -27,7 +27,7 @@ const ICON: Pixels = px(40.);
 const CONTROL: Pixels = px(36.);
 /// Width of the Version and Actions columns; Mod takes the rest.
 const VERSION: Pixels = px(190.);
-const ACTIONS: Pixels = px(132.);
+const ACTIONS: Pixels = px(168.);
 
 #[derive(Clone, Copy, PartialEq)]
 enum Sort {
@@ -83,6 +83,8 @@ pub struct Mods {
     filter: Filter,
     /// Folders of the checked rows.
     selected: HashSet<String>,
+    /// The current manifest of each installed Workshop item; empty until Steam answers.
+    latest: HashMap<u64, u64>,
     shell: WeakEntity<Shell>,
     /// The table's scroll position, eased by `ui::smooth_scroll`.
     scroll: UniformListScrollHandle,
@@ -102,7 +104,20 @@ impl Mods {
                 cx.notify();
             }
         });
+        let check = instance.clone();
+        cx.spawn(async move |this, cx| {
+            // Offline or Steam down: no marks, the table works the same.
+            let Ok(latest) = mods::latest(&check).await else {
+                return;
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.latest = latest;
+                cx.notify();
+            });
+        })
+        .detach();
         Self {
+            latest: HashMap::new(),
             stamp: mods::stamp(&instance),
             loading: false,
             stale: false,
@@ -150,6 +165,28 @@ impl Mods {
             });
         })
         .detach();
+    }
+
+    /// The Workshop item of `item` when it has a newer version than the one installed.
+    fn update_of(&self, item: &Mod) -> Option<u64> {
+        let id = item.workshop?;
+        let newest = *self.latest.get(&id)?;
+        (Some(newest) != item.manifest).then_some(id)
+    }
+
+    /// Downloads the current version of `items` through the download manager.
+    fn update(&self, items: Vec<u64>, window: &mut Window, cx: &mut Context<Self>) {
+        let (instance, shell, handle) = (
+            self.instance.clone(),
+            self.shell.clone(),
+            window.window_handle(),
+        );
+        // After this update ends: the shell repaints this view as the download starts.
+        cx.defer(move |cx| {
+            let _ = shell.update(cx, |shell, cx| {
+                shell.update_mods(instance, items, handle, cx)
+            });
+        });
     }
 
     fn shown(&self, cx: &App) -> Vec<&Mod> {
@@ -202,6 +239,10 @@ impl Mods {
         let this = cx.entity().downgrade();
         let (sort, filter) = (self.sort, self.filter);
         let (instance, shell) = (self.instance.clone(), self.shell.clone());
+        // Each item once: an item can hold several mods.
+        let mut outdated: Vec<u64> = self.mods.iter().filter_map(|m| self.update_of(m)).collect();
+        outdated.sort_unstable();
+        outdated.dedup();
         let pick = |id: &'static str, icon: IconName, label: &'static str| {
             // The Library's sort and group buttons, so both toolbars read the same.
             Button::new(id)
@@ -277,6 +318,16 @@ impl Mods {
                     },
                 ),
             )
+            .when(!outdated.is_empty(), |this| {
+                this.child(
+                    ui::secondary("mods-update-all", "Update all")
+                        .icon(IconName::Download)
+                        .text_color(theme.primary)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.update(outdated.clone(), window, cx)
+                        })),
+                )
+            })
             .child(
                 FancyButton::new("mod-add", "Add mod")
                     .small()
@@ -431,6 +482,7 @@ impl Mods {
         let key = |what: &str| SharedString::from(format!("{what}-{}", item.folder));
         let (id, folder, pick) = (item.id.clone(), item.folder.clone(), item.folder.clone());
         let (dir, mod_id, workshop) = (item.dir.clone(), item.id.clone(), item.workshop);
+        let update = self.update_of(item);
         div()
             // A uniform list doesn't stretch its rows like a flex column did.
             .w_full()
@@ -475,6 +527,19 @@ impl Mods {
                     .justify_end()
                     .gap_1()
                     .w(ACTIONS)
+                    .when_some(update, |this, update| {
+                        this.child(
+                            Button::new(key("update"))
+                                .ghost()
+                                .cursor_pointer()
+                                .icon(IconName::Download)
+                                .text_color(theme.primary)
+                                .tooltip("Update available")
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.update(vec![update], window, cx)
+                                })),
+                        )
+                    })
                     .child(
                         Switch::new(key("on"))
                             .cursor_pointer()

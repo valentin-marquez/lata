@@ -89,6 +89,8 @@ pub struct Mod {
     pub version: Option<String>,
     /// The Workshop item it was installed from, when lulo installed it.
     pub workshop: Option<u64>,
+    /// The manifest of that item it was downloaded at.
+    pub manifest: Option<u64>,
     /// `icon=` (or the first `poster=`) of its `mod.info`, when the file exists.
     pub icon: Option<PathBuf>,
     /// Ids of the mods it needs.
@@ -275,17 +277,15 @@ pub fn list(instance: &Instance) -> Vec<Mod> {
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .filter(|name| Version::parse(name).is_some());
+            let pin = pins.items.iter().find(|pin| pin.folders.contains(&folder));
             Some(Mod {
                 enabled: active.mods.contains(&info.id),
                 id: info.id,
                 name: info.name,
                 author: info.author,
                 description: info.description,
-                workshop: pins
-                    .items
-                    .iter()
-                    .find(|pin| pin.folders.contains(&folder))
-                    .map(|pin| pin.id),
+                workshop: pin.map(|pin| pin.id),
+                manifest: pin.map(|pin| pin.manifest),
                 dir: entry.path(),
                 version,
                 folder,
@@ -551,11 +551,42 @@ fn joined(done: Result<Result<(), String>, tokio::task::JoinError>) -> Result<()
     done.map_err(|err| err.to_string())?
 }
 
-/// Moves a downloaded item from `staging` into the instance, pins it and turns its mods on.
+/// The current manifest of every Workshop item installed in the instance, by item id. A mod is
+/// out of date when its [`Mod::manifest`] isn't this one.
+pub async fn latest(instance: &Instance) -> Result<std::collections::HashMap<u64, u64>, String> {
+    let ids: Vec<u64> = read_pins(instance).items.iter().map(|pin| pin.id).collect();
+    crate::runtime::spawn(async move {
+        let http = steam::http();
+        let mut client = steam::Client::anonymous(&http).await?;
+        let mut latest = std::collections::HashMap::new();
+        for batch in ids.chunks(BATCH) {
+            for item in steam::workshop::details(&mut client, batch).await? {
+                // Gone or private items answer with no manifest: nothing to move to.
+                if item.manifest != 0 {
+                    latest.insert(item.id, item.manifest);
+                }
+            }
+        }
+        Ok::<_, steam::Error>(latest)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(|err| err.to_string())
+}
+
+/// Moves a downloaded item from `staging` into the instance, pins it and turns on the mods it
+/// brought that weren't there before; an update leaves each mod on or off as it was.
 fn land(instance: &Instance, item: &steam::workshop::Item, staging: &Path) -> io::Result<()> {
+    let before: Vec<String> = list(instance).into_iter().map(|m| m.id).collect();
     let folders = adopt(instance, staging)?;
     let _ = std::fs::remove_dir_all(staging);
     let mut pins = read_pins(instance);
+    // Folders the new version no longer has would stay behind as mods of no item.
+    for pin in pins.items.iter().filter(|pin| pin.id == item.id) {
+        for old in pin.folders.iter().filter(|old| !folders.contains(old)) {
+            let _ = std::fs::remove_dir_all(mods_dir(instance).join(old));
+        }
+    }
     pins.items.retain(|pin| pin.id != item.id);
     pins.items.push(Pin {
         id: item.id,
@@ -570,7 +601,7 @@ fn land(instance: &Instance, item: &steam::workshop::Item, staging: &Path) -> io
     // about 100k small reads); keep the list in memory if it shows.
     for found in list(instance)
         .iter()
-        .filter(|m| folders.contains(&m.folder))
+        .filter(|m| folders.contains(&m.folder) && !before.contains(&m.id))
     {
         set_enabled(instance, &found.id, true)?;
     }
@@ -1039,6 +1070,45 @@ mod tests {
         );
         let names: Vec<_> = list(&instance).into_iter().map(|m| m.name).collect();
         assert_eq!(names, ["New", "Two"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_update_keeps_mods_on_or_off_and_drops_old_folders() {
+        let dir = temp("update");
+        let instance = instance(&dir);
+        let item = |manifest| steam::workshop::Item {
+            id: 7,
+            app: APP,
+            title: "Seven".into(),
+            manifest,
+            file_url: None,
+            size: 1,
+            updated: None,
+            tags: Vec::new(),
+            preview: None,
+            requires: Vec::new(),
+            subscriptions: 0,
+        };
+        put(&dir, ".incoming/7/mods/One/42/mod.info", "id=One");
+        put(&dir, ".incoming/7/mods/Old/42/mod.info", "id=Old");
+        land(&instance, &item(1), &dir.join(".incoming/7")).unwrap();
+        set_enabled(&instance, "One", false).unwrap();
+
+        put(&dir, ".incoming/7/mods/One/42/mod.info", "id=One");
+        put(&dir, ".incoming/7/mods/New/42/mod.info", "id=New");
+        land(&instance, &item(2), &dir.join(".incoming/7")).unwrap();
+        let mods: Vec<_> = list(&instance)
+            .into_iter()
+            .map(|m| (m.id, m.enabled, m.manifest))
+            .collect();
+        assert_eq!(
+            mods,
+            [
+                ("New".to_owned(), true, Some(2)),
+                ("One".to_owned(), false, Some(2))
+            ]
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
