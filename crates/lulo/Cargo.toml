@@ -16,6 +16,7 @@ gpui-kit.workspace = true
 image.workspace = true
 auto-launch = "0.6"
 sysinfo = { version = "0.31", default-features = false, features = ["system"] }
+rusqlite = { version = "0.42.0", features = ["bundled"] }
 
 [lints]
 workspace = true

@@ -8,7 +8,7 @@ use gpui_kit::*;
 
 use super::{Instance, Status};
 use crate::shell::Shell;
-use crate::ui::{Empty, FancyButton, Meta};
+use crate::ui::{FancyButton, Meta};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -27,27 +27,6 @@ impl Tab {
             Tab::Logs => "Logs",
         }
     }
-
-    // ponytail: empty states until #16 fills the Mods and Worlds tabs.
-    fn empty(self) -> (IconName, &'static str, &'static str) {
-        match self {
-            Tab::Mods => (
-                IconName::Puzzle,
-                "No mods yet",
-                "Mods you add to this instance show up here.",
-            ),
-            Tab::Worlds => (
-                IconName::Globe,
-                "No worlds yet",
-                "Saves from this instance show up here.",
-            ),
-            Tab::Logs => (
-                IconName::SquareTerminal,
-                "Nothing logged yet",
-                "Start the instance to follow its console here.",
-            ),
-        }
-    }
 }
 
 pub struct Detail {
@@ -58,6 +37,8 @@ pub struct Detail {
     logs: Option<Entity<super::logs_view::Logs>>,
     /// Made on first view too, for its link field.
     mods: Option<Entity<super::mods_view::Mods>>,
+    /// Read when the Worlds tab opens, and again after the instance changes.
+    worlds: Option<Vec<super::worlds::World>>,
 }
 
 impl Detail {
@@ -68,6 +49,7 @@ impl Detail {
             shell,
             logs: None,
             mods: None,
+            worlds: None,
         }
     }
 
@@ -80,6 +62,7 @@ impl Detail {
         if let Some(mods) = &self.mods {
             mods.update(cx, |mods, cx| mods.refresh(cx));
         }
+        self.worlds = None;
         cx.notify();
     }
 
@@ -88,6 +71,7 @@ impl Detail {
             self.logs = None;
             self.mods = None;
         }
+        self.worlds = None;
         self.instance = instance;
         cx.notify();
     }
@@ -205,6 +189,7 @@ impl Detail {
             .children(Tab::ALL.map(|tab| Item::new().label(tab.label()).cursor_pointer()))
             .on_click(cx.listener(|this, ix: &usize, _, cx| {
                 this.tab = Tab::ALL[*ix];
+                this.worlds = None;
                 cx.notify();
             }))
     }
@@ -231,9 +216,12 @@ impl Render for Detail {
                     .clone()
                     .into_any_element()
             }
-            tab => {
-                let (icon, title, line) = tab.empty();
-                Empty::new(icon, title, line).into_any_element()
+            Tab::Worlds => {
+                let cachedir = self.instance.dir.join("zomboid");
+                let worlds = self
+                    .worlds
+                    .get_or_insert_with(|| super::worlds::list(&cachedir));
+                super::worlds_view::worlds(worlds, cx)
             }
         };
         let tabs = self.tabs(cx).into_any_element();

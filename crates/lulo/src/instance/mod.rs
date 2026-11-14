@@ -30,6 +30,10 @@ pub mod picture;
 pub mod settings;
 #[path = "store.model.rs"]
 pub mod store;
+#[path = "worlds.model.rs"]
+pub mod worlds;
+#[path = "worlds.view.rs"]
+mod worlds_view;
 
 use std::path::PathBuf;
 
