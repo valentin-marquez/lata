@@ -14,8 +14,8 @@ use crate::proto::{
     CAuthenticationBeginAuthSessionViaQrRequest, CAuthenticationBeginAuthSessionViaQrResponse,
     CAuthenticationDeviceDetails, CAuthenticationGetPasswordRsaPublicKeyRequest,
     CAuthenticationGetPasswordRsaPublicKeyResponse, CAuthenticationPollAuthSessionStatusRequest,
-    CAuthenticationPollAuthSessionStatusResponse,
-    CAuthenticationUpdateAuthSessionWithSteamGuardCodeRequest,
+    CAuthenticationPollAuthSessionStatusResponse, CAuthenticationTokenRevokeRequest,
+    CAuthenticationTokenRevokeResponse, CAuthenticationUpdateAuthSessionWithSteamGuardCodeRequest,
     CAuthenticationUpdateAuthSessionWithSteamGuardCodeResponse,
 };
 use crate::{Client, Error, Result};
@@ -210,6 +210,19 @@ pub async fn code(
             &request,
         )
         .await?;
+    Ok(())
+}
+
+/// Ends a login for good: the refresh token stops working and leaves the user's authorized
+/// devices. `client` must be logged on with it.
+pub async fn revoke(client: &mut Client, refresh_token: &str) -> Result<()> {
+    let request = CAuthenticationTokenRevokeRequest {
+        token: Some(refresh_token.to_owned()),
+        // EAuthTokenRevokeAction::Permanent.
+        revoke_action: Some(1),
+    };
+    let _: CAuthenticationTokenRevokeResponse =
+        client.call("Authentication.RevokeToken", &request).await?;
     Ok(())
 }
 

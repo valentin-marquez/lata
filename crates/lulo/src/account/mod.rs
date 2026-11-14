@@ -97,17 +97,18 @@ fn file() -> std::path::PathBuf {
     crate::instance::store::root().with_file_name("account.json")
 }
 
+/// The account as saved, from the keyring or the private file. Blocking.
+fn read() -> Option<Account> {
+    let text = entry()
+        .and_then(|e| e.get_password().map_err(|e| e.to_string()))
+        .or_else(|_| std::fs::read_to_string(file()).map_err(|e| e.to_string()))
+        .ok()?;
+    serde_json::from_str(&text).ok()
+}
+
 /// The saved account, unless missing or its token has expired.
 pub async fn load() -> Option<Account> {
-    let text = runtime::blocking(|| {
-        entry()
-            .and_then(|e| e.get_password().map_err(|e| e.to_string()))
-            .or_else(|_| std::fs::read_to_string(file()).map_err(|e| e.to_string()))
-    })
-    .await
-    .ok()?
-    .ok()?;
-    let mut account: Account = serde_json::from_str(&text).ok()?;
+    let mut account = runtime::blocking(read).await.ok()??;
     let alive =
         auth::expiry(&account.refresh_token).is_none_or(|exp| exp > crate::instance::store::now());
     if !alive {
@@ -157,6 +158,15 @@ fn write_private(path: &std::path::Path, text: &str) -> std::io::Result<()> {
 }
 
 pub async fn forget() -> Result<(), String> {
+    // Revoked on Steam too, so the login doesn't stay in the user's authorized devices. In the
+    // background and best effort: signing out offline still forgets it here.
+    if let Ok(Some(account)) = runtime::blocking(read).await {
+        drop(runtime::spawn(async move {
+            let http = steam::http();
+            let mut client = account.client(&http).await?;
+            steam::auth::revoke(&mut client, &account.refresh_token).await
+        }));
+    }
     runtime::blocking(|| {
         let _ = std::fs::remove_dir_all(avatars());
         match std::fs::remove_file(file()) {

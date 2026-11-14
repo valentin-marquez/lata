@@ -23,9 +23,20 @@ use crate::proto::{
 use crate::{Error, Result, directory};
 use packet::{Packet, emsg};
 
-/// Values steamclient sends; accepted by the server (exact origin still to confirm).
+/// Value steamclient sends; accepted by the server (exact origin still to confirm).
 const PROTOCOL_VERSION: u32 = 65580;
-const OS_TYPE: u32 = 20;
+/// `EOSType` of the OS lulo runs on; the user's authorized devices list it next to
+/// [`DEVICE_NAME`]. Linux is what Steam itself reported from Linux 6.18; macOS is
+/// `MacOSUnknown`.
+// ponytail: Windows always says Windows 11 (20); tell 10 (16) apart by build number if
+// anyone minds.
+pub(crate) const OS: i32 = if cfg!(windows) {
+    20
+} else if cfg!(target_os = "macos") {
+    -102
+} else {
+    -183
+};
 /// Public universe, AnonUser account type.
 const ANONYMOUS: u64 = (1 << 56) | (10 << 52);
 /// How many CM endpoints to try before giving up.
@@ -35,7 +46,6 @@ const OK: i32 = 1;
 const HEARTBEAT: u64 = 9;
 /// How this machine shows up in the user's Steam authorized devices.
 pub(crate) const DEVICE_NAME: &str = "lulo";
-pub(crate) const OS: i32 = OS_TYPE as i32;
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type Replies = UnboundedSender<Result<Packet>>;
@@ -106,7 +116,8 @@ impl Client {
     async fn logon(&mut self, base: CMsgClientLogon, context: &str) -> Result<()> {
         let logon = CMsgClientLogon {
             protocol_version: Some(PROTOCOL_VERSION),
-            client_os_type: Some(OS_TYPE),
+            // The field is unsigned; steamclient sends negative values wrapped the same way.
+            client_os_type: Some(OS as u32),
             cell_id: Some(0),
             ..base
         };

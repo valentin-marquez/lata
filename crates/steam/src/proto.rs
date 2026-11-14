@@ -476,3 +476,14 @@ pub struct CAuthenticationUpdateAuthSessionWithSteamGuardCodeRequest {
 /// The reply carries nothing we need; it only has to decode.
 #[derive(Clone, PartialEq, Message)]
 pub struct CAuthenticationUpdateAuthSessionWithSteamGuardCodeResponse {}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct CAuthenticationTokenRevokeRequest {
+    #[prost(string, optional, tag = "1")]
+    pub token: Option<String>,
+    #[prost(int32, optional, tag = "2")]
+    pub revoke_action: Option<i32>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct CAuthenticationTokenRevokeResponse {}
