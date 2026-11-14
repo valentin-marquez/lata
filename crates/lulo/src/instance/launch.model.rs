@@ -11,7 +11,6 @@ pub fn command(instance: &Instance) -> io::Result<Command> {
     let game = instance
         .game()
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "the game isn't installed"))?;
-    let cachedir = format!("-cachedir={}", instance.dir.join("zomboid").display());
     let missing = |what: &Path| {
         io::Error::new(
             io::ErrorKind::NotFound,
@@ -57,9 +56,47 @@ pub fn command(instance: &Instance) -> io::Result<Command> {
     command
         .args(split_args(&instance.launch_args))
         .args(["-modfolders", "mods"])
-        .arg(cachedir)
+        .arg(cachedir(instance))
         .current_dir(&game);
     Ok(command)
+}
+
+/// The argument that points the game at the instance's `zomboid/`; it tells which instance a
+/// running game belongs to.
+fn cachedir(instance: &Instance) -> String {
+    format!("-cachedir={}", instance.dir.join("zomboid").display())
+}
+
+/// Whether the instance's game is running, whether lulo started it in this run or not.
+pub fn alive(instance: &Instance) -> bool {
+    games(instance, |_| ())
+}
+
+/// Ends the instance's game. On Linux that is the script and the game it started: killing
+/// only the script lulo spawned would leave the game open.
+pub fn stop(instance: &Instance) {
+    games(instance, |p| {
+        p.kill();
+    });
+}
+
+/// Calls `f` on each process started with the instance's cachedir; true if there was one.
+fn games(instance: &Instance, mut f: impl FnMut(&sysinfo::Process)) -> bool {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+    let arg = cachedir(instance);
+    let mut system = System::new();
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        ProcessRefreshKind::new().with_cmd(UpdateKind::Always),
+    );
+    let mut found = false;
+    for p in system.processes().values() {
+        if p.thread_kind().is_none() && p.cmd().iter().any(|a| *a == *arg) {
+            f(p);
+            found = true;
+        }
+    }
+    found
 }
 
 /// Splits arguments on spaces; quotes group words and are dropped, so a path can hold spaces.
@@ -220,6 +257,38 @@ mod tests {
         );
         assert_eq!(cmd.get_current_dir(), Some(dir.join("game").as_path()));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn finds_and_stops_a_game_by_its_cachedir() {
+        let dir = std::env::temp_dir().join(format!("lulo-alive-{}", std::process::id()));
+        let instance = Instance {
+            id: "a".into(),
+            dir,
+            name: "A".into(),
+            branch: "public".into(),
+            build: None,
+            last_played: None,
+            icon: None,
+            memory_gb: None,
+            jvm_args: String::new(),
+            launch_args: String::new(),
+        };
+        assert!(!alive(&instance));
+        // A stand-in for the game: any process carrying the argument.
+        let mut game = Command::new("sh")
+            .args([
+                "-c",
+                "while :; do sleep 1; done",
+                "sh",
+                &cachedir(&instance),
+            ])
+            .spawn()
+            .unwrap();
+        assert!(alive(&instance));
+        stop(&instance);
+        game.wait().unwrap();
+        assert!(!alive(&instance));
     }
 
     #[test]

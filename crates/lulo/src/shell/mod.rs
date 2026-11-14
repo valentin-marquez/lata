@@ -41,8 +41,9 @@ pub struct Shell {
     latest: HashMap<SharedString, u32>,
     /// Downloads in progress: a game install by its instance id, a mod by [`mod_key`].
     installs: HashMap<SharedString, install::Download>,
-    /// Games running, by instance id.
-    running: HashMap<SharedString, std::process::Child>,
+    /// Games running, by instance id, with the process lulo spawned if it started the game in
+    /// this run (kept to reap it).
+    running: HashMap<SharedString, Option<std::process::Child>>,
     /// News and trending mods for the panel on the right; `None` until Steam answers.
     feed: Option<crate::discover::Feed>,
     /// The banner the last run showed, for the Library until the feed lands.
@@ -90,7 +91,25 @@ impl Shell {
             loading: false,
         };
         shell.check_builds(cx);
+        shell.find_games(cx);
         shell
+    }
+
+    /// Picks up games that were already open when lulo started, so they show as running.
+    fn find_games(&mut self, cx: &mut Context<Self>) {
+        let instances = self.instances.clone();
+        cx.spawn(async move |this, cx| {
+            let open: Vec<Instance> = cx
+                .background_executor()
+                .spawn(async move { instances.into_iter().filter(launch::alive).collect() })
+                .await;
+            let _ = this.update(cx, |shell, cx| {
+                for instance in open {
+                    shell.watch(instance, None, cx);
+                }
+            });
+        })
+        .detach();
     }
 
     /// Newest build of the instance's branch, when it is known.
@@ -178,11 +197,7 @@ impl Shell {
             .unwrap_or(Status::Ready);
         match (status, account) {
             (Status::Running, _) => {
-                let _ = shell.update(cx, |shell, _| {
-                    if let Some(child) = shell.running.get_mut(&instance.id) {
-                        let _ = child.kill();
-                    }
-                });
+                launch::stop(&instance);
             }
             // The game quits silently without Steam, so say so and offer to open it.
             (Status::Ready | Status::Outdated, _) if !launch::steam_running() => {
@@ -191,7 +206,7 @@ impl Shell {
             }
             (Status::Ready | Status::Outdated, _) => match launch::start(&instance) {
                 Ok(child) => {
-                    let _ = shell.update(cx, |shell, cx| shell.watch(instance, child, cx));
+                    let _ = shell.update(cx, |shell, cx| shell.watch(instance, Some(child), cx));
                 }
                 Err(err) => {
                     use gpui_kit::component::WindowExt;
@@ -274,8 +289,19 @@ impl Shell {
     }
 
     /// Tracks a running game until it exits, then records the play time.
-    fn watch(&mut self, instance: Instance, child: std::process::Child, cx: &mut Context<Self>) {
+    /// The game counts as running while any process carries the instance's cachedir, so a game
+    /// lulo didn't start ends the same way, and the script exiting before the game doesn't.
+    fn watch(
+        &mut self,
+        instance: Instance,
+        child: Option<std::process::Child>,
+        cx: &mut Context<Self>,
+    ) {
         let id = instance.id.clone();
+        // Startup's search can land after Play was pressed; that game is already watched.
+        if child.is_none() && self.running.contains_key(&id) {
+            return;
+        }
         self.running.insert(id.clone(), child);
         self.changed(cx);
         cx.spawn(async move |this, cx| {
@@ -283,13 +309,18 @@ impl Shell {
                 cx.background_executor()
                     .timer(std::time::Duration::from_secs(1))
                     .await;
-                let exited = this
-                    .update(cx, |shell, _| match shell.running.get_mut(&id) {
-                        Some(child) => !matches!(child.try_wait(), Ok(None)),
-                        None => true,
-                    })
-                    .unwrap_or(true);
-                if exited {
+                // Reaps the spawned process once it ends, so it doesn't linger as a zombie.
+                let _ = this.update(cx, |shell, _| {
+                    if let Some(Some(child)) = shell.running.get_mut(&id) {
+                        let _ = child.try_wait();
+                    }
+                });
+                let check = instance.clone();
+                let alive = cx
+                    .background_executor()
+                    .spawn(async move { launch::alive(&check) })
+                    .await;
+                if !alive {
                     break;
                 }
             }
