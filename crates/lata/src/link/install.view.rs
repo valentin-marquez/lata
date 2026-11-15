@@ -254,8 +254,10 @@ impl Render for InstallLink {
                         ui::secondary("link-cancel", "Cancel")
                             .on_click(|_, window, cx| window.close_dialog(cx)),
                     )
-                    // A collection can always start an instance of its own instead.
-                    .when(collection && !self.instances.is_empty(), |this| {
+                    // A collection can always start an instance of its own instead. While no
+                    // instance is chosen that is the one thing to do here, so it is the primary
+                    // button below; once Install is there, it steps back to this plain one.
+                    .when(collection && ready, |this| {
                         this.child(
                             ui::secondary("link-new", "New instance")
                                 .icon(IconName::Plus)
@@ -264,16 +266,19 @@ impl Render for InstallLink {
                                 ),
                         )
                     })
-                    .when(self.instances.is_empty(), |this| {
-                        this.child(
-                            FancyButton::new("link-create", "New instance")
-                                .small()
-                                .icon(IconName::Plus)
-                                .on_click(
-                                    cx.listener(|this, _, window, cx| this.create(window, cx)),
-                                ),
-                        )
-                    })
+                    .when(
+                        self.instances.is_empty() || (collection && !ready),
+                        |this| {
+                            this.child(
+                                FancyButton::new("link-create", "New instance")
+                                    .small()
+                                    .icon(IconName::Plus)
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| this.create(window, cx)),
+                                    ),
+                            )
+                        },
+                    )
                     .when(ready, |this| {
                         this.child(
                             FancyButton::new("link-install", install)
