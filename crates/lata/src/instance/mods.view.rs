@@ -318,6 +318,25 @@ impl Mods {
                     },
                 ),
             )
+            // With two mods on there is an order to speak of.
+            .when(self.mods.iter().filter(|m| m.enabled).count() > 1, |this| {
+                let (instance, mods) = (self.instance.clone(), cx.entity().downgrade());
+                this.child(
+                    ui::secondary("mods-order", "Load order")
+                        .icon(IconName::ListOrdered)
+                        .on_click(move |_, window, cx| {
+                            let mods = mods.clone();
+                            super::order::open(
+                                instance.clone(),
+                                move |_, cx| {
+                                    let _ = mods.update(cx, |mods, cx| mods.refresh(cx));
+                                },
+                                window,
+                                cx,
+                            )
+                        }),
+                )
+            })
             .when(!outdated.is_empty(), |this| {
                 this.child(
                     ui::secondary("mods-update-all", "Update all")

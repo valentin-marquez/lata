@@ -49,6 +49,7 @@ ui_icons!(
     "gamepad",
     "git-branch",
     "globe",
+    "grip-vertical",
     "history",
     "house",
     "image",
@@ -56,6 +57,7 @@ ui_icons!(
     "layers",
     "library",
     "link",
+    "list-ordered",
     "loader-circle",
     "log-out",
     "minus",
@@ -74,6 +76,7 @@ ui_icons!(
     "trash",
     "triangle-alert",
     "undo-2",
+    "wand-sparkles",
 );
 
 // Fallback for icons gpui-component draws that we haven't replaced yet.
