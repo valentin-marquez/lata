@@ -2,6 +2,7 @@
 
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/jeGPaMkDbU)
 [![CI](https://img.shields.io/github/actions/workflow/status/valentin-marquez/lata/ci.yml?label=CI)](https://github.com/valentin-marquez/lata/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
 Instance launcher for Project Zomboid, rewritten from scratch in Rust.
 
@@ -50,3 +51,8 @@ Icons: [Solar](https://www.figma.com/community/file/1166831539721848736) by 480 
 
 Banner background: a screenshot of [Project Zomboid](https://projectzomboid.com) by The Indie Stone,
 from its Steam store page. lata is a fan project, not affiliated with The Indie Stone.
+
+## License
+
+The code is under the [GNU General Public License v3](LICENSE). The lata name and logo, and the
+Project Zomboid material, are not: see [COPYING.md](COPYING.md).
