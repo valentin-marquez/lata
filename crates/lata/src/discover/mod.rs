@@ -331,6 +331,7 @@ fn trending(
     found: &Trending,
     shell: &Shell,
     handle: &WeakEntity<Shell>,
+    shown: bool,
     cx: &App,
 ) -> Div {
     let theme = cx.theme();
@@ -354,7 +355,8 @@ fn trending(
             .text_color(theme.muted_foreground)
             .child(Icon::new(IconName::Puzzle).size_4()),
     };
-    let any = !shell.instances().is_empty();
+    // A row out of sight has no button: nothing unseen can be clicked.
+    let any = shown && !shell.instances().is_empty();
     let (item_for_pick, handle) = (item.clone(), handle.clone());
     div()
         .flex()
@@ -494,12 +496,7 @@ fn pick(item: Item, shell: WeakEntity<Shell>, window: &mut Window, cx: &mut App)
 }
 
 /// The panel. `feed` is `None` while Steam is being asked.
-pub fn render(
-    shell: &Shell,
-    feed: Option<&Feed>,
-    scroll: &ScrollHandle,
-    cx: &mut Context<Shell>,
-) -> impl IntoElement {
+pub fn render(shell: &Shell, feed: Option<&Feed>, cx: &mut Context<Shell>) -> impl IntoElement {
     let handle = cx.entity().downgrade();
     let panel = div()
         .flex()
@@ -525,28 +522,50 @@ pub fn render(
                     .map(|(ix, found)| post(ix + 1, found, cx)),
             ),
     };
+    // Only the mods that fit whole: one cut in half at the bottom reads as broken, and a
+    // panel of decoration shouldn't scroll. The rest stay laid out, unseen, so measuring them
+    // doesn't move anything.
+    let fit = shell.trending_fit;
+    let measure = handle.clone();
     let trending_mods = match feed.mods.is_empty() {
         true => div().child(note("The Workshop didn't answer", cx)),
-        false => div().flex().flex_col().children(
-            feed.mods
-                .iter()
-                .enumerate()
-                .map(|(ix, found)| trending(ix, found, shell, &handle, cx)),
-        ),
+        false => div()
+            .flex()
+            .flex_col()
+            .children(feed.mods.iter().enumerate().map(|(ix, found)| {
+                let shown = ix < fit;
+                trending(ix, found, shell, &handle, shown, cx).when(!shown, |row| row.opacity(0.))
+            }))
+            .on_children_prepainted(move |rows, window, cx| {
+                // The panel ends at the window's bottom, less its padding.
+                let bottom = window.viewport_size().height - px(12.);
+                let fits = rows.iter().take_while(|row| row.bottom() <= bottom).count();
+                let measure = measure.clone();
+                cx.defer(move |cx| {
+                    let _ = measure.update(cx, |shell, cx| {
+                        if shell.trending_fit != fits {
+                            shell.trending_fit = fits;
+                            cx.notify();
+                        }
+                    });
+                });
+            }),
     };
     panel
         .child(heading("NEWS", cx))
         .child(news.flex_none())
         .child(div().h_3().flex_none())
-        .child(heading("TRENDING MODS THIS WEEK", cx))
-        // The list scrolls on its own, in what is left of the panel: the news above stay put.
+        // A heading over nothing goes unseen too; it keeps its room, or the rows would move up
+        // into it and change what fits.
+        .child(
+            heading("TRENDING MODS THIS WEEK", cx)
+                .when(fit == 0 && !feed.mods.is_empty(), |this| this.opacity(0.)),
+        )
         .child(
             div()
-                .id("discover-trending")
                 .flex_1()
                 .min_h_0()
-                .overflow_y_scroll()
-                .track_scroll(scroll)
+                .overflow_hidden()
                 .child(trending_mods),
         )
 }

@@ -142,7 +142,19 @@ pub fn render(shell: &Shell, cx: &mut Context<Shell>) -> impl IntoElement {
                 .child("INSTANCES")
                 .child(shell.instances.len().to_string()),
         )
-        .children(instances)
+        // As tall as the instances, until the window is too short: then the list scrolls and
+        // New instance, Settings and the account stay in view.
+        .child(
+            div()
+                .id("sidebar-instances")
+                .flex()
+                .flex_col()
+                .gap_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .track_scroll(&shell.sidebar_scroll)
+                .children(instances),
+        )
         .child(div().h(px(1.)).mx_2().my_1().bg(theme.border))
         .child(
             row("new", false, cx)

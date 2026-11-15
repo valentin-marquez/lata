@@ -48,8 +48,10 @@ pub struct Shell {
     feed: Option<crate::discover::Feed>,
     /// The banner the last run showed, for the Library until the feed lands.
     cached_banner: Option<std::path::PathBuf>,
-    /// Scroll position of the panel's trending list, eased by `ui::smooth_scroll`.
-    feed_scroll: ScrollHandle,
+    /// How many trending mods fit whole in the panel, measured as it is drawn.
+    pub(crate) trending_fit: usize,
+    /// Scroll position of the sidebar's instance list, eased by `ui::smooth_scroll`.
+    pub(crate) sidebar_scroll: ScrollHandle,
     /// The Workshop id of the link whose install dialog is open, if one is.
     link_open: Option<u64>,
     /// Mods from other links that arrived while that dialog was open; each gets its turn.
@@ -86,7 +88,8 @@ impl Shell {
         let mut shell = Self {
             feed: None,
             cached_banner: crate::discover::cached_banner(),
-            feed_scroll: ScrollHandle::new(),
+            trending_fit: usize::MAX,
+            sidebar_scroll: ScrollHandle::new(),
             account: None,
             latest: HashMap::new(),
             installs: HashMap::new(),
@@ -1210,7 +1213,7 @@ impl Render for Shell {
             }
         };
 
-        crate::ui::smooth_scroll("discover-scroll", &self.feed_scroll, window, cx);
+        crate::ui::smooth_scroll("sidebar-scroll", &self.sidebar_scroll, window, cx);
         // The panel on the right needs a window wide enough for it and the page.
         let discover = window.bounds().size.width >= crate::discover::MIN_WINDOW;
         let shell = cx.entity().downgrade();
@@ -1261,12 +1264,7 @@ impl Render for Shell {
                             .child(div().flex_1().min_h_0().child(page)),
                     )
                     .when(discover, |this| {
-                        this.child(crate::discover::render(
-                            self,
-                            self.feed.as_ref(),
-                            &self.feed_scroll,
-                            cx,
-                        ))
+                        this.child(crate::discover::render(self, self.feed.as_ref(), cx))
                     }),
             )
     }
