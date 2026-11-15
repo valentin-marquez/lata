@@ -343,64 +343,39 @@ pub fn list(instance: &Instance) -> Vec<Mod> {
     mods
 }
 
-/// The ids of `mods` in the order the game's AUTO button gives them: a port of
-/// `ModLoadOrderPanel:autoSort` (Build 42.21), checked against that function itself. Mods go
-/// by id; each one brings in front of it the mods it loads after and requires that aren't
-/// placed yet, and behind it the ones it loads before. One already placed stays where it is,
-/// so `loadModBefore` and `loadModAfter` are wishes that an earlier id can win over. A mod
-/// always lands after what it requires, unless they require each other.
+/// The ids of `mods` in an order that gives every mod what it asks for: after the mods it
+/// requires and the ones it loads after (`loadModAfter=`), before the ones it loads before
+/// (`loadModBefore=`), and by id where nothing decides. Ids that aren't in `mods` ask for
+/// nothing.
 ///
-/// Where the game's function loses mods, this keeps them: ids that aren't in `mods` are left
-/// out (the game leaves a hole and drops what follows), and a mod that names itself is placed
-/// like any other (the game drops it).
+/// The game's own AUTO button (`ModLoadOrderPanel:autoSort`, Build 42.21) doesn't go this
+/// far: it places mods by id and lets an earlier id win over `loadModAfter` and
+/// `loadModBefore`, so its result can ignore both. Any order from here passes the game's
+/// check, which only looks at `require`.
+///
+/// When mods ask for a circle, the wishes give way first and requirements last; mods that
+/// require each other go by id.
 pub fn auto_sort(mods: &[Mod]) -> Vec<String> {
-    let mut sorted: Vec<&Mod> = mods.iter().collect();
-    sorted.sort_by(|a, b| a.id.cmp(&b.id));
-    sorted.dedup_by(|a, b| a.id == b.id);
-    let mut order: Vec<&str> = Vec::new();
-    let mut placed: Vec<&str> = Vec::new();
-    for m in &sorted {
-        let id = m.id.as_str();
-        let front = bring(m.load_after.iter().chain(&m.requires), id, &mut placed);
-        let back = bring(m.load_before.iter(), id, &mut placed);
-        match order.iter().position(|other| *other == id) {
-            // Another mod brought it in already: its own go around it, each one next to it,
-            // which leaves them in reverse.
-            Some(at) => {
-                for other in back {
-                    order.insert(at + 1, other);
-                }
-                for other in front {
-                    order.insert(at, other);
-                }
-            }
-            None => {
-                order.extend(front);
-                order.push(id);
-                order.extend(back);
-                placed.push(id);
-            }
-        }
+    let mut left: Vec<&Mod> = mods.iter().collect();
+    left.sort_by(|a, b| a.id.cmp(&b.id));
+    left.dedup_by(|a, b| a.id == b.id);
+    let mut order = Vec::with_capacity(left.len());
+    while !left.is_empty() {
+        // Whether `first` has to load before `m`, counting wishes or only requirements.
+        let waits = |m: &Mod, first: &Mod, wishes: bool| {
+            m.id != first.id
+                && (m.requires.contains(&first.id)
+                    || wishes
+                        && (m.load_after.contains(&first.id) || first.load_before.contains(&m.id)))
+        };
+        let free = |wishes: bool| {
+            left.iter()
+                .position(|m| !left.iter().any(|first| waits(m, first, wishes)))
+        };
+        let next = free(true).or_else(|| free(false)).unwrap_or(0);
+        order.push(left.remove(next).id.clone());
     }
-    order.retain(|id| sorted.iter().any(|m| m.id == *id));
-    order.into_iter().map(str::to_owned).collect()
-}
-
-/// The mods of `wanted` that aren't placed yet, which `id` now brings along; they count as
-/// placed from here on.
-fn bring<'a>(
-    wanted: impl Iterator<Item = &'a String>,
-    id: &str,
-    placed: &mut Vec<&'a str>,
-) -> Vec<&'a str> {
-    let mut new = Vec::new();
-    for other in wanted {
-        if other != id && !placed.contains(&other.as_str()) {
-            placed.push(other);
-            new.push(other.as_str());
-        }
-    }
-    new
+    order
 }
 
 /// The first mod in `order` that loads before one it requires, with that one: the check the
@@ -1114,28 +1089,28 @@ mod tests {
         }
     }
 
-    /// What the game's own `ModLoadOrderPanel:autoSort` (Build 42.21) answered for each of
-    /// these lists, run as it ships with stand-ins for the mod list.
     #[test]
-    fn auto_sort_answers_what_the_games_does() {
+    fn auto_sort_gives_every_mod_what_it_asks_for() {
         let sorted = |mods: &[Mod]| auto_sort(mods).join(" ");
-        let plain = [
-            node("c", &[], &[], &[]),
-            node("a", &[], &[], &[]),
-            node("b", &[], &[], &[]),
-        ];
-        assert_eq!(sorted(&plain), "a b c");
-        assert!(auto_sort(&[]).is_empty());
         let b = || node("b", &[], &[], &[]);
         let c = || node("c", &[], &[], &[]);
-        assert_eq!(sorted(&[node("a", &["c"], &[], &[]), b(), c()]), "c a b");
+        // Nothing asked: by id, capitals first.
+        assert_eq!(sorted(&[c(), node("a", &[], &[], &[]), b()]), "a b c");
+        assert!(auto_sort(&[]).is_empty());
+        let cased = [
+            node("Zeta", &[], &[], &[]),
+            node("alpha", &[], &[], &[]),
+            node("Beta", &[], &[], &[]),
+        ];
+        assert_eq!(sorted(&cased), "Beta Zeta alpha");
+        assert_eq!(sorted(&[node("a", &["c"], &[], &[]), b(), c()]), "b c a");
         assert_eq!(
             sorted(&[node("a", &[], &["c", "b"], &[]), b(), c()]),
-            "c b a"
+            "b c a"
         );
-        // Loading before a mod that is already placed changes nothing.
+        // The game's AUTO leaves `a` first here; `c` asked to load before it.
         let before = [node("a", &[], &[], &[]), b(), node("c", &[], &[], &["a"])];
-        assert_eq!(sorted(&before), "a b c");
+        assert_eq!(sorted(&before), "b c a");
         let chain = [
             node("a", &["b"], &[], &[]),
             node("b", &["c"], &[], &[]),
@@ -1143,58 +1118,56 @@ mod tests {
             node("d", &[], &[], &[]),
         ];
         assert_eq!(sorted(&chain), "d c b a");
-        // `d` wants to load after `c`, but `b` needed it first.
+        // The game's AUTO answers "a d b c", with `d` ahead of the `c` it loads after.
         let late = [
             node("a", &[], &[], &[]),
             node("b", &["d"], &[], &[]),
             node("c", &["a"], &[], &[]),
             node("d", &[], &["c"], &[]),
         ];
-        assert_eq!(sorted(&late), "a d b c");
+        assert_eq!(sorted(&late), "a c d b");
         let mixed = [
             node("lib", &[], &[], &[]),
             node("map", &["lib"], &[], &["zz"]),
             node("zz", &[], &[], &[]),
             node("aa", &["lib"], &["zz"], &[]),
         ];
-        assert_eq!(sorted(&mixed), "zz lib aa map");
-        let both = [
-            node("m", &["y"], &["x"], &["a", "b"]),
-            node("a", &[], &[], &[]),
-            b(),
-            node("x", &[], &[], &[]),
-            node("y", &[], &[], &[]),
-        ];
-        assert_eq!(sorted(&both), "a b x y m");
-        // `c` was brought in behind `a`; what it needs and what follows it go around it.
-        let around = [
-            node("a", &[], &[], &["c"]),
-            b(),
-            node("c", &["b"], &[], &["d"]),
-            node("d", &[], &[], &[]),
-        ];
-        assert_eq!(sorted(&around), "a c d b");
-        let cycle = [node("a", &["b"], &[], &[]), node("b", &["a"], &[], &[])];
-        assert_eq!(sorted(&cycle), "b a");
-        // Ids compare byte by byte, capitals first.
-        let cased = [
-            node("Zeta", &[], &[], &[]),
-            node("alpha", &[], &[], &[]),
-            node("Beta", &[], &[], &[]),
-        ];
-        assert_eq!(sorted(&cased), "Beta Zeta alpha");
-        assert_eq!(sorted(&[node("a", &["b"], &["b"], &[]), b()]), "b a");
+        assert_eq!(sorted(&mixed), "lib map zz aa");
+        // Whatever comes out passes the game's own check.
+        for list in [&chain[..], &late[..], &mixed[..]] {
+            let order = auto_sort(list);
+            let placed: Vec<&Mod> = order
+                .iter()
+                .map(|id| list.iter().find(|m| m.id == *id).unwrap())
+                .collect();
+            assert!(out_of_order(&placed).is_none(), "{order:?}");
+        }
     }
 
     #[test]
-    fn auto_sort_keeps_the_mods_the_games_loses() {
-        // The game leaves a hole for `gone` and shows nothing after it.
-        let loose = [node("a", &["gone"], &[], &[]), node("b", &[], &[], &[])];
-        assert_eq!(auto_sort(&loose), ["a", "b"]);
-        // The game drops a mod that names itself.
-        assert_eq!(auto_sort(&[node("a", &["a"], &["a"], &["a"])]), ["a"]);
+    fn auto_sort_keeps_every_mod_when_they_ask_for_a_circle() {
+        let sorted = |mods: &[Mod]| auto_sort(mods).join(" ");
+        // Wishes in a circle give way: by id.
+        let wishes = [node("a", &[], &["b"], &[]), node("b", &[], &["a"], &[])];
+        assert_eq!(sorted(&wishes), "a b");
+        // A wish against a requirement: the requirement holds.
+        let mixed = [node("a", &["b"], &[], &[]), node("b", &[], &["a"], &[])];
+        assert_eq!(sorted(&mixed), "b a");
+        let needs = [
+            node("a", &["b"], &[], &[]),
+            node("b", &["a"], &[], &[]),
+            node("c", &[], &[], &[]),
+        ];
+        assert_eq!(sorted(&needs), "c a b", "what can be placed goes first");
+        // Asking for a mod that isn't there, or for itself, is nothing.
+        let loose = [
+            node("a", &["gone"], &["gone"], &["gone"]),
+            node("b", &[], &[], &[]),
+        ];
+        assert_eq!(sorted(&loose), "a b");
+        assert_eq!(sorted(&[node("a", &["a"], &["a"], &["a"])]), "a");
         let twice = [node("a", &[], &[], &[]), node("a", &[], &[], &[])];
-        assert_eq!(auto_sort(&twice), ["a"]);
+        assert_eq!(sorted(&twice), "a");
     }
 
     #[test]

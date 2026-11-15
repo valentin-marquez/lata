@@ -1,5 +1,5 @@
 //! "Load order" dialog: the instance's active mods in the order the game loads them, to drag
-//! into place or sort like the game's own AUTO button, and under them the maps, only when two
+//! into place or sort by what each one asks for, and under them the maps, only when two
 //! of them fight over a cell (the game offers its map order just then too). Saving rewrites
 //! the order in `mods/default.txt`.
 
@@ -332,7 +332,7 @@ impl Render for Order {
             .gap_4()
             .child(hint(
                 "The game loads these from the top down, so a mod goes under the ones it \
-                 needs. Drag them around, or let Auto sort it out like the game's own button.",
+                 needs. Drag them around, or let Auto sort it out.",
             ))
             .child(self.list("order-mods", mods, cx))
             .when(maps_matter, |this| {
