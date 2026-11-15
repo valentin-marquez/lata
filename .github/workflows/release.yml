@@ -1,0 +1,110 @@
+name: Release
+
+# Builds the release packages for the three systems. Pushing a `v*` tag also attaches them to a
+# draft release, which someone reviews and publishes by hand. Run it by hand (Actions, Run
+# workflow) to get the packages as downloadable artifacts without tagging anything.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  package:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      # What the packages are called: the tag, or the commit for a run by hand.
+      - name: Version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=dev-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig-dev libdbus-1-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev libx11-xcb-dev libxcb1-dev libwayland-dev
+
+      - name: Rust
+        run: rustup toolchain install stable --profile minimal
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --locked -p lulo
+
+      # The folder layout of the repository is kept, because install-icons.sh finds the icons
+      # and the .desktop file relative to itself.
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          name="lulo-$VERSION-linux-x86_64"
+          mkdir -p "pkg/$name/packaging" "pkg/$name/assets/icons" dist
+          cp target/release/lulo README.md "pkg/$name/"
+          cp -r packaging/linux "pkg/$name/packaging/"
+          cp -r assets/icons/png "pkg/$name/assets/icons/"
+          tar -C pkg -czf "dist/$name.tar.gz" "$name"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $name = "lulo-$env:VERSION-windows-x86_64"
+          New-Item -ItemType Directory -Force "pkg/$name", dist | Out-Null
+          Copy-Item target/release/lulo.exe, README.md "pkg/$name/"
+          Compress-Archive -Path "pkg/$name" -DestinationPath "dist/$name.zip"
+
+      # Not signed or notarized: macOS asks the user to allow it on first open. The ad-hoc
+      # signature is what lets an Apple Silicon binary run at all.
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          name="lulo-$VERSION-macos-arm64"
+          sh packaging/macos/make-bundle.sh target/release/lulo
+          codesign --force --deep --sign - Lulo.app
+          mkdir -p dmg dist
+          mv Lulo.app dmg/
+          hdiutil create -volname Lulo -srcfolder dmg -ov -format UDZO "dist/$name.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lulo-${{ runner.os }}
+          path: dist/*
+          if-no-files-found: error
+
+  # Only for a tag. The release stays a draft: nothing is public until someone publishes it.
+  release:
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
