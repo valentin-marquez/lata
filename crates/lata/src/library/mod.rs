@@ -9,7 +9,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::{ContextMenuExt, DropdownMenu, PopupMenuItem};
 use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{ActiveTheme, Disableable, Icon};
+use gpui_kit::component::{ActiveTheme, Icon};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -202,15 +202,26 @@ impl Library {
                         menu
                     }),
             )
-            // The browser extension isn't in the stores yet, so there is nowhere to send people.
+            // lata link, in the store of the browser this computer opens links with.
             .child(
                 Button::new("library-extension")
                     .outline()
                     .h(CONTROL)
                     .ml_auto()
+                    .cursor_pointer()
                     .icon(IconName::Puzzle)
-                    .label("Browser extension, coming soon")
-                    .disabled(true),
+                    .label("Browser extension")
+                    .tooltip("Get lata link for your browser")
+                    .on_click(|_, _, cx| {
+                        cx.spawn(async move |cx| {
+                            // Asking the system can run a program: off the UI thread.
+                            let store = crate::runtime::blocking(crate::link::browser::store)
+                                .await
+                                .unwrap_or(crate::link::browser::CHROME);
+                            cx.update(|cx| cx.open_url(store));
+                        })
+                        .detach();
+                    }),
             );
         div().flex().flex_col().gap_3().child(search).child(filters)
     }
@@ -689,21 +700,24 @@ impl Render for Library {
                     .min_h_0()
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll)
-                    .child(body),
+                    .child(body)
+                    // Right click where the instances are, not on the banner or the toolbar;
+                    // a card's own menu wins over this one.
+                    .context_menu(move |menu, _, _| {
+                        let (create, folder) = (handle.clone(), crate::instance::store::root());
+                        menu.item(
+                            PopupMenuItem::new("New instance")
+                                .icon(IconName::Plus)
+                                .on_click(move |_, window, cx| {
+                                    Shell::create(create.clone(), window, cx)
+                                }),
+                        )
+                        .item(
+                            PopupMenuItem::new("Open instances folder")
+                                .icon(IconName::FolderOpen)
+                                .on_click(move |_, _, cx| cx.open_with_system(&folder)),
+                        )
+                    }),
             )
-            // Right click on the page itself; a card's own menu wins over this one.
-            .context_menu(move |menu, _, _| {
-                let (create, folder) = (handle.clone(), crate::instance::store::root());
-                menu.item(
-                    PopupMenuItem::new("New instance")
-                        .icon(IconName::Plus)
-                        .on_click(move |_, window, cx| Shell::create(create.clone(), window, cx)),
-                )
-                .item(
-                    PopupMenuItem::new("Open instances folder")
-                        .icon(IconName::FolderOpen)
-                        .on_click(move |_, _, cx| cx.open_with_system(&folder)),
-                )
-            })
     }
 }

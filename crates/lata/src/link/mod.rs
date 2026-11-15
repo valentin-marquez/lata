@@ -2,6 +2,8 @@
 //! `lata://install-collection?id=<id>`, which the browser extension opens from a Workshop page. Any web page can open one, so nothing here trusts what it says: it is
 //! read strictly, the item is checked against Steam, and the user always confirms.
 
+#[path = "browser.model.rs"]
+pub mod browser;
 #[path = "install.view.rs"]
 pub mod install;
 #[path = "protocol.model.rs"]
