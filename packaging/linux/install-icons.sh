@@ -14,8 +14,14 @@ install -Dm644 "$HERE/$ID.desktop" "$PREFIX/share/applications/$ID.desktop"
 # in nobody's PATH, so point the entry at it; otherwise the menu entry and lata:// links fail.
 BIN="$(cd "$HERE/../.." && pwd)/lata"
 if [ -f "$BIN" ] && [ -x "$BIN" ]; then
+  # Quoted only when the path needs it: where no desktop brings its own opener (Hyprland, sway),
+  # xdg-open takes the first word of Exec as it is, quotes included, and finds no such program.
+  case "$BIN" in
+    *[!A-Za-z0-9/._+-]*) EXEC="\"$BIN\"" ;;
+    *) EXEC="$BIN" ;;
+  esac
   # ponytail: a path with | or & or " would break this sed; quote it properly if someone has one.
-  sed -i "s|^Exec=lata |Exec=\"$BIN\" |" "$PREFIX/share/applications/$ID.desktop"
+  sed -i "s|^Exec=lata |Exec=$EXEC |" "$PREFIX/share/applications/$ID.desktop"
 fi
 command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -f -t "$PREFIX/share/icons/hicolor" || true
 command -v update-desktop-database >/dev/null && update-desktop-database "$PREFIX/share/applications" || true
