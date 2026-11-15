@@ -1,0 +1,26 @@
+.lulo-install {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 12px;
+  border-radius: 2px;
+  background: #4f86a3;
+  color: #fff !important;
+  font: 500 13px/1.4 "Motiva Sans", Arial, Helvetica, sans-serif;
+  text-decoration: none !important;
+  cursor: pointer;
+}
+
+.lulo-install:hover {
+  background: #5f97b4;
+}
+
+.lulo-install svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}

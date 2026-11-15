@@ -1,0 +1,8 @@
+{
+  "extName": { "message": "lulo para Project Zomboid" },
+  "extDescription": {
+    "message": "Añade un botón Instalar en lulo a los mods de Project Zomboid del Workshop de Steam."
+  },
+  "install": { "message": "Instalar en lulo" },
+  "installTip": { "message": "Abre lulo para instalar este mod" }
+}
