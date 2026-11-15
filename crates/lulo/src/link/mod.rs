@@ -2,6 +2,9 @@
 //! from a Workshop page. Any web page can open one, so nothing here trusts what it says: it is
 //! read strictly, the item is checked against Steam, and the user always confirms.
 
+#[path = "protocol.model.rs"]
+pub mod protocol;
+
 use crate::instance::Instance;
 use crate::instance::mods::{self, Listing};
 
@@ -17,12 +20,20 @@ pub enum Request {
     InstallMod(u64),
 }
 
+/// The links among the arguments lulo was started with. The system hands over the link it was
+/// asked to open, maybe next to other arguments; this keeps only what claims to be one of ours
+/// (`parse` still decides whether it is valid).
+pub fn from_args(args: impl IntoIterator<Item = String>) -> Vec<String> {
+    args.into_iter()
+        .filter(|arg| {
+            arg.get(..SCHEME.len() - 2)
+                .is_some_and(|start| start.eq_ignore_ascii_case("lulo:"))
+        })
+        .collect()
+}
+
 /// Reads a link. Only `lulo://install-mod` with exactly one `id=` made of digits is accepted;
 /// other parameters are ignored, and anything else is refused with a reason.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the link handler (#37) will call it")
-)]
 pub fn parse(text: &str) -> Result<Request, &'static str> {
     let text = text.trim();
     if text.len() > MAX_LEN || text.chars().any(|c| c.is_whitespace() || c.is_control()) {
@@ -59,10 +70,6 @@ pub fn parse(text: &str) -> Result<Request, &'static str> {
 /// The mod a link asks to install, as the Workshop lists it, for the dialog that asks the user.
 /// It must be a Project Zomboid mod: a collection, a guide, an illustration or another game's
 /// item is refused, whatever the link says.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the link handler (#37) will call it")
-)]
 pub async fn resolve(text: &str) -> Result<Listing, String> {
     let Request::InstallMod(id) = parse(text)?;
     let listing = mods::lookup(id).await?;
@@ -106,6 +113,24 @@ mod tests {
         ] {
             assert_eq!(parse(link), id(42), "{link}");
         }
+    }
+
+    #[test]
+    fn keeps_only_the_links_among_the_arguments() {
+        fn args(list: &[&str]) -> Vec<String> {
+            list.iter().map(|a| a.to_string()).collect()
+        }
+        assert_eq!(
+            from_args(args(&[
+                "lulo://install-mod?id=1",
+                "--debug",
+                "LULO:install-mod?id=2"
+            ])),
+            ["lulo://install-mod?id=1", "LULO:install-mod?id=2"]
+        );
+        assert!(from_args(args(&[])).is_empty());
+        // Not links, and not a character boundary where the scheme would end.
+        assert!(from_args(args(&["--lulo", "https://lulo.example", "lul", "ñññ"])).is_empty());
     }
 
     #[test]

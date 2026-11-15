@@ -710,6 +710,25 @@ impl Shell {
         self.account.as_ref()
     }
 
+    /// A `lulo://` link from outside, such as the browser extension's. It brings the window to
+    /// the front and says what the link asks for, or why it can't be used.
+    // ponytail: only says it for now; the dialog that asks which instance to install into, and
+    // installs, comes next (#37).
+    pub fn receive_link(&mut self, text: String, window: AnyWindowHandle, cx: &mut Context<Self>) {
+        cx.spawn(async move |_, cx| {
+            let message = match crate::link::resolve(&text).await {
+                Ok(found) => format!("Link received for {} ({})", found.item.title, found.item.id),
+                Err(why) => format!("Couldn't use that link: {why}"),
+            };
+            let _ = window.update(cx, |_, window, cx| {
+                use gpui_kit::component::WindowExt;
+                window.activate_window();
+                window.push_notification(message, cx);
+            });
+        })
+        .detach();
+    }
+
     /// The sign-in dialog, unless an account is already signed in.
     pub fn open_account(shell: WeakEntity<Shell>, window: &mut Window, cx: &mut App) {
         if shell

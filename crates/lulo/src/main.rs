@@ -31,7 +31,19 @@ fn window_icon() -> Option<Arc<image::RgbaImage>> {
 }
 
 fn main() {
-    gpui_kit::application().with_assets(AppAssets).run(|cx| {
+    // Links to open, from wherever they come: what the system started lulo with, and (on
+    // macOS, which hands them over this way) the ones that arrive while it runs.
+    let (links, mut incoming) = tokio::sync::mpsc::unbounded_channel::<String>();
+    for link in link::from_args(std::env::args().skip(1)) {
+        let _ = links.send(link);
+    }
+    let app = gpui_kit::application().with_assets(AppAssets);
+    app.on_open_urls(move |urls| {
+        for url in link::from_args(urls) {
+            let _ = links.send(url);
+        }
+    });
+    app.run(move |cx| {
         gpui_kit::init(cx);
         theme::init(cx);
 
@@ -49,7 +61,15 @@ fn main() {
         };
         gpui_kit::open_window(options, cx, |window, cx| {
             theme::follow_system(window, cx);
-            cx.new(Shell::new)
+            let shell = cx.new(Shell::new);
+            let (handle, weak) = (window.window_handle(), shell.downgrade());
+            cx.spawn(async move |cx| {
+                while let Some(text) = incoming.recv().await {
+                    let _ = weak.update(cx, |shell, cx| shell.receive_link(text, handle, cx));
+                }
+            })
+            .detach();
+            shell
         })
         .expect("failed to open main window");
     });

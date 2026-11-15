@@ -8,5 +8,6 @@ Icon=io.github.valentin_marquez.Lulo
 Terminal=false
 Categories=Game;Utility;
 Keywords=zomboid;mods;launcher;instances;
+MimeType=x-scheme-handler/lulo;
 StartupNotify=true
 StartupWMClass=io.github.valentin_marquez.Lulo

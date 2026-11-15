@@ -104,6 +104,7 @@ pub fn open(window: &mut Window, cx: &mut App) {
     let now = Values {
         theme: theme::mode(cx),
         startup: startup::enabled(),
+        protocol: crate::link::protocol::enabled(),
     };
     let view = cx.new(|_| Settings {
         section: Section::Appearance,
@@ -133,6 +134,8 @@ struct Values {
     theme: Mode,
     /// Whether the system starts lulo at sign in.
     startup: bool,
+    /// Whether the system opens `lulo://` links (the browser extension's) with this lulo.
+    protocol: bool,
 }
 
 struct Settings {
@@ -296,6 +299,16 @@ impl Settings {
                 return;
             }
             self.saved.startup = self.draft.startup;
+        }
+        if self.draft.protocol != self.saved.protocol {
+            if let Err(err) = crate::link::protocol::set(self.draft.protocol) {
+                window.push_notification(
+                    crate::ui::toast::failed_because("Hmm, that setting didn't stick", err),
+                    cx,
+                );
+                return;
+            }
+            self.saved.protocol = self.draft.protocol;
         }
         if self.draft.theme != self.saved.theme {
             theme::choose(self.draft.theme, window, cx);
@@ -466,6 +479,25 @@ impl Settings {
             });
         // Needs a system tray icon, which gpui doesn't have.
         let tray = Switch::new("tray").checked(false).disabled(true);
+        // Only where lulo registers the protocol itself; elsewhere the app's files declare it.
+        let this = cx.entity();
+        let links = crate::link::protocol::SUPPORTED.then(|| {
+            let switch = Switch::new("protocol")
+                .cursor_pointer()
+                .checked(self.draft.protocol)
+                .on_click(move |&on, _, cx| {
+                    this.update(cx, |this, cx| {
+                        this.draft.protocol = on;
+                        cx.notify();
+                    })
+                });
+            row(
+                "Open links from the browser",
+                "Let the lulo browser extension open lulo. This registers lulo:// for your user.",
+                switch,
+                cx,
+            )
+        });
         div()
             .flex()
             .flex_col()
@@ -481,6 +513,7 @@ impl Settings {
                 startup,
                 cx,
             ))
+            .children(links)
             .child(row(
                 "Minimize to the system tray",
                 "Closing the window keeps lulo running in the tray. Coming soon.",
