@@ -143,18 +143,26 @@ impl RenderOnce for Trigger {
                     .font_weight(FontWeight::MEDIUM)
                     .child(s.title),
             )
+            // Fixed boxes, so the pill keeps its width as the digits change and as the speed
+            // shows up or goes away.
             .child(
                 div()
                     .flex_none()
+                    .w(px(38.))
+                    .flex()
+                    .justify_end()
                     .text_color(theme.muted_foreground)
                     .child(format!("{}%", s.pct)),
             )
-            .children((s.speed > 0).then(|| {
+            .child(
                 div()
                     .flex_none()
+                    .w(px(78.))
+                    .flex()
+                    .justify_end()
                     .text_color(theme.muted_foreground)
-                    .child(format!("{}/s", install::size(s.speed)))
-            }))
+                    .children((s.speed > 0).then(|| format!("{}/s", install::size(s.speed)))),
+            )
     }
 }
 
