@@ -45,6 +45,20 @@ const NEVER: [&str; 6] = [
     "mods/default.txt",
 ];
 
+/// Keys of a server's `.ini` that are secrets: they go in a pack blank.
+const SECRETS: [&str; 3] = ["Password", "RCONPassword", "DiscordToken"];
+
+/// A server `.ini` with the values of [`SECRETS`] taken out, keys kept.
+fn without_secrets(text: &str) -> String {
+    text.lines()
+        .map(|line| match line.split_once('=') {
+            Some((key, _)) if SECRETS.contains(&key.trim()) => format!("{key}="),
+            _ => line.to_owned(),
+        })
+        .map(|line| line + "\n")
+        .collect()
+}
+
 /// `lata.index.json`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Index {
@@ -275,7 +289,16 @@ pub fn export(
         for rel in &files {
             zip.start_file(format!("{OVERRIDES}/{}", zip_path(rel)), options)
                 .map_err(zipped)?;
-            io::copy(&mut File::open(root.join(rel))?, &mut zip)?;
+            let server_ini = rel.starts_with("Server")
+                && rel
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("ini"));
+            if server_ini {
+                let text = std::fs::read_to_string(root.join(rel))?;
+                zip.write_all(without_secrets(&text).as_bytes())?;
+            } else {
+                io::copy(&mut File::open(root.join(rel))?, &mut zip)?;
+            }
         }
         zip.start_file(INDEX, options).map_err(zipped)?;
         zip.write_all(&serde_json::to_vec_pretty(&index).map_err(io::Error::other)?)?;
@@ -433,7 +456,11 @@ mod tests {
         )
         .unwrap();
         let z = made.dir.join("zomboid");
-        put(&z, "Server/servertest.ini", "PVP=false");
+        put(
+            &z,
+            "Server/servertest.ini",
+            "PVP=false\nPassword=hunter2\nRCONPassword=secret\nDiscordToken=abc\n",
+        );
         put(&z, "Lua/options.ini", "x=1");
         put(&z, "Saves/Sandbox/World/map_ver.bin", "save");
         put(&z, "options.ini", "fullscreen=true");
@@ -506,7 +533,11 @@ mod tests {
         // Arguments never travel: they could make the game run what the pack bundles.
         assert_eq!(made.jvm_args, "");
         assert!(made.dir.join("icon.png").is_file());
-        assert!(z.join("Server/servertest.ini").is_file());
+        // The server's settings come, its secrets don't.
+        assert_eq!(
+            std::fs::read_to_string(z.join("Server/servertest.ini")).unwrap(),
+            "PVP=false\nPassword=\nRCONPassword=\nDiscordToken=\n"
+        );
         assert!(z.join("Lua/options.ini").is_file());
         assert!(z.join("mods/Local/42/mod.info").is_file());
         // Not picked, or not the pack's to carry.
