@@ -49,9 +49,17 @@ fn modern(instance: &Instance, version: Option<Version>) -> bool {
     match (version, instance.game()) {
         (Some(version), _) => version.build >= 42,
         // Not run yet: Build 42 ships one jar, Build 41 loose class files.
-        (None, Some(game)) => game.join("projectzomboid/projectzomboid.jar").is_file(),
+        (None, Some(game)) => ships_one_jar(&game),
         (None, None) => branch_is_modern(&instance.branch),
     }
+}
+
+/// Whether the game files are Build 42's, which keep `projectzomboid.jar` at the top (its
+/// `ProjectZomboid64.json` puts it in the classpath there); some layouts nest it in a
+/// `projectzomboid` folder. Build 41 keeps its classes under `java/`.
+fn ships_one_jar(game: &Path) -> bool {
+    game.join("projectzomboid.jar").is_file()
+        || game.join("projectzomboid/projectzomboid.jar").is_file()
 }
 
 /// Whether Steam branch `branch` is Build 42 or newer. `public` and `pre-release` are, as
@@ -878,6 +886,23 @@ mod tests {
         let path = dir.join(file);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, text).unwrap();
+    }
+
+    #[test]
+    fn tells_the_build_of_a_game_that_never_ran_by_its_files() {
+        let dir = temp("jar");
+        // Build 41 keeps its classes under `java/`.
+        put(&dir, "java/projectzomboid.jar", "");
+        assert!(!ships_one_jar(&dir));
+        // Build 42 on Windows: the jar at the top, as its launcher config says.
+        put(&dir, "projectzomboid.jar", "");
+        assert!(ships_one_jar(&dir));
+        std::fs::remove_dir_all(&dir).unwrap();
+        // The nested layout.
+        let nested = temp("jar-nested");
+        put(&nested, "projectzomboid/projectzomboid.jar", "");
+        assert!(ships_one_jar(&nested));
+        std::fs::remove_dir_all(&nested).unwrap();
     }
 
     #[test]
