@@ -31,16 +31,30 @@ fn window_icon() -> Option<Arc<image::RgbaImage>> {
 }
 
 fn main() {
-    // Links to open, from wherever they come: what the system started lulo with, and (on
-    // macOS, which hands them over this way) the ones that arrive while it runs.
-    let (links, mut incoming) = tokio::sync::mpsc::unbounded_channel::<String>();
-    for link in link::from_args(std::env::args().skip(1)) {
-        let _ = links.send(link);
+    let started_with = link::from_args(std::env::args().skip(1));
+    // Only one lulo per data folder: a second one hands its links over (or asks the first to
+    // show itself) and leaves, instead of opening another window.
+    let lock = instance::store::root().with_file_name("lulo.lock");
+    if link::single::forward(&lock, &link::single::messages(&started_with)) {
+        return;
+    }
+
+    // What reaches this lulo from outside: the links it was started with, those another lulo
+    // hands over, and (on macOS, which delivers them this way) links that arrive while it runs.
+    let (outside, mut incoming) = tokio::sync::mpsc::unbounded_channel::<link::Incoming>();
+    for link in started_with {
+        let _ = outside.send(link::Incoming::Link(link));
+    }
+    let from_others = outside.clone();
+    if let Err(err) = link::single::serve(&lock, move |message| {
+        let _ = from_others.send(message);
+    }) {
+        eprintln!("couldn't listen for a second lulo: {err}");
     }
     let app = gpui_kit::application().with_assets(AppAssets);
     app.on_open_urls(move |urls| {
         for url in link::from_args(urls) {
-            let _ = links.send(url);
+            let _ = outside.send(link::Incoming::Link(url));
         }
     });
     app.run(move |cx| {
@@ -64,8 +78,16 @@ fn main() {
             let shell = cx.new(Shell::new);
             let (handle, weak) = (window.window_handle(), shell.downgrade());
             cx.spawn(async move |cx| {
-                while let Some(text) = incoming.recv().await {
-                    let _ = weak.update(cx, |shell, cx| shell.receive_link(text, handle, cx));
+                while let Some(message) = incoming.recv().await {
+                    match message {
+                        link::Incoming::Link(text) => {
+                            let _ =
+                                weak.update(cx, |shell, cx| shell.receive_link(text, handle, cx));
+                        }
+                        link::Incoming::Show => {
+                            let _ = handle.update(cx, |_, window, _| window.activate_window());
+                        }
+                    }
                 }
             })
             .detach();

@@ -4,6 +4,8 @@
 
 #[path = "protocol.model.rs"]
 pub mod protocol;
+#[path = "single.model.rs"]
+pub mod single;
 
 use crate::instance::Instance;
 use crate::instance::mods::{self, Listing};
@@ -12,6 +14,14 @@ const SCHEME: &str = "lulo://";
 /// The longest link read; a real one is about 40 characters.
 const MAX_LEN: usize = 200;
 const NOT_OURS: &str = "that isn't a lulo link";
+
+/// What reaches the running lulo from outside: a link, or a second lulo asking it to show itself.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Incoming {
+    /// The text of a link, not yet read (`parse` decides).
+    Link(String),
+    Show,
+}
 
 /// What a link asks for.
 #[derive(Debug, PartialEq)]

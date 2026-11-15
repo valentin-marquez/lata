@@ -138,7 +138,7 @@ pub async fn save(account: &Account) -> Result<bool, String> {
     .await?
 }
 
-fn write_private(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+pub(crate) fn write_private(path: &std::path::Path, text: &str) -> std::io::Result<()> {
     use std::io::Write;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
