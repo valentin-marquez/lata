@@ -1,6 +1,7 @@
 name: Release
 
-# Builds the release packages for the three systems. Pushing a `v*` tag also attaches them to a
+# Builds lata launcher's release packages for the three systems (the browser extension is
+# released from extension.yml, with `extension-v*` tags). Pushing a `v*` tag also attaches them to a
 # draft release, which someone reviews and publishes by hand. Run it by hand (Actions, Run
 # workflow) to get the packages as downloadable artifacts without tagging anything.
 on:
@@ -18,7 +19,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # The oldest Ubuntu runner: the binary needs the glibc it was built against or a newer
+        # one, so building on the latest would leave older distributions out.
+        os: [ubuntu-22.04, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -45,6 +48,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # A tag on a broken commit must not turn into packages.
+      - name: Test
+        run: cargo test --workspace --locked
+
       - name: Build
         run: cargo build --release --locked -p lata
 
@@ -53,7 +60,7 @@ jobs:
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
-          name="lata-$VERSION-linux-x86_64"
+          name="lata-launcher-$VERSION-linux-x86_64"
           mkdir -p "pkg/$name/packaging" "pkg/$name/assets/icons" dist
           cp target/release/lata README.md "pkg/$name/"
           cp -r packaging/linux "pkg/$name/packaging/"
@@ -64,7 +71,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $name = "lata-$env:VERSION-windows-x86_64"
+          $name = "lata-launcher-$env:VERSION-windows-x86_64"
           New-Item -ItemType Directory -Force "pkg/$name", dist | Out-Null
           Copy-Item target/release/lata.exe, README.md "pkg/$name/"
           Compress-Archive -Path "pkg/$name" -DestinationPath "dist/$name.zip"
@@ -74,7 +81,7 @@ jobs:
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
-          name="lata-$VERSION-macos-arm64"
+          name="lata-launcher-$VERSION-macos-arm64"
           sh packaging/macos/make-bundle.sh target/release/lata
           codesign --force --deep --sign - Lata.app
           mkdir -p dmg dist
@@ -106,5 +113,5 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --generate-notes
+            || gh release create "$GITHUB_REF_NAME" --draft --title "lata launcher $GITHUB_REF_NAME" --generate-notes
           gh release upload "$GITHUB_REF_NAME" dist/* --clobber

@@ -1,16 +1,25 @@
 name: CI
 
+# The launcher. The browser extension has its own workflow (extension.yml), and neither it nor
+# a change to the docs needs three systems compiling Rust.
 on:
   push:
     branches: [main]
+    paths-ignore: ["extension/**", "**.md", ".github/workflows/extension.yml"]
   pull_request:
+    paths-ignore: ["extension/**", "**.md", ".github/workflows/extension.yml"]
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Only pull requests: every commit on main gets its full check, and a run that is cancelled
+  # saves no cache, which left the next one building from nothing.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
+  # Nobody debugs a CI build: without debug info it compiles and links faster and the cache
+  # is much smaller.
+  CARGO_PROFILE_DEV_DEBUG: 0
 
 jobs:
   check:
