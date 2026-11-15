@@ -194,7 +194,7 @@ impl Existing {
         &self,
         plan: &Plan,
         instance: &Instance,
-        mut progress: impl FnMut(u64, u64),
+        mut progress: impl FnMut(u64, u64) -> io::Result<()>,
     ) -> io::Result<()> {
         let cachedir = instance.dir.join("zomboid");
         // Settings belong to the build that wrote them; the other one starts with its own.
@@ -237,9 +237,11 @@ impl Existing {
                 worlds::copy(path, &into.join(name), &mut done, total, &mut progress)?;
             } else {
                 done += std::fs::copy(path, into.join(name))?;
-                progress(done, total);
+                progress(done, total)?;
             }
         }
+        // Before the worlds, which are most of the wait: the Mods tab shows them on meanwhile.
+        mods::activate(instance, &plan.active)?;
         for world in &plan.worlds {
             let before = done;
             worlds::import(world, &cachedir, |copied, _| {
@@ -247,7 +249,7 @@ impl Existing {
             })?;
             done += worlds::size(world)?;
         }
-        mods::activate(instance, &plan.active)
+        Ok(())
     }
 }
 
@@ -389,9 +391,12 @@ mod tests {
             instance(&root, "Old", "legacy41"),
         );
         let mut seen = Vec::new();
-        game.copy(&plans[0], &new, |done, total| seen.push((done, total)))
-            .unwrap();
-        game.copy(&plans[1], &old, |_, _| {}).unwrap();
+        game.copy(&plans[0], &new, |done, total| {
+            seen.push((done, total));
+            Ok(())
+        })
+        .unwrap();
+        game.copy(&plans[1], &old, |_, _| Ok(())).unwrap();
 
         let at = new.dir.join("zomboid");
         assert_eq!(

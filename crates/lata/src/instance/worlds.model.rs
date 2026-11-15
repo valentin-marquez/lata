@@ -113,11 +113,11 @@ fn read(dir: &Path, mode: &str) -> World {
 /// world, and returns it. The source is only read. A name already taken gets a number
 /// (`Rosewood run 2`), nothing is ever overwritten, and the copy is made out of the way and
 /// moved into place, so the game never sees a half-copied world. `progress` gets the bytes
-/// copied so far and the total, after each file.
+/// copied so far and the total, after each file; an error from it stops the copy.
 pub fn import(
     source: &Path,
     cachedir: &Path,
-    mut progress: impl FnMut(u64, u64),
+    mut progress: impl FnMut(u64, u64) -> io::Result<()>,
 ) -> io::Result<World> {
     let (mode, name) = identify(source)?;
     if cachedir.starts_with(source) {
@@ -188,7 +188,7 @@ pub(super) fn copy(
     to: &Path,
     done: &mut u64,
     total: u64,
-    progress: &mut impl FnMut(u64, u64),
+    progress: &mut impl FnMut(u64, u64) -> io::Result<()>,
 ) -> io::Result<()> {
     std::fs::create_dir_all(to)?;
     for entry in std::fs::read_dir(from)? {
@@ -199,7 +199,7 @@ pub(super) fn copy(
             copy(&entry.path(), &target, done, total, progress)?;
         } else if kind.is_file() {
             *done += std::fs::copy(entry.path(), target)?;
-            progress(*done, total);
+            progress(*done, total)?;
         }
     }
     Ok(())
@@ -329,7 +329,11 @@ mod tests {
         save(&source, "clock");
 
         let mut seen = Vec::new();
-        let world = import(&source, &cachedir, |done, total| seen.push((done, total))).unwrap();
+        let world = import(&source, &cachedir, |done, total| {
+            seen.push((done, total));
+            Ok(())
+        })
+        .unwrap();
         assert_eq!(
             (world.mode.as_str(), world.name.as_str()),
             ("Sandbox", "Rosewood run")
@@ -357,10 +361,10 @@ mod tests {
         let source = base.join("Saves/Sandbox/Run");
         let cachedir = base.join("zomboid");
         save(&source, "first");
-        let first = import(&source, &cachedir, |_, _| {}).unwrap();
+        let first = import(&source, &cachedir, |_, _| Ok(())).unwrap();
         std::fs::write(source.join("map_t.bin"), "second").unwrap();
-        let second = import(&source, &cachedir, |_, _| {}).unwrap();
-        let third = import(&source, &cachedir, |_, _| {}).unwrap();
+        let second = import(&source, &cachedir, |_, _| Ok(())).unwrap();
+        let third = import(&source, &cachedir, |_, _| Ok(())).unwrap();
 
         assert_eq!(
             [&first.name, &second.name, &third.name],
@@ -410,7 +414,29 @@ mod tests {
         std::fs::create_dir_all(&cachedir).unwrap();
         std::fs::write(cachedir.join("Saves"), "in the way").unwrap();
 
-        assert!(import(&source, &cachedir, |_, _| {}).is_err());
+        assert!(import(&source, &cachedir, |_, _| Ok(())).is_err());
+        assert_eq!(files_in(&cachedir), ["Saves"], "no staging folder is left");
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_cancelled_copy_stops_and_leaves_no_world() {
+        let base = temp("cancel");
+        let source = base.join("Saves/Sandbox/Run");
+        save(&source, "clock");
+        let cachedir = base.join("zomboid");
+
+        let mut files = 0;
+        let cancelled = import(&source, &cachedir, |_, _| {
+            files += 1;
+            Err(io::Error::other("cancelled"))
+        });
+        assert!(cancelled.is_err());
+        assert_eq!(files, 1, "stops at the first file");
+        assert_eq!(
+            files_in(&cachedir.join("Saves/Sandbox")),
+            Vec::<String>::new()
+        );
         assert_eq!(files_in(&cachedir), ["Saves"], "no staging folder is left");
         std::fs::remove_dir_all(&base).unwrap();
     }

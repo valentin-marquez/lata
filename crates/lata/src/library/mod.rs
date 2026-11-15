@@ -305,7 +305,7 @@ fn card(
     let menu_action = action.clone();
     // Running and installing keep their button up: it is how you stop them.
     let reveal = match status {
-        Status::Running | Status::Installing(_) => 1.,
+        Status::Running | Status::Installing(_) | Status::Bringing(_) => 1.,
         _ => surface,
     };
 
@@ -331,7 +331,7 @@ fn card(
                 .child(Icon::empty().path("icons/gamepad.svg").size_3()),
         ),
         Status::Outdated => Some(badge("Update".into()).text_color(theme.primary)),
-        Status::Installing(pct) => Some(badge(format!("{pct}%").into())),
+        Status::Installing(pct) | Status::Bringing(pct) => Some(badge(format!("{pct}%").into())),
         _ => None,
     };
 

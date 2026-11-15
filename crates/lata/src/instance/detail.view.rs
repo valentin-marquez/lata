@@ -91,7 +91,7 @@ impl Detail {
                 shell.read(cx).status(instance)
             });
         let note = match (status, instance.build, latest) {
-            (Status::Installing(_), _, _) => Some(status.label()),
+            (Status::Installing(_) | Status::Bringing(_), _, _) => Some(status.label()),
             (Status::Outdated, Some(have), Some(newest)) => {
                 Some(format!("Update available: build {have}, newest {newest}"))
             }

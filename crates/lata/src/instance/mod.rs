@@ -173,6 +173,8 @@ pub enum Status {
     NotInstalled,
     /// Percent done.
     Installing(u8),
+    /// Copying in the game someone already plays, and then its mods; percent done.
+    Bringing(u8),
     Ready,
     Running,
     Outdated,
@@ -215,6 +217,7 @@ impl Status {
         match self {
             Status::NotInstalled => "Not installed".into(),
             Status::Installing(pct) => format!("Installing {pct}%"),
+            Status::Bringing(pct) => format!("Bringing your game {pct}%"),
             Status::Ready => "Ready".into(),
             Status::Outdated => "Update available".into(),
             Status::Running => "Running".into(),
@@ -226,7 +229,7 @@ impl Status {
         match self {
             Status::NotInstalled => ("Install".into(), IconName::Download, true),
             // Progress shows next to it (bar and download manager), so the button offers the way out.
-            Status::Installing(_) => ("Cancel".into(), IconName::Close, true),
+            Status::Installing(_) | Status::Bringing(_) => ("Cancel".into(), IconName::Close, true),
             // Updating is its own button, after the user confirms; Play still works meanwhile.
             Status::Ready | Status::Outdated => ("Play".into(), IconName::Play, true),
             Status::Running => ("Stop".into(), IconName::Square, true),
@@ -236,7 +239,7 @@ impl Status {
 
 /// The install's progress under its name, while it downloads.
 pub fn bar(id: &SharedString, status: Status, cx: &App) -> Option<impl IntoElement + use<>> {
-    let Status::Installing(pct) = status else {
+    let (Status::Installing(pct) | Status::Bringing(pct)) = status else {
         return None;
     };
     Some(

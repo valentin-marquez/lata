@@ -188,6 +188,10 @@ impl Shell {
         if self.running.contains_key(&instance.id) {
             return Status::Running;
         }
+        // The game downloads alongside, but what someone waits for first is their game coming in.
+        if let Some(bringing) = self.installs.get(&mod_key(&instance.id, "existing")) {
+            return Status::Bringing(bringing.pct());
+        }
         match self.installs.get(&instance.id) {
             Some(download) => Status::Installing(download.pct()),
             None => instance.status(self.latest(instance)),
@@ -230,6 +234,12 @@ impl Shell {
             },
             (Status::Installing(_), _) => {
                 let _ = shell.update(cx, |shell, cx| shell.cancel(&instance.id, cx));
+            }
+            (Status::Bringing(_), _) => {
+                let _ = shell.update(cx, |shell, cx| {
+                    shell.cancel(&mod_key(&instance.id, "existing"), cx);
+                    shell.cancel(&instance.id, cx);
+                });
             }
             (_, None) => Self::open_account(shell, window, cx),
             (_, Some(account)) => {
@@ -869,8 +879,8 @@ impl Shell {
     ) {
         use gpui_kit::component::WindowExt;
         let handle = window.window_handle();
-        let made = shell.update(cx, |shell, cx| {
-            let mut first = None;
+        let mut made = Vec::new();
+        let result = shell.update(cx, |shell, _| {
             for plan in plans {
                 // The branch names Steam gives the two build lines; an instance can move to
                 // another branch of its line later.
@@ -879,24 +889,32 @@ impl Shell {
                 } else {
                     ("My Build 41 game", "legacy41")
                 };
-                let created = store::create(&shell.root, name, branch)?;
-                first.get_or_insert(created.id.clone());
-                shell.bring(game.clone(), plan, created, handle, cx);
+                made.push((plan, store::create(&shell.root, name, branch)?));
             }
+            std::io::Result::Ok(())
+        });
+        let first = made.first().map(|(_, created)| created.id.clone());
+        let _ = shell.update(cx, |shell, cx| {
             shell.instances = store::list(&shell.root);
             let ix = first
                 .as_ref()
                 .and_then(|id| shell.instances.iter().position(|i| i.id == *id));
             shell.go(ix.map_or(Page::Library, Page::Instance), cx);
-            std::io::Result::Ok(first)
         });
-        match made {
-            Ok(Ok(Some(id))) => Shell::play(shell, id, window, cx),
-            Ok(Err(err)) => window.push_notification(
+        // The game install first: once bringing starts, the main button is how it's cancelled.
+        if let Some(id) = first {
+            Shell::play(shell.clone(), id, window, cx);
+        }
+        let _ = shell.update(cx, |shell, cx| {
+            for (plan, created) in made {
+                shell.bring(game.clone(), plan, created, handle, cx);
+            }
+        });
+        if let Ok(Err(err)) = result {
+            window.push_notification(
                 crate::ui::toast::failed_because("Well, that instance didn't happen", err),
                 cx,
-            ),
-            _ => {}
+            );
         }
     }
 
@@ -920,14 +938,23 @@ impl Shell {
             async move {
                 let copying = (events_tx.clone(), name);
                 let (from, plan_, into) = (game, plan.clone(), instance.clone());
+                // Aborting the task drops `alive`; the copy runs on its own thread and stops
+                // at the next file once it sees that.
+                let alive = std::sync::Arc::new(());
+                let watch = std::sync::Arc::downgrade(&alive);
                 let sources = crate::runtime::blocking(move || {
                     from.copy(&plan_, &into, |done, total| {
+                        if watch.strong_count() == 0 {
+                            return Err(std::io::Error::other("cancelled"));
+                        }
                         let _ = copying.0.send((copying.1.clone(), done, total));
+                        Ok(())
                     })
                     .map_err(|err| err.to_string())?;
                     Ok::<_, String>(from.sources(&plan_, &instance::import::workshop()))
                 })
                 .await??;
+                drop(alive);
                 // The worlds are in by now: mods that fail leave an instance worth keeping.
                 let mods = if sources.workshop.is_empty() {
                     Ok(())
