@@ -68,7 +68,7 @@ Unknown fields are ignored, so a newer lata can add fields without bumping `form
   as someone presses Play.
 - Logs, `console.txt`, `version.txt` and the game's `Workshop` cache: the game rebuilds them.
 - The folders of Workshop mods, which travel as references.
-- The secrets of a server's `.ini` files under `Server/`: `Password`, `RCONPassword` and
+- The secrets in any text file under `Server/`: `Password`, `RCONPassword` and
   `DiscordToken` go blank, with the rest of the settings.
 - `mods/default.txt` and the game's `reset-mods-*.txt`: the active list is in the index.
 

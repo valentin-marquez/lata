@@ -45,14 +45,17 @@ const NEVER: [&str; 6] = [
     "mods/default.txt",
 ];
 
-/// Keys of a server's `.ini` that are secrets: they go in a pack blank.
+/// Keys of a server's settings that are secrets: they go in a pack blank, in any text file
+/// under `Server/` (a backup copy of the `.ini` holds them too) and in any case.
 const SECRETS: [&str; 3] = ["Password", "RCONPassword", "DiscordToken"];
 
-/// A server `.ini` with the values of [`SECRETS`] taken out, keys kept.
+/// A server's settings file with the values of [`SECRETS`] taken out, keys kept.
 fn without_secrets(text: &str) -> String {
     text.lines()
         .map(|line| match line.split_once('=') {
-            Some((key, _)) if SECRETS.contains(&key.trim()) => format!("{key}="),
+            Some((key, _)) if SECRETS.iter().any(|s| s.eq_ignore_ascii_case(key.trim())) => {
+                format!("{key}=")
+            }
             _ => line.to_owned(),
         })
         .map(|line| line + "\n")
@@ -289,15 +292,16 @@ pub fn export(
         for rel in &files {
             zip.start_file(format!("{OVERRIDES}/{}", zip_path(rel)), options)
                 .map_err(zipped)?;
-            let server_ini = rel.starts_with("Server")
-                && rel
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("ini"));
-            if server_ini {
-                let text = std::fs::read_to_string(root.join(rel))?;
-                zip.write_all(without_secrets(&text).as_bytes())?;
-            } else {
-                io::copy(&mut File::open(root.join(rel))?, &mut zip)?;
+            // Text under `Server/` loses its secrets, whatever the file's name.
+            let text = rel
+                .starts_with("Server")
+                .then(|| std::fs::read_to_string(root.join(rel)).ok())
+                .flatten();
+            match text {
+                Some(text) => zip.write_all(without_secrets(&text).as_bytes())?,
+                None => {
+                    io::copy(&mut File::open(root.join(rel))?, &mut zip)?;
+                }
             }
         }
         zip.start_file(INDEX, options).map_err(zipped)?;
@@ -461,6 +465,7 @@ mod tests {
             "Server/servertest.ini",
             "PVP=false\nPassword=hunter2\nRCONPassword=secret\nDiscordToken=abc\n",
         );
+        put(&z, "Server/servertest.ini.bak", "password = hunter2\n");
         put(&z, "Lua/options.ini", "x=1");
         put(&z, "Saves/Sandbox/World/map_ver.bin", "save");
         put(&z, "options.ini", "fullscreen=true");
@@ -537,6 +542,10 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(z.join("Server/servertest.ini")).unwrap(),
             "PVP=false\nPassword=\nRCONPassword=\nDiscordToken=\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(z.join("Server/servertest.ini.bak")).unwrap(),
+            "password =\n"
         );
         assert!(z.join("Lua/options.ini").is_file());
         assert!(z.join("mods/Local/42/mod.info").is_file());
