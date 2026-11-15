@@ -9,7 +9,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::{ContextMenuExt, DropdownMenu, PopupMenuItem};
 use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{ActiveTheme, Icon};
+use gpui_kit::component::{ActiveTheme, Disableable, Icon};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -201,6 +201,16 @@ impl Library {
                         }
                         menu
                     }),
+            )
+            // The browser extension isn't in the stores yet, so there is nowhere to send people.
+            .child(
+                Button::new("library-extension")
+                    .outline()
+                    .h(CONTROL)
+                    .ml_auto()
+                    .icon(IconName::Puzzle)
+                    .label("Browser extension, coming soon")
+                    .disabled(true),
             );
         div().flex().flex_col().gap_3().child(search).child(filters)
     }
