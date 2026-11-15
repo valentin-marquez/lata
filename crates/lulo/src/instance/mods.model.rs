@@ -95,6 +95,10 @@ pub struct Mod {
     pub icon: Option<PathBuf>,
     /// Ids of the mods it needs.
     pub requires: Vec<String>,
+    /// Ids of mods it wants to load after, without needing them (`loadModAfter=`).
+    pub load_after: Vec<String>,
+    /// Ids of mods it wants to load before (`loadModBefore=`).
+    pub load_before: Vec<String>,
     pub enabled: bool,
 }
 
@@ -107,6 +111,17 @@ struct Info {
     description: String,
     icon: Option<String>,
     requires: Vec<String>,
+    load_after: Vec<String>,
+    load_before: Vec<String>,
+}
+
+/// The ids in a comma separated `mod.info` value. Build 42 writes them with a leading backslash.
+fn ids(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(|id| id.trim().trim_start_matches('\\').to_owned())
+        .filter(|id| !id.is_empty())
+        .collect()
 }
 
 fn parse_info(text: &str) -> Option<Info> {
@@ -124,14 +139,9 @@ fn parse_info(text: &str) -> Option<Info> {
             "description" => info.description = value.to_owned(),
             "icon" if !value.is_empty() => info.icon = Some(value.to_owned()),
             "poster" if poster.is_none() && !value.is_empty() => poster = Some(value.to_owned()),
-            "require" => {
-                info.requires = value
-                    .split(',')
-                    // Build 42 writes required ids with a leading backslash.
-                    .map(|id| id.trim().trim_start_matches('\\').to_owned())
-                    .filter(|id| !id.is_empty())
-                    .collect();
-            }
+            "require" => info.requires = ids(value),
+            "loadmodafter" => info.load_after = ids(value),
+            "loadmodbefore" => info.load_before = ids(value),
             _ => {}
         }
     }
@@ -291,11 +301,60 @@ pub fn list(instance: &Instance) -> Vec<Mod> {
                 folder,
                 icon,
                 requires: info.requires,
+                load_after: info.load_after,
+                load_before: info.load_before,
             })
         })
         .collect();
     mods.sort_by_key(|m| m.name.to_lowercase());
     mods
+}
+
+/// The ids of `mods` in the order the game's AUTO button is described to give: sorted by id,
+/// then each mod moved right after the ones it requires or loads after, and right before the
+/// ones it loads before. Ids that aren't in `mods` are ignored. Passes repeat until nothing
+/// moves, so a chain settles; a cycle can't, and stops after as many passes as there are mods.
+// shortcut: written from that description, not run against the game, so ties and cycles may
+// fall differently there. Check it with the game running before relying on it (#33).
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the Mods tab's Auto sort (#33) will call it")
+)]
+pub fn auto_sort(mods: &[Mod]) -> Vec<String> {
+    let mut sorted: Vec<&Mod> = mods.iter().collect();
+    sorted.sort_by(|a, b| a.id.cmp(&b.id));
+    sorted.dedup_by(|a, b| a.id == b.id);
+    let mut order: Vec<&str> = sorted.iter().map(|m| m.id.as_str()).collect();
+    let place = |order: &[&str], id: &str| order.iter().position(|other| *other == id);
+    for _ in 0..=sorted.len() {
+        let mut moved = false;
+        for m in &sorted {
+            let Some(at) = place(&order, &m.id) else {
+                continue;
+            };
+            let behind = m.requires.iter().chain(&m.load_after);
+            let after = behind.filter_map(|id| place(&order, id)).max();
+            let before = m
+                .load_before
+                .iter()
+                .filter_map(|id| place(&order, id))
+                .min();
+            if let Some(last) = after.filter(|last| *last > at) {
+                // Removing it shifts what it follows one place up, so `last` is right after it.
+                order.remove(at);
+                order.insert(last, &m.id);
+                moved = true;
+            } else if let Some(first) = before.filter(|first| *first < at) {
+                order.remove(at);
+                order.insert(first, &m.id);
+                moved = true;
+            }
+        }
+        if !moved {
+            break;
+        }
+    }
+    order.into_iter().map(str::to_owned).collect()
 }
 
 /// When the instance's pins and active list last changed.
@@ -919,6 +978,105 @@ mod tests {
         assert_eq!(needy.requires, ["A", "C"]);
         assert_eq!(needy.icon.as_deref(), Some("one.png"));
         assert_eq!(parse_info("name=No id"), None);
+    }
+
+    #[test]
+    fn reads_where_a_mod_wants_to_load() {
+        let info = parse_info(
+            "id=B\nrequire=\\Q\nloadModAfter=\\A, C\nLoadModBefore = Z ,\\Y\nloadModAfter2=x",
+        )
+        .unwrap();
+        assert_eq!(info.requires, ["Q"]);
+        assert_eq!(info.load_after, ["A", "C"]);
+        assert_eq!(info.load_before, ["Z", "Y"]);
+        let plain = parse_info("id=P").unwrap();
+        assert!(plain.load_after.is_empty() && plain.load_before.is_empty());
+    }
+
+    /// A mod that only says what it requires and where it wants to load.
+    fn node(id: &str, requires: &[&str], after: &[&str], before: &[&str]) -> Mod {
+        let list = |ids: &[&str]| ids.iter().map(|id| id.to_string()).collect();
+        Mod {
+            id: id.into(),
+            name: id.into(),
+            author: String::new(),
+            description: String::new(),
+            folder: id.into(),
+            dir: PathBuf::new(),
+            version: None,
+            workshop: None,
+            manifest: None,
+            icon: None,
+            requires: list(requires),
+            load_after: list(after),
+            load_before: list(before),
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn auto_sort_goes_by_id_and_then_moves_mods_next_to_what_they_need() {
+        let plain = [
+            node("b", &[], &[], &[]),
+            node("c", &[], &[], &[]),
+            node("a", &[], &[], &[]),
+        ];
+        assert_eq!(auto_sort(&plain), ["a", "b", "c"]);
+        assert!(auto_sort(&[]).is_empty());
+
+        // It requires z, so it moves to right after it.
+        let needs = [
+            node("a", &["z"], &[], &[]),
+            node("b", &[], &[], &[]),
+            node("z", &[], &[], &[]),
+        ];
+        assert_eq!(auto_sort(&needs), ["b", "z", "a"]);
+        // loadModAfter does the same without needing the mod.
+        let after = [
+            node("a", &[], &["z"], &[]),
+            node("b", &[], &[], &[]),
+            node("z", &[], &[], &[]),
+        ];
+        assert_eq!(auto_sort(&after), ["b", "z", "a"]);
+        // loadModBefore moves it to right before the first of them.
+        let before = [
+            node("a", &[], &[], &[]),
+            node("b", &[], &[], &[]),
+            node("c", &[], &[], &["a"]),
+        ];
+        assert_eq!(auto_sort(&before), ["c", "a", "b"]);
+    }
+
+    #[test]
+    fn auto_sort_settles_chains_and_ignores_what_isnt_installed() {
+        // a needs b, b needs c: one pass isn't enough.
+        let chain = [
+            node("a", &["b"], &[], &[]),
+            node("b", &["c"], &[], &[]),
+            node("c", &[], &[], &[]),
+        ];
+        assert_eq!(auto_sort(&chain), ["c", "b", "a"]);
+        // Ids nobody installed change nothing; a mod listed twice is placed once.
+        let loose = [
+            node("a", &["missing"], &["gone"], &["nowhere"]),
+            node("b", &[], &[], &[]),
+            node("b", &[], &[], &[]),
+        ];
+        assert_eq!(auto_sort(&loose), ["a", "b"]);
+    }
+
+    #[test]
+    fn auto_sort_gives_up_on_a_cycle_but_keeps_every_mod_once() {
+        let cycle = [
+            node("a", &["b"], &[], &[]),
+            node("b", &["a"], &[], &[]),
+            node("c", &[], &[], &[]),
+        ];
+        let mut order = auto_sort(&cycle);
+        order.sort();
+        assert_eq!(order, ["a", "b", "c"]);
+        // Asking to load before itself, or after itself, is nothing.
+        assert_eq!(auto_sort(&[node("a", &["a"], &["a"], &["a"])]), ["a"]);
     }
 
     #[test]
