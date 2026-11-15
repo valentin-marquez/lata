@@ -1,5 +1,8 @@
 ![lata](assets/banner.jpg)
 
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/jeGPaMkDbU)
+[![CI](https://img.shields.io/github/actions/workflow/status/valentin-marquez/lata/ci.yml?label=CI)](https://github.com/valentin-marquez/lata/actions/workflows/ci.yml)
+
 Instance launcher for Project Zomboid, rewritten from scratch in Rust.
 
 > Work in progress. Not usable yet.
@@ -22,6 +25,17 @@ natively, no SteamCMD.
 |---|---|
 | ![Mods of an instance](assets/screenshots/mods-dark.png) | ![Installing a collection](assets/screenshots/collection-dark.png) |
 | ![Installing a mod, light theme](assets/screenshots/mod-light.png) | |
+
+## lata link
+
+The browser extension adds an "Install in lata" button to Workshop pages.
+
+[![Chrome Web Store](https://img.shields.io/chrome-web-store/v/fopkfokkcmmhgjjdlbjjmdgkffddjbpm?label=Chrome&logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/fopkfokkcmmhgjjdlbjjmdgkffddjbpm)
+[![Firefox Add-ons](https://img.shields.io/amo/v/lata-link?label=Firefox&logo=firefoxbrowser&logoColor=white)](https://addons.mozilla.org/firefox/addon/lata-link/)
+
+## Community
+
+Questions, feedback and news are on [Discord](https://discord.gg/jeGPaMkDbU).
 
 ## Build
 
