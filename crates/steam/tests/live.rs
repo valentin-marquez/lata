@@ -32,7 +32,7 @@ async fn session_survives_past_the_heartbeat_interval() {
     assert!(!steam::pics::branches(&info).is_empty());
 }
 
-/// A small PZ mod. Set `LULO_STEAMCMD_MOD` to the folder SteamCMD downloaded for it to also
+/// A small PZ mod. Set `LATA_STEAMCMD_MOD` to the folder SteamCMD downloaded for it to also
 /// compare every file byte for byte.
 const MOD: u64 = 3832274571;
 
@@ -49,12 +49,12 @@ async fn downloads_a_workshop_mod_like_steamcmd() {
         .remove(0);
     assert_eq!(item.app, PROJECT_ZOMBOID);
 
-    let dir = std::env::temp_dir().join(format!("lulo-live-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("lata-live-{}", std::process::id()));
     steam::workshop::download(&mut client, &http, &item, &dir, |_| {})
         .await
         .expect("download");
 
-    if let Ok(reference) = std::env::var("LULO_STEAMCMD_MOD") {
+    if let Ok(reference) = std::env::var("LATA_STEAMCMD_MOD") {
         let mut compared = 0;
         let mut stack = vec![std::path::PathBuf::from(&reference)];
         while let Some(path) = stack.pop() {
@@ -141,7 +141,7 @@ async fn refuses_a_made_up_password_login() {
     let mut client = steam::Client::connect(&http).await.expect("connect");
     let result = steam::auth::password(
         &mut client,
-        "lulo-made-up-account-0001",
+        "lata-made-up-account-0001",
         "not-the-password",
         None,
     )

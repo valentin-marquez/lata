@@ -12,6 +12,6 @@ done
 install -Dm644 "$HERE/$ID.desktop" "$PREFIX/share/applications/$ID.desktop"
 command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -f -t "$PREFIX/share/icons/hicolor" || true
 command -v update-desktop-database >/dev/null && update-desktop-database "$PREFIX/share/applications" || true
-# Makes this the program that opens lulo:// links (the browser extension's).
-command -v xdg-mime >/dev/null && xdg-mime default "$ID.desktop" x-scheme-handler/lulo || true
+# Makes this the program that opens lata:// links (the browser extension's).
+command -v xdg-mime >/dev/null && xdg-mime default "$ID.desktop" x-scheme-handler/lata || true
 echo "Installed to $PREFIX"

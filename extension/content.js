@@ -1,9 +1,9 @@
-// Adds an "Install in lulo" button under Subscribe on the Steam Workshop page of a Project
-// Zomboid mod. The button is a plain link to lulo://install-mod?id=<id>; lulo checks the item
+// Adds an "Install in lata" button under Subscribe on the Steam Workshop page of a Project
+// Zomboid mod. The button is a plain link to lata://install-mod?id=<id>; lata checks the item
 // again and always asks before installing anything.
 (() => {
   const PROJECT_ZOMBOID = "108600";
-  const ID = "lulo-install";
+  const ID = "lata-install";
 
   // The item id is the page's `id` parameter, and nothing else is trusted to be one.
   const id = new URL(location.href).searchParams.get("id");
@@ -23,8 +23,8 @@
   const link = document.createElement("a");
   link.id = ID;
   link.className = ID;
-  link.href = `lulo://install-mod?id=${id}`;
-  link.title = text("installTip", "Opens lulo to install this mod");
+  link.href = `lata://install-mod?id=${id}`;
+  link.title = text("installTip", "Opens lata to install this mod");
 
   const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   icon.setAttribute("viewBox", "0 0 24 24");
@@ -37,7 +37,7 @@
   icon.append(arrow);
 
   const label = document.createElement("span");
-  label.textContent = text("install", "Install in lulo");
+  label.textContent = text("install", "Install in lata");
 
   link.append(icon, label);
   subscribe.insertAdjacentElement("afterend", link);

@@ -3528,6 +3528,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "lata"
+version = "0.1.0"
+dependencies = [
+ "auto-launch",
+ "chrono",
+ "dirs 6.0.0",
+ "embed-resource",
+ "gpui-kit",
+ "image",
+ "keyring",
+ "qrcode",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "steam",
+ "sysinfo",
+ "tokio",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3683,26 +3703,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_repr",
-]
-
-[[package]]
-name = "lulo"
-version = "0.1.0"
-dependencies = [
- "auto-launch",
- "chrono",
- "dirs 6.0.0",
- "embed-resource",
- "gpui-kit",
- "image",
- "keyring",
- "qrcode",
- "rusqlite",
- "serde",
- "serde_json",
- "steam",
- "sysinfo",
- "tokio",
 ]
 
 [[package]]

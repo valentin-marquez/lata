@@ -178,7 +178,7 @@ fn new_children(item: &PublishedFileDetails, seen: &mut HashSet<u64>) -> Vec<u64
 const PREVIEW_CAP: usize = 8 << 20;
 
 /// An `https` URL on one of the hosts Steam serves Workshop pictures from. The URL comes from
-/// what an item's author uploaded, so it is checked before lulo fetches it.
+/// what an item's author uploaded, so it is checked before lata fetches it.
 fn is_steam_image(url: &str) -> bool {
     let Some(host) = url
         .strip_prefix("https://")

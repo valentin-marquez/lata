@@ -1,4 +1,4 @@
-//! Native Steam client for lulo: CM connection over WebSocket, PICS app info, content delivery.
+//! Native Steam client for lata: CM connection over WebSocket, PICS app info, content delivery.
 //!
 //! Protocol notes and the reference implementation live outside the repo (see CLAUDE.md).
 

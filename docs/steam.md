@@ -1,6 +1,6 @@
-# How lulo talks to Steam
+# How lata talks to Steam
 
-lulo downloads Project Zomboid and its Workshop mods itself, without SteamCMD. This is the
+lata downloads Project Zomboid and its Workshop mods itself, without SteamCMD. This is the
 `crates/steam` crate.
 
 ## Connection
@@ -19,12 +19,12 @@ Sign in happens before logon, through Steam's Authentication service:
 - Password: the password is encrypted with Steam's RSA key for the account, then Steam
   Guard may ask for a code or an approval.
 
-Either way lulo polls until Steam returns a refresh token, logs on with it and keeps it in
+Either way lata polls until Steam returns a refresh token, logs on with it and keeps it in
 the OS keyring. The password itself is never stored.
 
 ## Game versions
 
-Each Project Zomboid version is a Steam branch (`public`, `legacy41`...). lulo reads the
+Each Project Zomboid version is a Steam branch (`public`, `legacy41`...). lata reads the
 app's product info, picks the branch's depots for the current OS and the manifest each one
 uses on that branch.
 

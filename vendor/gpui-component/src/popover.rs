@@ -22,7 +22,7 @@ pub(crate) fn init(_: &mut App) {}
 ///
 /// This is shadcn/ui's figure: its popup surfaces carry `animate-in`, whose
 /// duration is 150ms.
-// lulo: 200 ms, between Modrinth's 125 ms menus and transitions.dev's 250 ms (was 150 ms).
+// lata: 200 ms, between Modrinth's 125 ms menus and transitions.dev's 250 ms (was 150 ms).
 const DROPDOWN_ENTER_DURATION: Duration = Duration::from_millis(200);
 
 /// Where a dropdown starts out, relative to where it comes to rest.
@@ -93,7 +93,7 @@ pub(crate) fn dropdown_popup(
 
     dropdown_positioner(bounds).child(surface.with_animation(
         id,
-        // lulo: transitions.dev's cubic-bezier(0.22, 1, 0.36, 1), which is ease-out quint.
+        // lata: transitions.dev's cubic-bezier(0.22, 1, 0.36, 1), which is ease-out quint.
         Animation::new(DROPDOWN_ENTER_DURATION).with_easing(ease_out_quint),
         move |surface, delta| {
             surface
@@ -349,7 +349,7 @@ impl RenderOnce for Popover {
             .default_open(self.default_open)
             .overlay_closable(self.overlay_closable)
             .content(move |state, window, cx| {
-                // lulo: every popover (dropdown menus included) enters like `dropdown_popup`.
+                // lata: every popover (dropdown menus included) enters like `dropdown_popup`.
                 // The element state is dropped while closed, so each open starts over.
                 let travel: f32 = DROPDOWN_ENTER_OFFSET.into();
                 v_flex()
@@ -1014,7 +1014,7 @@ mod tests {
     }
 }
 
-/// lulo: fast start, long soft landing; `cubic-bezier(0.22, 1, 0.36, 1)` traces this curve.
+/// lata: fast start, long soft landing; `cubic-bezier(0.22, 1, 0.36, 1)` traces this curve.
 fn ease_out_quint(t: f32) -> f32 {
     1. - (1. - t).powi(5)
 }

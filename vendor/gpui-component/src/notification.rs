@@ -26,14 +26,14 @@ use crate::{
     v_flex,
 };
 
-// lulo: Modrinth's toast timing, 250 ms in and out (was 400 / 200 ms), travelling about its own
+// lata: Modrinth's toast timing, 250 ms in and out (was 400 / 200 ms), travelling about its own
 // height (was 96 px, which read as flying in from far away).
 const NOTIFICATION_TRANSITION_DURATION: Duration = Duration::from_millis(250);
 const NOTIFICATION_EXIT_DURATION: Duration = Duration::from_millis(200);
 const NOTIFICATION_TRANSITION_OFFSET: Pixels = px(56.);
 
-/// lulo: the stack moves on the same 250 ms as the toasts (Sonner's is 400 ms).
-fn lulo_motion() -> ToastMotion {
+/// lata: the stack moves on the same 250 ms as the toasts (Sonner's is 400 ms).
+fn lata_motion() -> ToastMotion {
     ToastMotion {
         duration: NOTIFICATION_TRANSITION_DURATION,
         exit_duration: NOTIFICATION_EXIT_DURATION,
@@ -433,7 +433,7 @@ impl Render for Notification {
         };
         let placement = self.placement.unwrap_or(cx.theme().notification.placement);
 
-        // lulo: a compact pill that hugs its text, centered in the stack: status icon and one
+        // lata: a compact pill that hugs its text, centered in the stack: status icon and one
         // line; with a title it grows to two lines (title, then the detail in muted text). No
         // close button, which sat over the text at this size: a click dismisses it.
         let two_lines = self.title.is_some() && (self.message.is_some() || content.is_some());
@@ -511,7 +511,7 @@ impl Render for Notification {
                 } else {
                     NOTIFICATION_TRANSITION_DURATION
                 })
-                // lulo: ease-out quint, like every other entrance in the app.
+                // lata: ease-out quint, like every other entrance in the app.
                 .with_easing(|t| 1. - (1. - t).powi(5)),
                 move |this, delta| {
                     if closing {
@@ -553,7 +553,7 @@ impl Render for Notification {
                     }
                 },
             );
-        // lulo: the stack gives every toast its full width; the pill sits in the middle of it.
+        // lata: the stack gives every toast its full width; the pill sits in the middle of it.
         div().w_full().flex().justify_center().child(toast)
     }
 }
@@ -739,7 +739,7 @@ pub struct NotificationList {
 impl NotificationList {
     pub fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
         Self {
-            notifications: ToastManager::new(lulo_motion()),
+            notifications: ToastManager::new(lata_motion()),
             stacks: Vec::new(),
             focus_handle: cx.focus_handle().tab_stop(true),
             autohide_ids: HashSet::new(),
@@ -897,7 +897,7 @@ impl NotificationList {
             id,
             notification,
             ToastOptions {
-                // lulo: a one-line toast leaves after 3 s (was 5 s for all); one with a detail
+                // lata: a one-line toast leaves after 3 s (was 5 s for all); one with a detail
                 // line stays the 5 s it takes to read it.
                 timeout: autohide.then_some(Duration::from_secs(if lingers { 5 } else { 3 })),
             },
@@ -1079,7 +1079,7 @@ impl Render for NotificationList {
                     |stack, (id, item)| stack.item(format!("{id:?}"), item),
                 )
                 .placement(anchor)
-                .motion(lulo_motion())
+                .motion(lata_motion())
                 .focus_handle(stack.focus_handle.clone())
                 .v_flex()
                 .w(width)

@@ -858,7 +858,7 @@ impl RenderOnce for Dialog {
                                                         .ghost()
                                                         .icon(IconName::Close)
                                                         .accessibility_label("Close")
-                                                        // lulo: everything clickable shows the hand.
+                                                        // lata: everything clickable shows the hand.
                                                         .cursor_pointer()
                                                 })
                                         }))

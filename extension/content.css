@@ -1,4 +1,4 @@
-.lulo-install {
+.lata-install {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -15,11 +15,11 @@
   cursor: pointer;
 }
 
-.lulo-install:hover {
+.lata-install:hover {
   background: #5f97b4;
 }
 
-.lulo-install svg {
+.lata-install svg {
   flex: none;
   width: 14px;
   height: 14px;

@@ -46,7 +46,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --release --locked -p lulo
+        run: cargo build --release --locked -p lata
 
       # The folder layout of the repository is kept, because install-icons.sh finds the icons
       # and the .desktop file relative to itself.
@@ -55,7 +55,7 @@ jobs:
         run: |
           name="lata-$VERSION-linux-x86_64"
           mkdir -p "pkg/$name/packaging" "pkg/$name/assets/icons" dist
-          cp target/release/lulo README.md "pkg/$name/"
+          cp target/release/lata README.md "pkg/$name/"
           cp -r packaging/linux "pkg/$name/packaging/"
           cp -r assets/icons/png "pkg/$name/assets/icons/"
           tar -C pkg -czf "dist/$name.tar.gz" "$name"
@@ -66,7 +66,7 @@ jobs:
         run: |
           $name = "lata-$env:VERSION-windows-x86_64"
           New-Item -ItemType Directory -Force "pkg/$name", dist | Out-Null
-          Copy-Item target/release/lulo.exe, README.md "pkg/$name/"
+          Copy-Item target/release/lata.exe, README.md "pkg/$name/"
           Compress-Archive -Path "pkg/$name" -DestinationPath "dist/$name.zip"
 
       # Not signed or notarized: macOS asks the user to allow it on first open. The ad-hoc
@@ -75,7 +75,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           name="lata-$VERSION-macos-arm64"
-          sh packaging/macos/make-bundle.sh target/release/lulo
+          sh packaging/macos/make-bundle.sh target/release/lata
           codesign --force --deep --sign - Lata.app
           mkdir -p dmg dist
           mv Lata.app dmg/

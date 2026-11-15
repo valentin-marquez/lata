@@ -25,7 +25,7 @@ use packet::{Packet, emsg};
 
 /// Value steamclient sends; accepted by the server (exact origin still to confirm).
 const PROTOCOL_VERSION: u32 = 65580;
-/// `EOSType` of the OS lulo runs on; the user's authorized devices list it next to
+/// `EOSType` of the OS lata runs on; the user's authorized devices list it next to
 /// [`DEVICE_NAME`]. Linux is what Steam itself reported from Linux 6.18; macOS is
 /// `MacOSUnknown`.
 // ponytail: Windows always says Windows 11 (20); tell 10 (16) apart by build number if
@@ -45,7 +45,7 @@ const OK: i32 = 1;
 /// Steam's usual interval, for a logon response that doesn't say.
 const HEARTBEAT: u64 = 9;
 /// How this machine shows up in the user's Steam authorized devices.
-pub(crate) const DEVICE_NAME: &str = "lulo";
+pub(crate) const DEVICE_NAME: &str = "lata";
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type Replies = UnboundedSender<Result<Packet>>;

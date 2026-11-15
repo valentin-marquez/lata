@@ -5,7 +5,7 @@
   <key>CFBundleName</key><string>Lata</string>
   <key>CFBundleDisplayName</key><string>Lata</string>
   <key>CFBundleIdentifier</key><string>io.github.valentin-marquez.Lata</string>
-  <key>CFBundleExecutable</key><string>lulo</string>
+  <key>CFBundleExecutable</key><string>lata</string>
   <key>CFBundleIconFile</key><string>lata</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
@@ -15,9 +15,9 @@
   <key>CFBundleURLTypes</key>
   <array>
     <dict>
-      <key>CFBundleURLName</key><string>Lulo link</string>
+      <key>CFBundleURLName</key><string>Lata link</string>
       <key>CFBundleURLSchemes</key>
-      <array><string>lulo</string></array>
+      <array><string>lata</string></array>
     </dict>
   </array>
 </dict>

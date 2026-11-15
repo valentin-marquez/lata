@@ -409,7 +409,7 @@ impl TabVariant {
     fn radius(&self, size: Size, cx: &App) -> Pixels {
         match self {
             TabVariant::Outline => cx.theme().radius_full(),
-            // lulo: pills take the theme radius less the 4 px of the tray they sit in, so they
+            // lata: pills take the theme radius less the 4 px of the tray they sit in, so they
             // run concentric with it and match the inputs' corners (upstream: fully round).
             TabVariant::Pill => (cx.theme().radius - px(4.)).max(px(4.)),
             TabVariant::Segmented => match size {

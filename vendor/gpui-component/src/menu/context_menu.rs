@@ -191,7 +191,7 @@ impl DeferredMenu {
                             .position(self.position)
                             .snap_to_window_with_margin(px(8.))
                             .anchor(self.anchor)
-                            // lulo: the menu fades in rising 6px, like every other popover
+                            // lata: the menu fades in rising 6px, like every other popover
                             // (200 ms, ease-out quint). Each open makes a new menu entity, so
                             // keying on it replays the entrance.
                             .child(

@@ -1,7 +1,7 @@
-# lulo browser extension
+# lata browser extension
 
-Adds an **Install in lulo** button under Subscribe on the Steam Workshop page of a Project
-Zomboid mod. The button is a plain link to `lulo://install-mod?id=<id>`: lulo checks the item
+Adds an **Install in lata** button under Subscribe on the Steam Workshop page of a Project
+Zomboid mod. The button is a plain link to `lata://install-mod?id=<id>`: lata checks the item
 against Steam again and always asks which instance it goes into before installing anything.
 
 It has no background script, asks for no permissions beyond running on the two Workshop page
@@ -12,8 +12,8 @@ collections) and its breadcrumb links to Project Zomboid (app 108600).
 
 ## Try it
 
-lulo has to be able to open `lulo://` links: on Windows, turn on *Open links from the browser* in
-lulo's Settings, Behavior. The first click may make the browser ask to allow opening lulo.
+lata has to be able to open `lata://` links: on Windows, turn on *Open links from the browser* in
+lata's Settings, Behavior. The first click may make the browser ask to allow opening lata.
 
 - **Chrome, Edge, Brave**: `chrome://extensions`, turn on Developer mode, *Load unpacked*, pick
   this folder.
@@ -28,7 +28,7 @@ same on every system:
 
 ```sh
 cd extension
-python -m zipfile -c ../lulo-extension.zip manifest.json content.js content.css _locales icons
+python -m zipfile -c ../lata-extension.zip manifest.json content.js content.css _locales icons
 ```
 
 ## Not done yet
