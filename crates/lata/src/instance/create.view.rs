@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use super::branches::{self, Branch};
+use super::existing::{self, Existing};
 use super::install::size;
 use super::mods::{self, Bundle};
 use super::picture::{self, Picker};
@@ -31,6 +32,7 @@ enum Step {
 pub type Mods = Option<(SharedString, Vec<u64>)>;
 
 type Created = Rc<dyn Fn(Instance, Mods, &mut Window, &mut App)>;
+type Bring = Rc<dyn Fn(Existing, &mut Window, &mut App)>;
 
 /// What is known about the pasted collection link.
 enum Lookup {
@@ -43,10 +45,12 @@ enum Lookup {
 
 /// Opens the dialog. `created` runs after a new instance is written under `root`, with the
 /// mods to install into it when it started from a collection. With `collection` (a link
-/// brought it) the dialog opens on that collection, already found.
+/// brought it) the dialog opens on that collection, already found. `bring` takes over when
+/// the game someone already plays is chosen as the start.
 pub fn open(
     root: PathBuf,
     collection: Option<Bundle>,
+    bring: impl Fn(Existing, &mut Window, &mut App) + 'static,
     created: impl Fn(Instance, Mods, &mut Window, &mut App) + 'static,
     window: &mut Window,
     cx: &mut App,
@@ -54,6 +58,7 @@ pub fn open(
     let created: Created = Rc::new(created);
     let view = cx.new(|cx| {
         let mut create = Create::new(root, created, window, cx);
+        create.bring = Some(Rc::new(bring));
         create.load(cx);
         if let Some(found) = collection {
             create.start_from(found, window, cx);
@@ -74,6 +79,9 @@ pub fn open(
 struct Create {
     root: PathBuf,
     created: Created,
+    bring: Option<Bring>,
+    /// The game played without lata, when its folder has something to bring.
+    existing: Option<Existing>,
     step: Step,
     /// Whether the last step change went forward; steps slide in from that side.
     forward: bool,
@@ -106,6 +114,8 @@ impl Create {
         Self {
             root,
             created,
+            bring: None,
+            existing: existing::home().and_then(|dir| existing::find(&dir)),
             step: Step::Choose,
             forward: true,
             branches: None,
@@ -294,17 +304,37 @@ impl Create {
                 false,
             ),
         ];
-        div()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .children(options.into_iter().enumerate().map(
-                |(ix, (step, icon, title, line, enabled))| {
+        // Its own dialog: the worlds found decide the game version, so there is no form here.
+        let existing = self
+            .existing
+            .clone()
+            .zip(self.bring.clone())
+            .map(|(game, bring)| {
+                option(
+                    options.len(),
+                    IconName::Globe,
+                    "From the game you already play",
+                    "Bring your worlds, their mods and your settings over.",
+                    true,
+                    cx,
+                )
+                .on_click(move |_, window, cx| {
+                    let (game, bring) = (game.clone(), bring.clone());
+                    window.close_dialog(cx);
+                    // After this update ends, so the next dialog opens once this one is closing.
+                    window.defer(cx, move |window, cx| bring(game, window, cx));
+                })
+            });
+        div().flex().flex_col().gap_3().children(existing).children(
+            options
+                .into_iter()
+                .enumerate()
+                .map(|(ix, (step, icon, title, line, enabled))| {
                     option(ix, icon, title, line, enabled, cx).when(enabled, |this| {
                         this.on_click(cx.listener(move |this, _, _, cx| this.go(step, cx)))
                     })
-                },
-            ))
+                }),
+        )
     }
 
     /// Game version: one chip per Steam branch, the chosen one filled.

@@ -8,6 +8,10 @@ pub mod branches;
 pub mod create;
 #[path = "detail.view.rs"]
 pub mod detail;
+#[path = "existing.model.rs"]
+pub mod existing;
+#[path = "existing.view.rs"]
+pub mod existing_view;
 #[path = "import.model.rs"]
 pub mod import;
 #[path = "install.model.rs"]

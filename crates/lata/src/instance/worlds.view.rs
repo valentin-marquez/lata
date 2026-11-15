@@ -43,9 +43,10 @@ pub fn worlds(worlds: &[World], cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-fn row(ix: usize, world: &World, last: bool, cx: &App) -> impl IntoElement {
+/// A world's screenshot, or a globe when the game hasn't saved one.
+pub(super) fn thumb(world: &World, cx: &App) -> Div {
     let theme = cx.theme();
-    let thumb = match &world.thumb {
+    match &world.thumb {
         Some(path) => div().flex_none().size(THUMB).child(
             img(path.clone())
                 .size_full()
@@ -68,7 +69,11 @@ fn row(ix: usize, world: &World, last: bool, cx: &App) -> impl IntoElement {
             .bg(theme.muted)
             .text_color(theme.muted_foreground)
             .child(Icon::new(IconName::Globe).size_4()),
-    };
+    }
+}
+
+fn row(ix: usize, world: &World, last: bool, cx: &App) -> impl IntoElement {
+    let theme = cx.theme();
     let saved = super::store::now().saturating_sub(world.saved);
     let dir = world.dir.clone();
     div()
@@ -78,7 +83,7 @@ fn row(ix: usize, world: &World, last: bool, cx: &App) -> impl IntoElement {
         .px_4()
         .py_3()
         .when(!last, |row| row.border_b_1().border_color(theme.border))
-        .child(thumb)
+        .child(thumb(world, cx))
         .child(
             div()
                 .flex()

@@ -109,30 +109,11 @@ fn read(dir: &Path, mode: &str) -> World {
     }
 }
 
-/// Where the game keeps solo saves unless told otherwise: `~/Zomboid/Saves`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Worlds tab's import action (#36) will call it"
-    )
-)]
-pub fn game_saves_dir() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join("Zomboid/Saves"))
-}
-
 /// Copies the save at `source` (`.../Saves/<game mode>/<world>`) into `cachedir` as a new
 /// world, and returns it. The source is only read. A name already taken gets a number
 /// (`Rosewood run 2`), nothing is ever overwritten, and the copy is made out of the way and
 /// moved into place, so the game never sees a half-copied world. `progress` gets the bytes
 /// copied so far and the total, after each file.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Worlds tab's import action (#36) will call it"
-    )
-)]
 pub fn import(
     source: &Path,
     cachedir: &Path,
@@ -187,7 +168,7 @@ fn identify(source: &Path) -> io::Result<(String, String)> {
 }
 
 /// Bytes in the files under `dir`; links are not followed.
-fn size(dir: &Path) -> io::Result<u64> {
+pub(super) fn size(dir: &Path) -> io::Result<u64> {
     let mut total = 0;
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
@@ -202,7 +183,7 @@ fn size(dir: &Path) -> io::Result<u64> {
 }
 
 /// Copies the folders and files of `from` to `to`; links are left behind.
-fn copy(
+pub(super) fn copy(
     from: &Path,
     to: &Path,
     done: &mut u64,
@@ -432,10 +413,5 @@ mod tests {
         assert!(import(&source, &cachedir, |_, _| {}).is_err());
         assert_eq!(files_in(&cachedir), ["Saves"], "no staging folder is left");
         std::fs::remove_dir_all(&base).unwrap();
-    }
-
-    #[test]
-    fn the_games_own_saves_folder() {
-        assert!(game_saves_dir().is_none_or(|dir| dir.ends_with("Zomboid/Saves")));
     }
 }

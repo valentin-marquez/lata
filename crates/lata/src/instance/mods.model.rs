@@ -189,14 +189,14 @@ fn info_dir(dir: &Path, modern: bool, version: Option<Version>) -> Option<PathBu
 }
 
 /// The ids `default.txt` lists, and the maps block kept as it was.
-#[derive(Debug, Default, PartialEq)]
-struct Active {
-    mods: Vec<String>,
-    maps: Vec<String>,
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Active {
+    pub mods: Vec<String>,
+    pub maps: Vec<String>,
 }
 
 impl Active {
-    fn parse(text: &str) -> Self {
+    pub fn parse(text: &str) -> Self {
         let mut active = Self::default();
         for line in text.lines() {
             let Some((key, value)) = line.split_once('=') else {
@@ -265,6 +265,31 @@ fn write_active(instance: &Instance, active: &Active, modern: bool) -> io::Resul
         )?;
     }
     std::fs::write(dir.join("default.txt"), active.write(modern))
+}
+
+/// Makes `active` the instance's list of mods to load, in its game's format: what an instance
+/// made from a game someone already plays starts with.
+pub fn activate(instance: &Instance, active: &Active) -> io::Result<()> {
+    write_active(instance, active, is_modern(instance))
+}
+
+/// Every id the mod in `folder` goes by, whichever build reads it: Build 41 keeps `mod.info`
+/// at the top, Build 42 in `common/` or a version folder, and one mod can carry both.
+pub fn ids_in(folder: &Path) -> Vec<String> {
+    let inner = std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path());
+    let mut ids: Vec<String> = std::iter::once(folder.to_owned())
+        .chain(inner)
+        .filter_map(|dir| std::fs::read_to_string(dir.join("mod.info")).ok())
+        .filter_map(|text| parse_info(&text))
+        .map(|info| info.id)
+        .collect();
+    ids.sort();
+    ids.dedup();
+    ids
 }
 
 /// The mods in the instance that its game can load, by name.

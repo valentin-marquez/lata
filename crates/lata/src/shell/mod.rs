@@ -840,6 +840,162 @@ impl Shell {
         .detach();
     }
 
+    /// Offers the game someone already plays, once: on the first start with no instances yet,
+    /// when the game's own folder has worlds or mods to bring. Declined, it stays reachable
+    /// from the create dialog.
+    pub fn welcome(shell: WeakEntity<Shell>, window: &mut Window, cx: &mut App) {
+        use instance::existing;
+        let fresh = shell
+            .read_with(cx, |shell, _| shell.instances.is_empty())
+            .unwrap_or(false);
+        if !fresh || crate::settings::load().existing_offered {
+            return;
+        }
+        let Some(game) = existing::home().and_then(|dir| existing::find(&dir)) else {
+            return;
+        };
+        crate::settings::update(|saved| saved.existing_offered = true);
+        instance::existing_view::open(game, shell, window, cx);
+    }
+
+    /// Makes an instance for each of `plans` out of `game` and starts bringing its things in.
+    /// The first one is shown and its game install starts, as for any new instance.
+    pub fn adopt(
+        shell: WeakEntity<Shell>,
+        game: instance::existing::Existing,
+        plans: Vec<instance::existing::Plan>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        use gpui_kit::component::WindowExt;
+        let handle = window.window_handle();
+        let made = shell.update(cx, |shell, cx| {
+            let mut first = None;
+            for plan in plans {
+                // The branch names Steam gives the two build lines; an instance can move to
+                // another branch of its line later.
+                let (name, branch) = if plan.modern {
+                    ("My game", "public")
+                } else {
+                    ("My Build 41 game", "legacy41")
+                };
+                let created = store::create(&shell.root, name, branch)?;
+                first.get_or_insert(created.id.clone());
+                shell.bring(game.clone(), plan, created, handle, cx);
+            }
+            shell.instances = store::list(&shell.root);
+            let ix = first
+                .as_ref()
+                .and_then(|id| shell.instances.iter().position(|i| i.id == *id));
+            shell.go(ix.map_or(Page::Library, Page::Instance), cx);
+            std::io::Result::Ok(first)
+        });
+        match made {
+            Ok(Ok(Some(id))) => Shell::play(shell, id, window, cx),
+            Ok(Err(err)) => window.push_notification(
+                crate::ui::toast::failed_because("Well, that instance didn't happen", err),
+                cx,
+            ),
+            _ => {}
+        }
+    }
+
+    /// Copies what `plan` takes of `game` into `instance`, then downloads the Workshop mods
+    /// its worlds load, all as one entry of the download manager.
+    fn bring(
+        &mut self,
+        game: instance::existing::Existing,
+        plan: instance::existing::Plan,
+        instance: Instance,
+        window: AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) {
+        use gpui_kit::component::WindowExt;
+        // A mod key, so the instance counts as getting mods: it can't be deleted meanwhile.
+        let key = mod_key(&instance.id, "existing");
+        let name = instance.name.clone();
+        let (events_tx, mut events) = tokio::sync::mpsc::unbounded_channel();
+        let task = crate::runtime::spawn({
+            let name = name.clone();
+            async move {
+                let copying = (events_tx.clone(), name);
+                let (from, plan_, into) = (game, plan.clone(), instance.clone());
+                let sources = crate::runtime::blocking(move || {
+                    from.copy(&plan_, &into, |done, total| {
+                        let _ = copying.0.send((copying.1.clone(), done, total));
+                    })
+                    .map_err(|err| err.to_string())?;
+                    Ok::<_, String>(from.sources(&plan_, &instance::import::workshop()))
+                })
+                .await??;
+                // The worlds are in by now: mods that fail leave an instance worth keeping.
+                let mods = if sources.workshop.is_empty() {
+                    Ok(())
+                } else {
+                    let items = sources.workshop.clone();
+                    instance::mods::install(instance.clone(), items, move |title, done, total| {
+                        let _ = events_tx.send((title.to_owned().into(), done, total));
+                    })
+                    .await
+                    // Installing turns on every mod an item carries; back to what was played.
+                    .and_then(|_| {
+                        instance::mods::activate(&instance, &plan.active)
+                            .map_err(|err| err.to_string())
+                    })
+                };
+                Ok::<_, String>((sources.missing, mods))
+            }
+        });
+        self.installs.insert(
+            key.clone(),
+            install::Download::new(
+                name.clone(),
+                install::Kind::Existing,
+                Some(task.abort_handle()),
+            ),
+        );
+        self.changed(cx);
+        cx.spawn(async move |this, cx| {
+            // The senders live in the task: this loop ends when the task does.
+            while let Some((title, done, total)) = events.recv().await {
+                let _ = this.update(cx, |shell, cx| {
+                    let Some(download) = shell.installs.get_mut(&key) else {
+                        return;
+                    };
+                    let renamed = download.name != title;
+                    download.name = title;
+                    if download.progress(done, total, std::time::Instant::now()) || renamed {
+                        shell.changed(cx);
+                    }
+                });
+            }
+            let brought = task.await;
+            let _ = this.update(cx, |shell, cx| {
+                shell.installs.remove(&key);
+                shell.reload(cx);
+            });
+            use crate::ui::toast;
+            let note = match brought {
+                Ok(Ok((missing, Ok(())))) if missing.is_empty() => {
+                    toast::done(format!("{name} is in! Worlds, mods and settings made it"))
+                }
+                Ok(Ok((missing, Ok(())))) => toast::heads_up(
+                    "Almost everything made it",
+                    format!(
+                        "Steam doesn't have these mods here, add them from the Workshop: {}",
+                        missing.join(", ")
+                    ),
+                ),
+                Ok(Ok((_, Err(why)))) => toast::heads_up("Your mods got stuck on the way", why),
+                Ok(Err(why)) => toast::failed_because("Couldn't bring your game over", why),
+                // Cancelled from the download manager: nothing to say.
+                Err(_) => return,
+            };
+            let _ = window.update(cx, |_, window, cx| window.push_notification(note, cx));
+        })
+        .detach();
+    }
+
     /// Opens the create dialog; a created instance is listed, selected and installed.
     pub fn create(shell: WeakEntity<Shell>, window: &mut Window, cx: &mut App) {
         Self::create_from(shell, None, window, cx);
@@ -855,9 +1011,13 @@ impl Shell {
         let Ok(root) = shell.read_with(cx, |shell, _| shell.root.clone()) else {
             return;
         };
+        let existing = shell.clone();
         instance::create::open(
             root,
             collection,
+            move |game, window, cx| {
+                instance::existing_view::open(game, existing.clone(), window, cx)
+            },
             move |created, mods, window, cx| {
                 let handle = window.window_handle();
                 let _ = shell.update(cx, |shell, cx| {

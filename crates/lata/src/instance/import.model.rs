@@ -29,6 +29,17 @@ pub fn find() -> Option<SteamInstall> {
         .find_map(|library| read(&library))
 }
 
+/// The folders where Steam keeps the Workshop items of the game, one per library that has any:
+/// `steamapps/workshop/content/<app>`, with a folder per item named by its id.
+pub fn workshop() -> Vec<PathBuf> {
+    steam_roots()
+        .iter()
+        .flat_map(|root| libraries(root))
+        .map(|library| library.join(format!("steamapps/workshop/content/{APP}")))
+        .filter(|dir| dir.is_dir())
+        .collect()
+}
+
 /// Where the Steam client may live on this system; only folders that have a `steamapps`.
 fn steam_roots() -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();

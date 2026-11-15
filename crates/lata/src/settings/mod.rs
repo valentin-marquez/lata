@@ -26,6 +26,10 @@ pub struct Saved {
     /// The id of the instance a mod was last installed into from a link.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install_target: Option<String>,
+    /// Whether the game someone already plays was offered on a first start; it is offered
+    /// once, and stays in the create dialog after that.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub existing_offered: bool,
 }
 
 fn file() -> PathBuf {
@@ -605,6 +609,7 @@ mod tests {
         let written = serde_json::to_string(&Saved {
             theme: Mode::Dark,
             install_target: Some("rooftop".into()),
+            ..Saved::default()
         })
         .unwrap();
         assert_eq!(written, r#"{"theme":"dark","install_target":"rooftop"}"#);

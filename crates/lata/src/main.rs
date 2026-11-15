@@ -96,6 +96,9 @@ fn main() {
                 }
             })
             .detach();
+            // Once the window is up: a dialog needs its root view in place.
+            let first = shell.downgrade();
+            window.defer(cx, move |window, cx| Shell::welcome(first, window, cx));
             shell
         })
         .expect("failed to open main window");
