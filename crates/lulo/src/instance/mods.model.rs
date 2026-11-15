@@ -918,6 +918,7 @@ mod tests {
             preview: None,
             requires: Vec::new(),
             subscriptions: 0,
+            file_type: 0,
         };
         let bundle = Bundle {
             id: 1,
@@ -1247,6 +1248,7 @@ mod tests {
             preview: None,
             requires: Vec::new(),
             subscriptions: 0,
+            file_type: 0,
         };
         put(&dir, ".incoming/7/mods/One/42/mod.info", "id=One");
         put(&dir, ".incoming/7/mods/Old/42/mod.info", "id=Old");

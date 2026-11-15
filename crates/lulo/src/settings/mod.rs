@@ -23,6 +23,9 @@ use crate::ui::FancyButton;
 pub struct Saved {
     #[serde(default)]
     pub theme: Mode,
+    /// The id of the instance a mod was last installed into from a link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_target: Option<String>,
 }
 
 fn file() -> PathBuf {
@@ -49,6 +52,18 @@ pub fn update(change: impl FnOnce(&mut Saved)) {
         let _ = std::fs::create_dir_all(dir);
     }
     let _ = std::fs::write(path, text);
+}
+
+/// The instance a mod was last installed into from a link, to have it selected the next time.
+#[expect(dead_code, reason = "the link handler (#37) will call it")]
+pub fn install_target() -> Option<String> {
+    load().install_target
+}
+
+/// Remembers the instance a mod was just installed into from a link.
+#[expect(dead_code, reason = "the link handler (#37) will call it")]
+pub fn set_install_target(instance: &str) {
+    update(|saved| saved.install_target = Some(instance.to_owned()));
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -536,7 +551,31 @@ mod tests {
         assert!(read(r#"{"theme":"light"}"#).unwrap() == Mode::Light);
         assert!(read("{}").unwrap() == Mode::System);
         assert!(read(r#"{"theme":"purple"}"#).is_err());
-        let written = serde_json::to_string(&Saved { theme: Mode::Light }).unwrap();
-        assert_eq!(written, r#"{"theme":"light"}"#);
+        let written = serde_json::to_string(&Saved {
+            theme: Mode::Light,
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(written, r#"{"theme":"light"}"#, "nothing extra when unset");
+    }
+
+    #[test]
+    fn remembers_the_instance_a_mod_went_into() {
+        let saved = |text: &str| serde_json::from_str::<Saved>(text).unwrap();
+        assert_eq!(saved("{}").install_target, None);
+        assert_eq!(
+            saved(r#"{"install_target":"rooftop"}"#)
+                .install_target
+                .as_deref(),
+            Some("rooftop")
+        );
+        // An older file without the field keeps working, and the theme is untouched.
+        assert!(saved(r#"{"theme":"dark"}"#).theme == Mode::Dark);
+        let written = serde_json::to_string(&Saved {
+            theme: Mode::Dark,
+            install_target: Some("rooftop".into()),
+        })
+        .unwrap();
+        assert_eq!(written, r#"{"theme":"dark","install_target":"rooftop"}"#);
     }
 }

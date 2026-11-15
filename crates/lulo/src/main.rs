@@ -4,6 +4,7 @@ mod discover;
 mod game;
 mod instance;
 mod library;
+mod link;
 mod runtime;
 mod screenshots;
 mod settings;

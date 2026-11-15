@@ -37,6 +37,16 @@ pub struct Item {
     pub requires: Vec<u64>,
     /// How many users are subscribed to it now.
     pub subscriptions: u32,
+    /// `EWorkshopFileType`: 0 for a mod; guides, art, collections and the rest have another.
+    pub file_type: u32,
+}
+
+impl Item {
+    /// Whether it is a regular Workshop mod, and not a guide, art or something else that has
+    /// files too.
+    pub fn is_mod(&self) -> bool {
+        self.file_type == 0
+    }
 }
 
 impl From<PublishedFileDetails> for Item {
@@ -52,6 +62,7 @@ impl From<PublishedFileDetails> for Item {
             preview: d.preview_url.clone().filter(|url| is_steam_image(url)),
             requires: d.children.iter().map(|c| c.publishedfileid()).collect(),
             subscriptions: d.subscriptions(),
+            file_type: d.file_type(),
             // Last: it moves out of `d`.
             file_url: d.file_url.filter(|u| !u.is_empty()),
         }
