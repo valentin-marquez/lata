@@ -45,6 +45,36 @@ const NEVER: [&str; 6] = [
     "mods/default.txt",
 ];
 
+/// What a folder or file of `zomboid/` is for, for players who don't know the game's
+/// folders. Read from a real `~/Zomboid` and the game's `ZomboidFileSystem`.
+pub fn about(path: &Path) -> Option<&'static str> {
+    Some(match path.to_str()? {
+        "Lua" => {
+            "Mod options and in-game settings: key bindings, the UI layout and characters saved \
+             in the creation screen."
+        }
+        "mods" => {
+            "Mods added by hand, not from the Workshop. Workshop mods go as links, so they \
+             don't show here."
+        }
+        "Saves" => "Your worlds. They can weigh gigabytes, and friends usually start their own.",
+        "Server" => {
+            "Hosting settings: server rules, sandbox options and spawn points. Passwords and \
+             tokens are left out."
+        }
+        "Sandbox Presets" => {
+            "Sandbox settings saved in the game's setup screen, like zombie count and loot."
+        }
+        "db" => "Your saved server list. It can hold server passwords, so keep it to yourself.",
+        "Crafting" => "A list of recipes the game writes for itself. It makes it again.",
+        "Screenshots" => "Pictures you took in the game.",
+        "options.ini" => {
+            "Your own game options: screen, sound and controls. Everyone keeps their own."
+        }
+        _ => return None,
+    })
+}
+
 /// Keys of a server's settings that are secrets: they go in a pack blank, in any file under
 /// `Server/` (a backup copy of the `.ini` holds them too) and in any case.
 const SECRETS: [&str; 3] = ["Password", "RCONPassword", "DiscordToken"];
@@ -568,6 +598,13 @@ mod tests {
         assert_eq!(mods::active(&made).mods, ["Brita", "Local"]);
         std::fs::remove_dir_all(&root).unwrap();
         std::fs::remove_dir_all(&other).unwrap();
+    }
+
+    #[test]
+    fn explains_every_folder_checked_from_the_start() {
+        for picked in PICKED {
+            assert!(about(Path::new(picked)).is_some(), "{picked}");
+        }
     }
 
     #[test]

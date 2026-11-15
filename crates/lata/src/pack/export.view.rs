@@ -11,6 +11,7 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::dialog::DialogEntrance;
 use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme, Icon, WindowExt};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -384,6 +385,22 @@ impl Export {
                             .text_color(theme.muted_foreground),
                     )
                     .child(div().text_sm().truncate().child(row.name.clone()))
+                    .children(super::about(&row.path).map(|about| {
+                        div()
+                            .id(SharedString::from(format!("about-{}", row.path.display())))
+                            .flex_none()
+                            .tooltip(move |window, cx| {
+                                // A sentence or two: wrapped, not one line across the dialog.
+                                Tooltip::element(move |_, _| div().max_w(px(280.)).child(about))
+                                    .build(window, cx)
+                            })
+                            .child(
+                                Icon::empty()
+                                    .path("icons/circle-help.svg")
+                                    .size_4()
+                                    .text_color(theme.muted_foreground),
+                            )
+                    }))
                     .when(checked.is_none(), |this| {
                         this.child(
                             div()

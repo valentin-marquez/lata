@@ -34,6 +34,7 @@ ui_icons!(
     "chevron-up",
     "chevrons-up-down",
     "circle-check",
+    "circle-help",
     "circle-user",
     "circle-x",
     "clock",
