@@ -1,6 +1,7 @@
 //! The worlds an instance has saved: `<cachedir>/Saves/<game mode>/<world>/`, the folder the
 //! game's Load screen reads.
 
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -108,6 +109,141 @@ fn read(dir: &Path, mode: &str) -> World {
     }
 }
 
+/// Where the game keeps solo saves unless told otherwise: `~/Zomboid/Saves`.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Worlds tab's import action (#36) will call it"
+    )
+)]
+pub fn game_saves_dir() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join("Zomboid/Saves"))
+}
+
+/// Copies the save at `source` (`.../Saves/<game mode>/<world>`) into `cachedir` as a new
+/// world, and returns it. The source is only read. A name already taken gets a number
+/// (`Rosewood run 2`), nothing is ever overwritten, and the copy is made out of the way and
+/// moved into place, so the game never sees a half-copied world. `progress` gets the bytes
+/// copied so far and the total, after each file.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Worlds tab's import action (#36) will call it"
+    )
+)]
+pub fn import(
+    source: &Path,
+    cachedir: &Path,
+    mut progress: impl FnMut(u64, u64),
+) -> io::Result<World> {
+    let (mode, name) = identify(source)?;
+    if cachedir.starts_with(source) {
+        return Err(invalid("that folder holds the instance itself"));
+    }
+    let total = size(source)?;
+    let staging = cachedir.join(format!(".lulo-import-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&staging);
+    let modes = cachedir.join("Saves").join(&mode);
+    let placed = std::fs::create_dir_all(&modes)
+        .and_then(|()| copy(source, &staging, &mut 0, total, &mut progress))
+        .and_then(|()| place(&staging, &modes, &name));
+    match placed {
+        Ok(dir) => Ok(read(&dir, &mode)),
+        Err(err) => {
+            let _ = std::fs::remove_dir_all(&staging);
+            Err(err)
+        }
+    }
+}
+
+fn invalid(why: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, why.to_owned())
+}
+
+/// The game mode and world name of a save folder, or why it isn't one.
+fn identify(source: &Path) -> io::Result<(String, String)> {
+    if !source.is_dir() {
+        return Err(invalid("that isn't a folder"));
+    }
+    // `map_t.bin` is the world's clock and `players.db` its characters: every save has them.
+    if !source.join("map_t.bin").is_file() && !source.join("players.db").is_file() {
+        return Err(invalid("that folder isn't a Project Zomboid save"));
+    }
+    let name = |path: &Path| {
+        path.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+    };
+    let (Some(world), Some(mode)) = (name(source), source.parent().and_then(name)) else {
+        return Err(invalid("a save sits in a game mode folder"));
+    };
+    if mode == "Multiplayer" {
+        return Err(invalid(
+            "that is a server's cached copy, not a world you can load",
+        ));
+    }
+    Ok((mode, world))
+}
+
+/// Bytes in the files under `dir`; links are not followed.
+fn size(dir: &Path) -> io::Result<u64> {
+    let mut total = 0;
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            total += size(&entry.path())?;
+        } else if kind.is_file() {
+            total += entry.metadata()?.len();
+        }
+    }
+    Ok(total)
+}
+
+/// Copies the folders and files of `from` to `to`; links are left behind.
+fn copy(
+    from: &Path,
+    to: &Path,
+    done: &mut u64,
+    total: u64,
+    progress: &mut impl FnMut(u64, u64),
+) -> io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        let target = to.join(entry.file_name());
+        if kind.is_dir() {
+            copy(&entry.path(), &target, done, total, progress)?;
+        } else if kind.is_file() {
+            *done += std::fs::copy(entry.path(), target)?;
+            progress(*done, total);
+        }
+    }
+    Ok(())
+}
+
+/// Moves `staging` into `modes` as `name`, or `name 2`, `name 3`... when that is taken.
+fn place(staging: &Path, modes: &Path, name: &str) -> io::Result<PathBuf> {
+    for n in 1.. {
+        let target = modes.join(if n == 1 {
+            name.to_owned()
+        } else {
+            format!("{name} {n}")
+        });
+        if target.exists() {
+            continue;
+        }
+        match std::fs::rename(staging, &target) {
+            Ok(()) => return Ok(target),
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(err) => return Err(err),
+        }
+    }
+    unreachable!("an unused name exists")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,5 +313,129 @@ mod tests {
         assert_eq!(world.title(), "Rosewood run", "a name someone typed wins");
         assert!(!is_default_name("2026-11-14_14-31"));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A save with a clock, a screenshot and a file one folder down.
+    fn save(at: &Path, clock: &str) {
+        std::fs::create_dir_all(at.join("chunks")).unwrap();
+        std::fs::write(at.join("map_t.bin"), clock).unwrap();
+        std::fs::write(at.join("thumb.png"), "png").unwrap();
+        std::fs::write(at.join("chunks/map_1_1.bin"), "chunk").unwrap();
+    }
+
+    fn temp(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("lulo-import-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn files_in(dir: &Path) -> Vec<String> {
+        let mut names: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn imports_a_save_without_touching_the_source() {
+        let base = temp("copy");
+        let source = base.join("Zomboid/Saves/Sandbox/Rosewood run");
+        let cachedir = base.join("instance/zomboid");
+        save(&source, "clock");
+
+        let mut seen = Vec::new();
+        let world = import(&source, &cachedir, |done, total| seen.push((done, total))).unwrap();
+        assert_eq!(
+            (world.mode.as_str(), world.name.as_str()),
+            ("Sandbox", "Rosewood run")
+        );
+        assert_eq!(world.dir, cachedir.join("Saves/Sandbox/Rosewood run"));
+        let clock = std::fs::read_to_string(world.dir.join("map_t.bin")).unwrap();
+        assert_eq!(clock, "clock");
+        let chunk = std::fs::read_to_string(world.dir.join("chunks/map_1_1.bin")).unwrap();
+        assert_eq!(chunk, "chunk");
+        assert!(world.thumb.is_some());
+        // 5 + 3 + 5 bytes, reported after each file, ending at the total.
+        assert_eq!(seen.len(), 3);
+        assert_eq!(seen.last(), Some(&(13, 13)));
+        assert!(seen.windows(2).all(|w| w[0].0 < w[1].0));
+        // The source is intact and nothing is left behind in the instance.
+        assert!(source.join("map_t.bin").is_file());
+        assert_eq!(files_in(&cachedir), ["Saves"]);
+        assert_eq!(list(&cachedir).len(), 1);
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_taken_name_gets_a_number_and_nothing_is_overwritten() {
+        let base = temp("clash");
+        let source = base.join("Saves/Sandbox/Run");
+        let cachedir = base.join("zomboid");
+        save(&source, "first");
+        let first = import(&source, &cachedir, |_, _| {}).unwrap();
+        std::fs::write(source.join("map_t.bin"), "second").unwrap();
+        let second = import(&source, &cachedir, |_, _| {}).unwrap();
+        let third = import(&source, &cachedir, |_, _| {}).unwrap();
+
+        assert_eq!(
+            [&first.name, &second.name, &third.name],
+            ["Run", "Run 2", "Run 3"]
+        );
+        let clock = |w: &World| std::fs::read_to_string(w.dir.join("map_t.bin")).unwrap();
+        assert_eq!(clock(&first), "first");
+        assert_eq!(clock(&second), "second");
+        assert_eq!(clock(&third), "second");
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn refuses_what_is_not_a_solo_save() {
+        let base = temp("refuse");
+        let cachedir = base.join("zomboid");
+        let plain = base.join("Saves/Sandbox/NotASave");
+        std::fs::create_dir_all(&plain).unwrap();
+        std::fs::write(plain.join("notes.txt"), "x").unwrap();
+        let server = base.join("Saves/Multiplayer/127.0.0.1_16261_abc");
+        save(&server, "clock");
+        // A save that holds the instance, so importing it would copy the instance too.
+        let around = base.join("Saves/Sandbox/Around");
+        save(&around, "clock");
+
+        for (source, cachedir) in [
+            (base.join("missing"), cachedir.clone()),
+            (around.join("map_t.bin"), cachedir.clone()),
+            (plain, cachedir.clone()),
+            (server, cachedir.clone()),
+            (around.clone(), around.join("zomboid")),
+        ] {
+            let err = import(&source, &cachedir, |_, _| panic!("copied")).unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{source:?}");
+        }
+        assert!(!cachedir.exists(), "a refused import leaves nothing");
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_failed_copy_leaves_no_partial_world() {
+        let base = temp("fail");
+        let source = base.join("Saves/Sandbox/Run");
+        save(&source, "clock");
+        // A file where the instance's Saves folder should go makes the copy fail.
+        let cachedir = base.join("zomboid");
+        std::fs::create_dir_all(&cachedir).unwrap();
+        std::fs::write(cachedir.join("Saves"), "in the way").unwrap();
+
+        assert!(import(&source, &cachedir, |_, _| {}).is_err());
+        assert_eq!(files_in(&cachedir), ["Saves"], "no staging folder is left");
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn the_games_own_saves_folder() {
+        assert!(game_saves_dir().is_none_or(|dir| dir.ends_with("Zomboid/Saves")));
     }
 }
