@@ -7,6 +7,22 @@ Instance launcher for Project Zomboid, rewritten from scratch in Rust.
 Each instance is its own install: game version (Steam branch), mods and saves. lata talks to Steam
 natively, no SteamCMD.
 
+![Library](assets/screenshots/library-dark.png)
+
+## What it does
+
+- Several installs side by side, each on its own Steam branch.
+- Mods per instance: add, turn on or off, remove.
+- Workshop mods and whole collections installed from a link, with the
+  [lata link](extension) browser extension.
+- Worlds and live game logs for each instance.
+- Light and dark themes.
+
+| | |
+|---|---|
+| ![Mods of an instance](assets/screenshots/mods-dark.png) | ![Installing a collection](assets/screenshots/collection-dark.png) |
+| ![Installing a mod, light theme](assets/screenshots/mod-light.png) | |
+
 ## Build
 
 ```sh
