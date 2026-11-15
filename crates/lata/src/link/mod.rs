@@ -1,5 +1,5 @@
-//! Links from outside lata, like `lata://install-mod?id=<id>`, which the browser extension opens
-//! from a Workshop page. Any web page can open one, so nothing here trusts what it says: it is
+//! Links from outside lata, like `lata://install-mod?id=<id>` and
+//! `lata://install-collection?id=<id>`, which the browser extension opens from a Workshop page. Any web page can open one, so nothing here trusts what it says: it is
 //! read strictly, the item is checked against Steam, and the user always confirms.
 
 #[path = "install.view.rs"]
@@ -10,7 +10,7 @@ pub mod protocol;
 pub mod single;
 
 use crate::instance::Instance;
-use crate::instance::mods::{self, Listing};
+use crate::instance::mods::{self, Bundle, Listing};
 
 const SCHEME: &str = "lata://";
 /// The longest link read; a real one is about 40 characters.
@@ -30,6 +30,25 @@ pub enum Incoming {
 pub enum Request {
     /// Install the Workshop item with this id.
     InstallMod(u64),
+    /// Install the mods of the Workshop collection with this id.
+    InstallCollection(u64),
+}
+
+/// What a link points at, as the Workshop lists it, for the dialog that asks the user.
+#[derive(Debug, Clone)]
+pub enum Found {
+    Mod(Listing),
+    Collection(Bundle),
+}
+
+impl Found {
+    /// Its Workshop id.
+    pub fn id(&self) -> u64 {
+        match self {
+            Found::Mod(found) => found.item.id,
+            Found::Collection(found) => found.id,
+        }
+    }
 }
 
 /// The links among the arguments lata was started with. The system hands over the link it was
@@ -44,8 +63,9 @@ pub fn from_args(args: impl IntoIterator<Item = String>) -> Vec<String> {
         .collect()
 }
 
-/// Reads a link. Only `lata://install-mod` with exactly one `id=` made of digits is accepted;
-/// other parameters are ignored, and anything else is refused with a reason.
+/// Reads a link. Only `lata://install-mod` and `lata://install-collection` with exactly one
+/// `id=` made of digits are accepted; other parameters are ignored, and anything else is
+/// refused with a reason.
 pub fn parse(text: &str) -> Result<Request, &'static str> {
     let text = text.trim();
     if text.len() > MAX_LEN || text.chars().any(|c| c.is_whitespace() || c.is_control()) {
@@ -59,36 +79,51 @@ pub fn parse(text: &str) -> Result<Request, &'static str> {
     // Some systems add a slash at the end, and a fragment never matters.
     let rest = rest.split('#').next().unwrap_or("").trim_end_matches('/');
     let (action, query) = rest.split_once('?').unwrap_or((rest, ""));
-    if !action
-        .trim_end_matches('/')
-        .eq_ignore_ascii_case("install-mod")
-    {
+    let action = action.trim_end_matches('/');
+    let request: fn(u64) -> Request = if action.eq_ignore_ascii_case("install-mod") {
+        Request::InstallMod
+    } else if action.eq_ignore_ascii_case("install-collection") {
+        Request::InstallCollection
+    } else {
         return Err("lata doesn't know that link");
-    }
+    };
     let mut ids = query.split('&').filter_map(|pair| pair.strip_prefix("id="));
     let (Some(id), None) = (ids.next(), ids.next()) else {
-        return Err("the link needs exactly one mod id");
+        return Err("the link needs exactly one Workshop id");
     };
     if id.is_empty() || id.len() > 20 || !id.bytes().all(|b| b.is_ascii_digit()) {
-        return Err("the mod id isn't a number");
+        return Err("the Workshop id isn't a number");
     }
     id.parse()
         .ok()
         .filter(|id| *id != 0)
-        .map(Request::InstallMod)
-        .ok_or("the mod id isn't valid")
+        .map(request)
+        .ok_or("the Workshop id isn't valid")
 }
 
-/// The mod a link asks to install, as the Workshop lists it, for the dialog that asks the user.
-/// It must be a Project Zomboid mod: a collection, a guide, an illustration or another game's
-/// item is refused, whatever the link says.
-pub async fn resolve(text: &str) -> Result<Listing, String> {
-    let Request::InstallMod(id) = parse(text)?;
-    let listing = mods::lookup(id).await?;
-    if !listing.item.is_mod() {
-        return Err("that Workshop item isn't a mod (it may be a guide or art)".into());
+/// What a link asks to install, as the Workshop lists it, for the dialog that asks the user.
+/// The link's word for it must be true, whatever else it says: a mod link needs a Project
+/// Zomboid mod (not a collection, a guide, an illustration or another game's item), and a
+/// collection link needs a collection with Project Zomboid mods in it.
+pub async fn resolve(text: &str) -> Result<Found, String> {
+    match parse(text)? {
+        Request::InstallMod(id) => {
+            let listing = mods::lookup(id).await?;
+            if !listing.item.is_mod() {
+                return Err("that Workshop item isn't a mod (it may be a guide or art)".into());
+            }
+            Ok(Found::Mod(listing))
+        }
+        Request::InstallCollection(id) => {
+            let bundle = mods::collection(id).await?;
+            // Of either build line: which ones fit is decided once the instance is known.
+            let (modern, legacy) = bundle.split(true);
+            if modern.is_empty() && legacy.is_empty() {
+                return Err("that collection has no Project Zomboid mods".into());
+            }
+            Ok(Found::Collection(bundle))
+        }
     }
-    Ok(listing)
 }
 
 /// The instance to have selected in the install dialog: the one a mod went into last, if it
@@ -110,6 +145,17 @@ mod tests {
     #[test]
     fn reads_an_install_link() {
         assert_eq!(parse("lata://install-mod?id=3832274571"), id(3832274571));
+        // A collection has its own word, read the same way.
+        for link in [
+            "lata://install-collection?id=3834236342",
+            "LATA://Install-Collection/?id=3834236342#top",
+        ] {
+            assert_eq!(
+                parse(link),
+                Ok(Request::InstallCollection(3834236342)),
+                "{link}"
+            );
+        }
         // How browsers and systems tend to hand it over.
         for link in [
             "  lata://install-mod?id=42\n",
@@ -158,6 +204,9 @@ mod tests {
             "lata://install-mod?id=1&id=2",
             "lata://install-mod?ID=1",
             "lata://delete-everything?id=1",
+            "lata://install-collection",
+            "lata://install-collection?id=abc",
+            "lata://install-collections?id=1",
             "lata://install-mod/extra?id=1",
             "lata:/install-mod?id=1",
             "lata:install-mod?id=1",
@@ -214,9 +263,22 @@ mod tests {
                 .expect("a runtime")
                 .block_on(async move { resolve(&link).await })
         };
-        let listing = run("lata://install-mod?id=3832274571".into()).expect("a PZ mod");
+        let Found::Mod(listing) = run("lata://install-mod?id=3832274571".into()).expect("a PZ mod")
+        else {
+            panic!("a mod link resolves to a mod");
+        };
         assert_eq!(listing.item.id, 3832274571);
         assert!(!listing.item.title.is_empty());
+
+        // A collection resolves only through its own link, and a mod isn't one.
+        let Found::Collection(bundle) =
+            run("lata://install-collection?id=3834236342".into()).expect("a PZ collection")
+        else {
+            panic!("a collection link resolves to a collection");
+        };
+        assert_eq!(bundle.id, 3834236342);
+        assert!(!bundle.mods.is_empty());
+        assert!(run("lata://install-collection?id=3832274571".into()).is_err());
 
         // The Workshop's "Modding Policy" guide: a Project Zomboid item, but not a mod.
         let guide = run("lata://install-mod?id=2872282653".into()).unwrap_err();

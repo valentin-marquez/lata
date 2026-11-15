@@ -1,6 +1,7 @@
-//! The dialog that asks where a mod from a `lata://` link goes: the mod as the Workshop shows
-//! it, the instance to install it into (the one used last is already selected) and a button to
-//! confirm. A link never installs anything on its own; this is where the user decides.
+//! The dialog that asks where a mod or a collection from a `lata://` link goes: what the
+//! Workshop shows of it, the instance to install it into (the one used last is already
+//! selected) and a button to confirm. A collection can also become a new instance. A link
+//! never installs anything on its own; this is where the user decides.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::Button;
@@ -10,21 +11,26 @@ use gpui_kit::component::{ActiveTheme, Icon, WindowExt};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use super::Found;
 use crate::instance::Instance;
-use crate::instance::mod_add::card;
-use crate::instance::mods::{self, Listing};
+use crate::instance::mod_add::{PICTURE, card};
+use crate::instance::mods::{self, Bundle};
 use crate::shell::Shell;
-use crate::ui::{self, FancyButton};
+use crate::ui::{self, FancyButton, Meta};
 
 const WIDTH: f32 = 580.;
 
 pub fn open(
-    found: Listing,
+    found: Found,
     instances: Vec<Instance>,
     shell: WeakEntity<Shell>,
     window: &mut Window,
     cx: &mut App,
 ) {
+    let title = match &found {
+        Found::Mod(_) => "Install mod",
+        Found::Collection(_) => "Install collection",
+    };
     let chosen = super::preselect(&instances, crate::settings::install_target().as_deref());
     let handle = window.window_handle();
     let view = cx.new(|_| {
@@ -49,7 +55,7 @@ pub fn open(
     window.open_dialog(cx, move |dialog, _, _| {
         dialog
             .entrance(DialogEntrance::FadeSlide)
-            .title("Install mod")
+            .title(title)
             .centered()
             .w(px(WIDTH))
             .child(view.clone())
@@ -57,12 +63,12 @@ pub fn open(
 }
 
 struct InstallLink {
-    found: Listing,
+    found: Found,
     instances: Vec<Instance>,
     shell: WeakEntity<Shell>,
     chosen: Option<usize>,
     /// Whether the chosen instance already has this mod, so installing it brings its current
-    /// version.
+    /// version. Never for a collection: its mods are just brought up to date.
     already: bool,
 }
 
@@ -76,20 +82,52 @@ fn has(instance: &Instance, id: u64) -> bool {
 impl InstallLink {
     fn select(&mut self, ix: usize) {
         self.chosen = Some(ix);
-        self.already = has(&self.instances[ix], self.found.item.id);
+        self.already = match &self.found {
+            Found::Mod(found) => has(&self.instances[ix], found.item.id),
+            Found::Collection(_) => false,
+        };
+    }
+
+    /// The collection's mods made for `instance`'s build line; the others stay out, as when
+    /// an instance is created from a collection.
+    fn fitting(found: &Bundle, instance: &Instance) -> Vec<u64> {
+        let (fit, _) = found.split(mods::is_modern(instance));
+        fit.iter().map(|item| item.id).collect()
     }
 
     fn install(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(ix) = self.chosen else { return };
         let instance = self.instances[ix].clone();
-        let id = self.found.item.id;
+        let found = self.found.clone();
         // The next link offers this instance first.
         crate::settings::set_install_target(&instance.id);
         let (shell, handle) = (self.shell.clone(), window.window_handle());
         window.close_dialog(cx);
         // After this update ends: the shell repaints views as the download starts.
         cx.defer(move |cx| {
-            let _ = shell.update(cx, |shell, cx| shell.add_mod(instance, id, handle, cx));
+            let _ = shell.update(cx, |shell, cx| match found {
+                Found::Mod(found) => shell.add_mod(instance, found.item.id, handle, cx),
+                Found::Collection(found) => {
+                    let items = Self::fitting(&found, &instance);
+                    let name = Some(found.title.into());
+                    shell.add_mods(instance, items, name, false, handle, cx)
+                }
+            });
+        });
+    }
+
+    /// Opens the create dialog. For a mod with no instance to go into, the shell offers it
+    /// again once the instance exists; a collection becomes the new instance itself.
+    fn create(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (shell, found) = (self.shell.clone(), self.found.clone());
+        window.close_dialog(cx);
+        // After this update ends, so the create dialog opens once this one is closing.
+        window.defer(cx, move |window, cx| match found {
+            Found::Mod(found) => {
+                let _ = shell.update(cx, |shell, _| shell.link_wait(found));
+                Shell::create(shell, window, cx);
+            }
+            Found::Collection(found) => Shell::create_from(shell, Some(found), window, cx),
         });
     }
 
@@ -152,16 +190,38 @@ impl Render for InstallLink {
                 .child(Icon::new(icon).size_4().flex_none())
                 .child(text)
         };
-        let ready = chosen.is_some();
+        // How many of a collection's mods the chosen instance takes.
+        let fit = match (&self.found, chosen) {
+            (Found::Collection(found), Some(instance)) => {
+                Some(Self::fitting(found, instance).len())
+            }
+            _ => None,
+        };
+        let ready = chosen.is_some() && fit != Some(0);
+        let collection = matches!(self.found, Found::Collection(_));
+        let card = match &self.found {
+            Found::Mod(found) => card(found, chosen, cx),
+            Found::Collection(found) => bundle_card(found, cx),
+        };
+        let install = match fit {
+            Some(1) => "Install 1 mod".into(),
+            Some(count) => format!("Install {count} mods").into(),
+            None if self.already => SharedString::from("Update"),
+            None => "Install".into(),
+        };
         div()
             .flex()
             .flex_col()
             .gap_4()
-            .child(ui::enter(card(&self.found, chosen, cx), "link-mod"))
+            .child(ui::enter(card, "link-mod"))
             .when(self.instances.is_empty(), |this| {
                 this.child(note(
                     IconName::Box,
-                    "There is no instance yet. Create one, then open the link again.".into(),
+                    if collection {
+                        "No instances yet. Make one out of this collection.".into()
+                    } else {
+                        "No instances yet. Make one and this mod goes right in.".into()
+                    },
                 ))
             })
             .when(!self.instances.is_empty(), |this| {
@@ -176,6 +236,15 @@ impl Render for InstallLink {
                     ),
                 )
             }))
+            .children(chosen.filter(|_| fit == Some(0)).map(|instance| {
+                note(
+                    IconName::TriangleAlert,
+                    format!(
+                        "None of its mods are made for {}'s game version.",
+                        instance.name
+                    ),
+                )
+            }))
             .child(
                 div()
                     .flex()
@@ -185,17 +254,90 @@ impl Render for InstallLink {
                         ui::secondary("link-cancel", "Cancel")
                             .on_click(|_, window, cx| window.close_dialog(cx)),
                     )
+                    // A collection can always start an instance of its own instead.
+                    .when(collection && !self.instances.is_empty(), |this| {
+                        this.child(
+                            ui::secondary("link-new", "New instance")
+                                .icon(IconName::Plus)
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.create(window, cx)),
+                                ),
+                        )
+                    })
+                    .when(self.instances.is_empty(), |this| {
+                        this.child(
+                            FancyButton::new("link-create", "New instance")
+                                .small()
+                                .icon(IconName::Plus)
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.create(window, cx)),
+                                ),
+                        )
+                    })
                     .when(ready, |this| {
                         this.child(
-                            FancyButton::new(
-                                "link-install",
-                                if self.already { "Update" } else { "Install" },
-                            )
-                            .small()
-                            .icon(IconName::Download)
-                            .on_click(cx.listener(|this, _, window, cx| this.install(window, cx))),
+                            FancyButton::new("link-install", install)
+                                .small()
+                                .icon(IconName::Download)
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.install(window, cx)),
+                                ),
                         )
                     }),
             )
     }
+}
+
+/// The collection as the Workshop describes it, in the mod card's shape: its picture, its name
+/// and how many mods it brings.
+fn bundle_card(found: &Bundle, cx: &App) -> Div {
+    let theme = cx.theme();
+    let picture = match &found.picture {
+        Some(path) => div().flex_none().size(px(PICTURE)).child(
+            img(path.clone())
+                .size_full()
+                .rounded(theme.radius)
+                .object_fit(ObjectFit::Cover),
+        ),
+        None => div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .size(px(PICTURE))
+            .rounded(theme.radius)
+            .bg(theme.muted)
+            .text_color(theme.muted_foreground)
+            .child(Icon::new(IconName::Layers).size_8()),
+    };
+    let count = match found.mods.len() {
+        1 => "1 mod".to_owned(),
+        many => format!("{many} mods"),
+    };
+    div()
+        .flex()
+        .gap_4()
+        .p_3()
+        .rounded(theme.radius_lg)
+        .bg(theme.group_box)
+        .border_1()
+        .border_color(theme.border)
+        .child(picture)
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .justify_center()
+                .gap_2()
+                .child(
+                    div()
+                        .text_lg()
+                        .font_weight(FontWeight::BOLD)
+                        .truncate()
+                        .child(found.title.clone()),
+                )
+                .child(Meta::new(IconName::Puzzle, count)),
+        )
 }

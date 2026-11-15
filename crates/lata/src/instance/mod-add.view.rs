@@ -15,7 +15,7 @@ use crate::ui::{self, FancyButton, Loader, Meta};
 
 const WIDTH: f32 = 580.;
 /// Side of the mod's Workshop picture.
-const PICTURE: f32 = 120.;
+pub(crate) const PICTURE: f32 = 120.;
 /// Tags shown besides the build ones; a mod can carry a dozen.
 const TAGS: usize = 4;
 

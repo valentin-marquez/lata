@@ -50,10 +50,14 @@ pub struct Shell {
     cached_banner: Option<std::path::PathBuf>,
     /// Scroll position of the panel's trending list, eased by `ui::smooth_scroll`.
     feed_scroll: ScrollHandle,
-    /// The mod of the link whose install dialog is open, if one is.
+    /// The Workshop id of the link whose install dialog is open, if one is.
     link_open: Option<u64>,
     /// Mods from other links that arrived while that dialog was open; each gets its turn.
-    link_queue: VecDeque<crate::instance::mods::Listing>,
+    link_queue: VecDeque<crate::link::Found>,
+    /// How many links are being looked up on Steam right now; the loader shows meanwhile.
+    link_resolving: usize,
+    /// A linked mod that found no instance to go into: it is offered again once one is created.
+    link_waiting: Option<crate::instance::mods::Listing>,
     /// Shows the loader under the title bar while the page's data loads.
     // ponytail: listing instances is instant; installs (roadmap 5) will set it.
     loading: bool,
@@ -94,6 +98,8 @@ impl Shell {
             library: None,
             link_open: None,
             link_queue: VecDeque::new(),
+            link_resolving: 0,
+            link_waiting: None,
             loading: false,
         };
         shell.check_builds(cx);
@@ -448,6 +454,13 @@ impl Shell {
         let Some(first) = items.first() else { return };
         let key = mod_key(&instance.id, &first.to_string());
         if self.installs.contains_key(&key) {
+            // Asked twice (a link clicked again, say): say so instead of doing nothing.
+            let _ = window.update(cx, |_, window, cx| {
+                window.push_notification(
+                    crate::ui::toast::done("Easy, that one is already downloading"),
+                    cx,
+                );
+            });
             return;
         }
         let (events_tx, mut events) = tokio::sync::mpsc::unbounded_channel();
@@ -717,15 +730,23 @@ impl Shell {
     }
 
     /// A `lata://` link from outside, such as the browser extension's. It brings the window to
-    /// the front, then asks which instance the mod goes into, or says why the link can't be
-    /// used. A link that arrives while that dialog is open waits its turn.
+    /// the front right away, with the loader on while Steam is asked about the mod (the click
+    /// happened in another program, so lata has to show it was heard). Then it asks which
+    /// instance the mod goes into, or says why the link can't be used. A link that arrives
+    /// while that dialog is open waits its turn.
     pub fn receive_link(&mut self, text: String, window: AnyWindowHandle, cx: &mut Context<Self>) {
+        let _ = window.update(cx, |_, window, _| window.activate_window());
+        self.link_resolving += 1;
+        cx.notify();
         cx.spawn(async move |this, cx| {
             let found = crate::link::resolve(&text).await;
-            let _ = window.update(cx, |_, window, _| window.activate_window());
+            let _ = this.update(cx, |shell, cx| {
+                shell.link_resolving -= 1;
+                cx.notify();
+            });
             match found {
                 Ok(found) => {
-                    let _ = this.update(cx, |shell, cx| shell.offer_mod(found, window, cx));
+                    let _ = this.update(cx, |shell, cx| shell.offer(found, window, cx));
                 }
                 Err(why) => {
                     let _ = window.update(cx, |_, window, cx| {
@@ -743,32 +764,47 @@ impl Shell {
 
     /// Opens the install dialog for `found`, or queues it behind the one that is open. The same
     /// mod twice is offered once.
-    fn offer_mod(
+    fn offer(
         &mut self,
-        found: crate::instance::mods::Listing,
+        found: crate::link::Found,
         window: AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        let id = found.item.id;
-        if self.link_open == Some(id) || self.link_queue.iter().any(|queued| queued.item.id == id) {
+        let id = found.id();
+        if self.link_open == Some(id) || self.link_queue.iter().any(|queued| queued.id() == id) {
             return;
         }
         if self.link_open.is_some() {
-            self.link_queue.push_back(found);
+            // A page allowed to open lata could send links without end; past a handful the
+            // rest are dropped rather than piled up as dialogs.
+            if self.link_queue.len() < LINK_QUEUE {
+                self.link_queue.push_back(found);
+            }
             return;
         }
-        self.link_open = Some(id);
         let (instances, shell) = (self.instances.clone(), cx.entity().downgrade());
-        let _ = window.update(cx, |_, window, cx| {
+        let opened = window.update(cx, |_, window, cx| {
             crate::link::install::open(found, instances, shell, window, cx)
         });
+        // Only a dialog that did open closes later and frees the turn for the next link.
+        if opened.is_ok() {
+            self.link_open = Some(id);
+        }
+    }
+
+    /// Keeps a linked mod for when there is an instance to put it in: the install dialog found
+    /// none and the user went to create one.
+    // ponytail: waits for the next instance created in this run, even if this create dialog is
+    // cancelled; clear it when the dialog closes if that ever surprises someone.
+    pub fn link_wait(&mut self, found: crate::instance::mods::Listing) {
+        self.link_waiting = Some(found);
     }
 
     /// The install dialog closed, installed or not: the next waiting link gets its turn.
     pub fn link_closed(&mut self, window: AnyWindowHandle, cx: &mut Context<Self>) {
         self.link_open = None;
         if let Some(next) = self.link_queue.pop_front() {
-            self.offer_mod(next, window, cx);
+            self.offer(next, window, cx);
         }
     }
 
@@ -806,11 +842,22 @@ impl Shell {
 
     /// Opens the create dialog; a created instance is listed, selected and installed.
     pub fn create(shell: WeakEntity<Shell>, window: &mut Window, cx: &mut App) {
+        Self::create_from(shell, None, window, cx);
+    }
+
+    /// The create dialog, already on `collection` when a link brought one.
+    pub fn create_from(
+        shell: WeakEntity<Shell>,
+        collection: Option<instance::mods::Bundle>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
         let Ok(root) = shell.read_with(cx, |shell, _| shell.root.clone()) else {
             return;
         };
         instance::create::open(
             root,
+            collection,
             move |created, mods, window, cx| {
                 let handle = window.window_handle();
                 let _ = shell.update(cx, |shell, cx| {
@@ -825,12 +872,26 @@ impl Shell {
                 // A new instance has nothing to run yet: start its install right away, as its
                 // main button would (it asks to sign in to Steam first when nobody is).
                 Shell::play(shell.clone(), created.id.clone(), window, cx);
+                // The mod a link brought before there was any instance gets its dialog now.
+                // Deferred: the dialog opens through the window's handle, which can't be used
+                // from inside this callback, where the window is already borrowed.
+                let (shell, handle) = (shell.clone(), window.window_handle());
+                cx.defer(move |cx| {
+                    let _ = shell.update(cx, |shell, cx| {
+                        if let Some(found) = shell.link_waiting.take() {
+                            shell.offer(crate::link::Found::Mod(found), handle, cx);
+                        }
+                    });
+                });
             },
             window,
             cx,
         );
     }
 }
+
+/// How many links wait their turn behind the open install dialog.
+const LINK_QUEUE: usize = 8;
 
 /// The download manager's key for Workshop item `item` going into instance `instance`.
 fn mod_key(instance: &SharedString, item: &str) -> SharedString {
@@ -885,7 +946,9 @@ impl Render for Shell {
                             .border_color(cx.theme().border)
                             .bg(cx.theme().muted)
                             .overflow_hidden()
-                            .when(self.loading, |this| this.child(Loader))
+                            .when(self.loading || self.link_resolving > 0, |this| {
+                                this.child(Loader)
+                            })
                             .child(div().flex_1().min_h_0().child(page)),
                     )
                     .when(discover, |this| {

@@ -42,9 +42,11 @@ enum Lookup {
 }
 
 /// Opens the dialog. `created` runs after a new instance is written under `root`, with the
-/// mods to install into it when it started from a collection.
+/// mods to install into it when it started from a collection. With `collection` (a link
+/// brought it) the dialog opens on that collection, already found.
 pub fn open(
     root: PathBuf,
+    collection: Option<Bundle>,
     created: impl Fn(Instance, Mods, &mut Window, &mut App) + 'static,
     window: &mut Window,
     cx: &mut App,
@@ -53,6 +55,9 @@ pub fn open(
     let view = cx.new(|cx| {
         let mut create = Create::new(root, created, window, cx);
         create.load(cx);
+        if let Some(found) = collection {
+            create.start_from(found, window, cx);
+        }
         create
     });
     window.open_dialog(cx, move |dialog, _, _| {
@@ -153,6 +158,21 @@ impl Create {
             });
         })
         .detach();
+    }
+
+    /// Starts on the collection step with `found` in place, as if its link had been pasted and
+    /// looked up.
+    fn start_from(&mut self, found: Bundle, window: &mut Window, cx: &mut Context<Self>) {
+        self.step = Step::Collection;
+        self.adopt(&found, window, cx);
+        let link = format!(
+            "https://steamcommunity.com/sharedfiles/filedetails/?id={}",
+            found.id
+        );
+        // Set before the field: its change looks the link up, and finds it already known.
+        self.collection = Lookup::Found(Box::new(found));
+        self.link
+            .update(cx, |field, cx| field.set_value(link, window, cx));
     }
 
     /// The instance takes the collection's name (as the one used when the field is left
