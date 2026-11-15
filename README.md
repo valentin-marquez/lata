@@ -1,4 +1,4 @@
-![lata](assets/banner.png)
+![lata](assets/banner.jpg)
 
 Instance launcher for Project Zomboid, rewritten from scratch in Rust.
 
@@ -17,3 +17,6 @@ cargo run -p lata
 
 Icons: [Solar](https://www.figma.com/community/file/1166831539721848736) by 480 Design,
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+Banner background: a screenshot of [Project Zomboid](https://projectzomboid.com) by The Indie Stone,
+from its Steam store page. lata is a fan project, not affiliated with The Indie Stone.
