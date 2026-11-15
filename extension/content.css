@@ -1,26 +1,46 @@
+/* The button sits under Steam's own Subscribe and takes its measures (36px tall, 4px corners,
+   14px Motiva Sans), in lata's accent instead of Steam's green. */
 .lata-install {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
   box-sizing: border-box;
   width: 100%;
+  height: 36px;
   margin-top: 8px;
-  padding: 6px 12px;
-  border-radius: 2px;
-  background: #4f86a3;
+  padding: 0 12px;
+  border-radius: 4px;
+  background: #447189;
   color: #fff !important;
-  font: 500 13px/1.4 "Motiva Sans", Arial, Helvetica, sans-serif;
+  font: 500 14px/1 "Motiva Sans", Arial, Helvetica, sans-serif;
   text-decoration: none !important;
+  white-space: nowrap;
   cursor: pointer;
+  transition: background 150ms ease-out;
 }
 
 .lata-install:hover {
-  background: #5f97b4;
+  background: #4f86a3;
 }
 
-.lata-install svg {
+.lata-install:active {
+  background: #3b6379;
+}
+
+/* On a collection it is a row of its own under Steam's bar of buttons, inset like them: inside
+   the bar it squeezed Steam's buttons until their words wrapped. */
+.lata-install-row {
+  width: auto;
+  margin: 0 10px 10px;
+}
+
+/* lata's can, in white, so the button is recognised as lata's before it is read. Rendered from
+   assets/icons/svg/mark.svg without the face, at 36px for sharp 2x screens. */
+.lata-install::before {
+  content: "";
   flex: none;
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
+  background: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACQAAAAkCAYAAADhAJiYAAAABmJLR0QA/wD/AP+gvaeTAAAE8UlEQVRYhbWYeahVVRTGv/OeU045NJJWT8kmh8RSTCszIzOtkAqC0igt1KxskKIBovqnKMiwCKW0sslEeqYNVoZS1itELLVEGyw1Ay3FIU3fL9bze3o43eu75z774MK5e/z22mt/a+2dKCeAJpKGSBohqZ+k0yVVSvpb0p+SVkhaLGlOkiTr846f5CBSJelWSaMlnShptaQaSb9I2iyppaRjJfU30aaSFkmaImlekiS1pcxTUQKRS4B5ktZKul7SC5KqbKUFknZLOlVSR0k/SxovqYMtuFfSXEkrgdG2bn4ACTACqAFqgY+A4UBr4GbgPeAl4AagH9AF6AYMA54EFgJPAacAZwEvA3uBtcCNQEUeMhcAX5nIXKAX0NkTBLGbgKOASmAAMBF4AngYuAJo43EGArOBV0yqCpgB7AO+BS5riEhLYLqJfAj0BjoBU4H5QdTtouxx4GPgIWAwcIYtdTtQ7Yl7un134G0TC1JnhwtwAG8BxxQi0w5YCmwErgJaAY8Bi1NEutr0c4BBDSzuTJOKtt1d1hf4xFvayi7wK7AutjY7wFxXdPIqvgMmxV4DRwNTgA+APiXv/SFi4W/Pm0T45jhgletOAFYAy6O+vtOFNt9F7rAMeNB1bbzf9+chkiEVY94BrAaOd9kYG6CFt7D24Bz2m63u2MPk6vYVuA1YUy6ZDLElwCP+bgrsBob4//fAj/FdYRFrYSHbHvWS2nucLZJiy5o3kkxindrqolaeb5vr4mSGq5wUjbfbKqHC8f8NYJYtVmnHfD2OeplkmtmHwqFbuOzZOKX+vppD6CubLrDTuhLH/11gpn2o3hG/BkbmINLUmrXEclBpx55qPWtvjQt3qUf/NKHAnnAuryqk/hurcZDqADxj/Rl8GCIhIfcAi4DxdtwQ0rtMLpS6OXBfZu7AwJgoYlGdKVOIwDlJ0heSHpA0QNKjSZJ8WrfP0mRJoS/LJK2zb4SWnOvI/5qk6vA/SeMc92ZIekfSKI95coH1DMpaKIv3Q3GDhE0dWnSxLVFphQ4fuBY4P2Kd63rab6otgG2Buy2Eh8PgYhZKo1bS7LCQpJ2SJkrq48geuc8Gt2sn6RxnAqtskR2SJkga4/qGcGkphNLEIpWYKekz9+mVkoggu9zpyHBJ10m63FtYKobmIZRGaFUI2UpJe1wWutJDUpc8iV8GQ8tLmFQ3YVf/jiT2lZ4o5cMfPmW7itTv8vaPlXScpM9dvr9cC2XxV8ppN0oamCTJT8Atkqa7fLNJzpe0MEmSg2TjxPpzX0PHvhTEKmOca4DfI3tITXSl27xZLG21JOwuptR5UZMZvFnqu6XzqsCsQmTcbnJqvPOiYFMjCK2MmFVkooiF9dgSsatAm6EZg/SOwggHjcECoGOByUYCO1Lt4uLQ2XWtC8Syf2L7ovLeRhLaVZ/QFyA1qkD7bQ7iWSyNPhVW3pD4cnFnkiQrTCDruNsKtG8r6aCvpfBceiUTyrTO8oxFXgWmOd3o4Py8FHz5n8UAT5dBaFmq/9hU+aZM4nU4/ACEOBa9HYRP5EE18KJvpHkR9754uCgO4DSfnP8TG3yjyXXHj8Qq7lJHEmtMpLxbDNDEA/zWCBL7/TYQDxFHJphzIFGPm0PcNkvFer8PRAZZMnIlUr7UxePDML+UdfOrWaw8Uo5IXeNiEA9cNUmSRCKXC/8Ch/8aQBdUJegAAAAASUVORK5CYII=") center / contain no-repeat;
 }

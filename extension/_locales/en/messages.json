@@ -1,8 +1,8 @@
 {
-  "extName": { "message": "lata for Project Zomboid" },
-  "extDescription": {
-    "message": "Adds an Install in lata button to Project Zomboid mods on the Steam Workshop."
+  "extName": {
+    "message": "lata link for Project Zomboid"
   },
-  "install": { "message": "Install in lata" },
-  "installTip": { "message": "Opens lata to install this mod" }
+  "extDescription": {
+    "message": "Install Project Zomboid mods and collections from the Steam Workshop into lata launcher."
+  }
 }
