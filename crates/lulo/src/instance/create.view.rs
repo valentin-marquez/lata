@@ -269,7 +269,7 @@ impl Create {
             (
                 Step::Choose,
                 IconName::Download,
-                "Import a .lulopack",
+                "Import a .lata",
                 "Open a shared pack with its build, mods and settings. Coming soon.",
                 false,
             ),

@@ -1,9 +1,9 @@
 {
-  "name": "Lulo",
+  "name": "Lata",
   "author": "Valentin Marquez",
   "themes": [
     {
-      "name": "Lulo Light",
+      "name": "Lata Light",
       "mode": "light",
       "font.family": "Inter",
       "radius": 10,
@@ -52,7 +52,7 @@
       }
     },
     {
-      "name": "Lulo Dark",
+      "name": "Lata Dark",
       "mode": "dark",
       "font.family": "Inter",
       "radius": 10,

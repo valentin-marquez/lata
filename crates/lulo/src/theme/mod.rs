@@ -1,4 +1,4 @@
-//! Lulo's light and dark themes: the system's by default, or the one the user picked.
+//! Lata's light and dark themes: the system's by default, or the one the user picked.
 
 use std::borrow::Cow;
 
@@ -8,15 +8,20 @@ use serde::{Deserialize, Serialize};
 
 const THEMES: &str = include_str!("lulo.theme.json");
 
-// Bundled so text looks the same on every OS; the themes name it as `font.family`.
-const FONTS: [&[u8]; 4] = [
+// Bundled so text looks the same on every OS; the themes name Inter as `font.family`.
+// Outfit is only for the wordmark.
+const FONTS: [&[u8]; 5] = [
     include_bytes!("../../../../assets/fonts/Inter-Regular.ttf"),
     include_bytes!("../../../../assets/fonts/Inter-Medium.ttf"),
     include_bytes!("../../../../assets/fonts/Inter-SemiBold.ttf"),
     include_bytes!("../../../../assets/fonts/Inter-Bold.ttf"),
+    include_bytes!("../../../../assets/fonts/Outfit-Bold.ttf"),
 ];
-const LIGHT: &str = "Lulo Light";
-const DARK: &str = "Lulo Dark";
+
+/// The wordmark's typeface.
+pub const WORDMARK: &str = "Outfit";
+const LIGHT: &str = "Lata Light";
+const DARK: &str = "Lata Dark";
 
 /// Which theme the app uses.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

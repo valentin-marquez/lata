@@ -37,9 +37,10 @@ impl RenderOnce for Topbar {
                         .child(img(LOGO).size(px(24.)))
                         .child(
                             div()
-                                .text_sm()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("lulo"),
+                                .text_base()
+                                .font_family(crate::theme::WORDMARK)
+                                .font_weight(FontWeight::BOLD)
+                                .child("lata"),
                         ),
                 )
                 .child(

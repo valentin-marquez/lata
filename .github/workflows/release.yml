@@ -53,7 +53,7 @@ jobs:
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
-          name="lulo-$VERSION-linux-x86_64"
+          name="lata-$VERSION-linux-x86_64"
           mkdir -p "pkg/$name/packaging" "pkg/$name/assets/icons" dist
           cp target/release/lulo README.md "pkg/$name/"
           cp -r packaging/linux "pkg/$name/packaging/"
@@ -64,7 +64,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $name = "lulo-$env:VERSION-windows-x86_64"
+          $name = "lata-$env:VERSION-windows-x86_64"
           New-Item -ItemType Directory -Force "pkg/$name", dist | Out-Null
           Copy-Item target/release/lulo.exe, README.md "pkg/$name/"
           Compress-Archive -Path "pkg/$name" -DestinationPath "dist/$name.zip"
@@ -74,16 +74,16 @@ jobs:
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
-          name="lulo-$VERSION-macos-arm64"
+          name="lata-$VERSION-macos-arm64"
           sh packaging/macos/make-bundle.sh target/release/lulo
-          codesign --force --deep --sign - Lulo.app
+          codesign --force --deep --sign - Lata.app
           mkdir -p dmg dist
-          mv Lulo.app dmg/
-          hdiutil create -volname Lulo -srcfolder dmg -ov -format UDZO "dist/$name.dmg"
+          mv Lata.app dmg/
+          hdiutil create -volname Lata -srcfolder dmg -ov -format UDZO "dist/$name.dmg"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: lulo-${{ runner.os }}
+          name: lata-${{ runner.os }}
           path: dist/*
           if-no-files-found: error
 

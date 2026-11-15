@@ -502,19 +502,19 @@ impl Settings {
             .gap_5()
             .child(heading(
                 "Behavior",
-                "How lulo starts and what closing it does.",
+                "How lata starts and what closing it does.",
                 cx,
             ))
             .child(row(
                 "Launch at startup",
-                "Start lulo when you sign in to your computer.",
+                "Start lata when you sign in to your computer.",
                 startup,
                 cx,
             ))
             .children(links)
             .child(row(
                 "Minimize to the system tray",
-                "Closing the window keeps lulo running in the tray. Coming soon.",
+                "Closing the window keeps lata running in the tray. Coming soon.",
                 tray,
                 cx,
             ))

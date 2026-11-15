@@ -84,7 +84,7 @@ icon_assets!(
     ]
 );
 
-pub const LOGO: &str = "brand/lulo-64.png";
+pub const LOGO: &str = "brand/mark-64.png";
 
 pub struct AppAssets;
 
@@ -92,7 +92,7 @@ impl AssetSource for AppAssets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
         if path == LOGO {
             return Ok(Some(Cow::Borrowed(include_bytes!(
-                "../../../assets/icons/png/lulo-64.png"
+                "../../../assets/icons/png/mark-64.png"
             ))));
         }
         if let Some(item) = path

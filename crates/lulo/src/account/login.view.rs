@@ -132,7 +132,7 @@ impl Login {
                         let note = match saved {
                             Ok(false) => None,
                             Ok(true) => Some("No system keyring found, so your login is saved in a file only your user can read".to_owned()),
-                            Err(err) => Some(format!("Signed in, but lulo couldn't remember it for next time: {err}")),
+                            Err(err) => Some(format!("Signed in, but lata couldn't remember it for next time: {err}")),
                         };
                         if let Some(note) = note {
                             window.push_notification(note, cx);
@@ -275,7 +275,7 @@ impl Login {
                 .child(Input::new(&self.account))
                 .child(Input::new(&self.password))
                 .child(note(
-                    "Your password goes straight to Steam; lulo keeps only the sign in token."
+                    "Your password goes straight to Steam; lata keeps only the sign in token."
                         .into(),
                 ))
                 .into_any_element(),

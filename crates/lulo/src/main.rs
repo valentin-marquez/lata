@@ -21,8 +21,8 @@ use crate::assets::AppAssets;
 use crate::shell::Shell;
 
 // Must match the .desktop file name so Wayland compositors resolve the icon.
-const APP_ID: &str = "io.github.valentin_marquez.Lulo";
-const ICON_PNG: &[u8] = include_bytes!("../../../assets/icons/png/lulo-256.png");
+const APP_ID: &str = "io.github.valentin_marquez.Lata";
+const ICON_PNG: &[u8] = include_bytes!("../../../assets/icons/png/lata-256.png");
 
 fn window_icon() -> Option<Arc<image::RgbaImage>> {
     image::load_from_memory_with_format(ICON_PNG, image::ImageFormat::Png)

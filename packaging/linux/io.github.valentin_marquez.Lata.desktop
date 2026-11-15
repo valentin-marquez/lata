@@ -1,13 +1,13 @@
 [Desktop Entry]
 Type=Application
-Name=Lulo
+Name=Lata
 GenericName=Project Zomboid Launcher
 Comment=Instance and mod manager for Project Zomboid
 Exec=lulo %U
-Icon=io.github.valentin_marquez.Lulo
+Icon=io.github.valentin_marquez.Lata
 Terminal=false
 Categories=Game;Utility;
 Keywords=zomboid;mods;launcher;instances;
 MimeType=x-scheme-handler/lulo;
 StartupNotify=true
-StartupWMClass=io.github.valentin_marquez.Lulo
+StartupWMClass=io.github.valentin_marquez.Lata

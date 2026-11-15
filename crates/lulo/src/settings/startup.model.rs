@@ -6,7 +6,7 @@ use auto_launch::{AutoLaunch, AutoLaunchBuilder};
 fn launcher() -> Result<AutoLaunch, String> {
     let exe = std::env::current_exe().map_err(|err| err.to_string())?;
     AutoLaunchBuilder::new()
-        .set_app_name("Lulo")
+        .set_app_name("Lata")
         .set_app_path(&exe.to_string_lossy())
         .build()
         .map_err(|err| err.to_string())
