@@ -73,6 +73,8 @@ pub struct Mods {
     instance: Instance,
     /// Read from disk when the tab opens and after every change.
     mods: Vec<Mod>,
+    /// Names of the mods made for a newer game than the instance runs, read with `mods`.
+    too_new: Vec<String>,
     /// What [`mods::stamp`] said when `mods` was read; the same stamp means nothing new.
     stamp: mods::Stamp,
     /// A read is running in the background; `stale` asks for one more after it.
@@ -122,6 +124,7 @@ impl Mods {
             loading: false,
             stale: false,
             mods: mods::list(&instance),
+            too_new: mods::too_new(&instance),
             instance,
             search,
             sort: Sort::Name,
@@ -148,11 +151,14 @@ impl Mods {
         self.loading = true;
         let instance = self.instance.clone();
         cx.spawn(async move |this, cx| {
-            let found = crate::runtime::blocking(move || mods::list(&instance)).await;
+            let found =
+                crate::runtime::blocking(move || (mods::list(&instance), mods::too_new(&instance)))
+                    .await;
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;
-                if let Ok(found) = found {
+                if let Ok((found, too_new)) = found {
                     this.mods = found;
+                    this.too_new = too_new;
                     this.stamp = stamp;
                     // A mod that is gone can't stay checked.
                     this.selected
@@ -355,6 +361,41 @@ impl Mods {
                         super::mod_add::open(instance.clone(), shell.clone(), window, cx)
                     }),
             )
+    }
+
+    /// The mods the game skips for being newer than it, above the table: they don't show in it.
+    fn too_new_note(&self, cx: &App) -> Option<Div> {
+        if self.too_new.is_empty() {
+            return None;
+        }
+        let theme = cx.theme();
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .p_3()
+                .rounded(theme.radius_lg)
+                .bg(theme.warning.opacity(0.12))
+                .text_sm()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(ui::warning_text(cx))
+                        .child(Icon::new(IconName::TriangleAlert).size_4().flex_none())
+                        .child(match self.too_new.len() {
+                            1 => "Heads up! 1 mod needs a newer game, update this instance"
+                                .to_owned(),
+                            many => format!(
+                                "Heads up! {many} mods need a newer game, update this instance"
+                            ),
+                        }),
+                )
+                .child(div().pl_6().child(self.too_new.join(", "))),
+        )
     }
 
     /// The checked mods, in the list's order.
@@ -726,6 +767,7 @@ impl Render for Mods {
                 .min_h_0()
                 .gap_2()
                 .when(adding, |this| this.child(Loader))
+                .children(self.too_new_note(cx))
                 .child(
                     Empty::new(
                         IconName::Puzzle,
@@ -809,6 +851,7 @@ impl Render for Mods {
             .gap_4()
             .child(self.toolbar(cx))
             .when(adding, |this| this.child(Loader))
+            .children(self.too_new_note(cx))
             .when(!self.mods.is_empty(), |this| {
                 this.child(
                     div()

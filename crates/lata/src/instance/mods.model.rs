@@ -343,6 +343,38 @@ pub fn list(instance: &Instance) -> Vec<Mod> {
     mods
 }
 
+/// Names of the mods in the instance made only for a newer game than it runs: every version
+/// folder they carry is above its version, so the game skips them and [`list`] leaves them
+/// out. A mod update can do that to an instance that hasn't updated its game yet.
+pub fn too_new(instance: &Instance) -> Vec<String> {
+    let Some(version) = game_version(&instance.dir.join("zomboid")) else {
+        return Vec::new();
+    };
+    if version.build < 42 {
+        return Vec::new();
+    }
+    let Ok(entries) = std::fs::read_dir(mods_dir(instance)) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|dir| dir.is_dir() && info_dir(dir, true, Some(version)).is_none())
+        .filter_map(|dir| {
+            // The newest folder is there, or `info_dir` would have found it without a version.
+            let newest = info_dir(&dir, true, None)?;
+            let info = parse_info(&std::fs::read_to_string(newest.join("mod.info")).ok()?)?;
+            Some(if info.name.is_empty() {
+                info.id
+            } else {
+                info.name
+            })
+        })
+        .collect();
+    names.sort_by_key(|name| name.to_lowercase());
+    names
+}
+
 /// The ids of `mods` in an order that gives every mod what it asks for: after the mods it
 /// requires and the ones it loads after (`loadModAfter=`), before the ones it loads before
 /// (`loadModBefore=`), and by id where nothing decides. Ids that aren't in `mods` ask for
@@ -1274,6 +1306,27 @@ mod tests {
             info_dir(&dir.join("old"), false, None),
             Some(dir.join("old"))
         );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn finds_mods_made_for_a_newer_game() {
+        let dir = temp("too-new");
+        let instance = instance(&dir);
+        put(&dir, "zomboid/mods/Newer/42.21/mod.info", "id=Newer");
+        // Before the first run the version is unknown: nothing to compare.
+        assert!(too_new(&instance).is_empty());
+        put(&dir, "zomboid/version.txt", "42.19.2 99198cd6ef\n");
+        put(&dir, "zomboid/mods/Fits/42/mod.info", "id=Fits");
+        put(
+            &dir,
+            "zomboid/mods/Shiny/42.22/mod.info",
+            "id=Shiny\nname=Shiny Cars",
+        );
+        // Build 41's layout is the other build line, not a newer game.
+        put(&dir, "zomboid/mods/Old/mod.info", "id=Old");
+        put(&dir, "zomboid/mods/NotAMod/readme.txt", "");
+        assert_eq!(too_new(&instance), ["Newer", "Shiny Cars"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
