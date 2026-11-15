@@ -1,4 +1,5 @@
-//! Empty state: icon, a title and one line saying what will show up here.
+//! Empty state: icon, a title and one line saying what will show up here, and maybe the one
+//! thing to do about it.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{ActiveTheme, Icon};
@@ -9,6 +10,7 @@ pub struct Empty {
     icon: IconName,
     title: SharedString,
     line: SharedString,
+    action: Option<AnyElement>,
 }
 
 impl Empty {
@@ -21,7 +23,14 @@ impl Empty {
             icon,
             title: title.into(),
             line: line.into(),
+            action: None,
         }
+    }
+
+    /// A button under the line, for the one thing that fills this place.
+    pub fn action(mut self, action: impl IntoElement) -> Self {
+        self.action = Some(action.into_any_element());
+        self
     }
 }
 
@@ -51,5 +60,6 @@ impl RenderOnce for Empty {
                     .text_color(theme.muted_foreground)
                     .child(self.line),
             )
+            .children(self.action.map(|action| div().pt_3().child(action)))
     }
 }

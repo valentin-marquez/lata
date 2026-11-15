@@ -699,37 +699,21 @@ impl Render for Mods {
         // filter with nothing to work on would only be noise.
         if self.mods.is_empty() {
             let (instance, shell) = (self.instance.clone(), self.shell.clone());
-            let theme = cx.theme();
+            // The same panel as the Worlds tab, so the tabs don't jump when switching.
             return div()
                 .flex()
                 .flex_col()
                 .flex_1()
                 .min_h_0()
-                .items_center()
                 .gap_2()
-                .pt(px(120.))
-                .when(adding, |this| {
-                    this.child(div().w(px(200.)).pb_4().child(Loader))
-                })
+                .when(adding, |this| this.child(Loader))
                 .child(
-                    Icon::new(IconName::Puzzle)
-                        .size_8()
-                        .text_color(theme.muted_foreground),
-                )
-                .child(
-                    div()
-                        .text_lg()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("No mods yet"),
-                )
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(theme.muted_foreground)
-                        .child("Add one from the Workshop and it lands here."),
-                )
-                .child(
-                    div().pt_3().child(
+                    Empty::new(
+                        IconName::Puzzle,
+                        "No mods yet",
+                        "Add one from the Workshop and it lands here.",
+                    )
+                    .action(
                         FancyButton::new("mod-add-first", "Add mod")
                             .small()
                             .icon(IconName::Plus)

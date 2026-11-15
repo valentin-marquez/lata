@@ -19,9 +19,11 @@ pub fn art(instance: &Instance, size: f32, radius: Pixels, cx: &App) -> Div {
         .rounded(radius)
         .overflow_hidden();
     match instance.icon() {
+        // The frame's clip is a plain rectangle: the picture needs its own radius.
         Icon::Image { file } => frame.bg(theme.muted).child(
             img(instance.dir.join(file))
                 .size_full()
+                .rounded(radius)
                 .object_fit(ObjectFit::Cover),
         ),
         Icon::Item { item, color } => match crate::game::icon(&item) {

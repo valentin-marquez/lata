@@ -1,3 +1,7 @@
+// A release build on Windows is a window, not a console program with a window: without this
+// a terminal opens next to lata every time.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod account;
 mod assets;
 mod discover;

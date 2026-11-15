@@ -545,22 +545,27 @@ fn banner(total: usize, hero: Option<Option<std::path::PathBuf>>, cx: &App) -> D
         .h(px(176.))
         .rounded(theme.radius_lg)
         .overflow_hidden()
-        .child(
-            div()
+        // The picture is placed on the banner itself, as Discover's news card does: nested in a
+        // full-size box it came out taller than the banner and lost its bottom corners to the
+        // clip, which is a plain rectangle.
+        .child(match hero {
+            Some(hero) => img(hero)
                 .absolute()
                 .top_0()
                 .left_0()
                 .size_full()
-                .child(match hero {
-                    Some(hero) => img(hero)
-                        .size_full()
-                        .rounded(radius)
-                        .object_fit(ObjectFit::Cover)
-                        .with_loading(skeleton)
-                        .into_any_element(),
-                    None => skeleton(),
-                }),
-        )
+                .rounded(radius)
+                .object_fit(ObjectFit::Cover)
+                .with_loading(skeleton)
+                .into_any_element(),
+            None => div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .child(skeleton())
+                .into_any_element(),
+        })
         // Darkens the lower part, where the title sits, whatever the picture has there.
         .child(
             div()

@@ -34,13 +34,25 @@ impl RenderOnce for Topbar {
                         .flex()
                         .items_center()
                         .gap_2()
-                        .child(img(LOGO).size(px(24.)))
+                        // The brand takes the bar's height, as Modrinth's does: mark and name
+                        // read at a glance instead of sitting there as a small label.
+                        .child(img(LOGO).size(px(32.)))
                         .child(
                             div()
-                                .text_base()
+                                .text_size(px(24.))
                                 .font_family(crate::theme::WORDMARK)
                                 .font_weight(FontWeight::BOLD)
                                 .child("lata"),
+                        )
+                        // Every piece of lata carries the name plus its own word (the browser
+                        // extension is "lata link"); this one is the launcher.
+                        .child(
+                            div()
+                                .pt_1()
+                                .text_base()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(cx.theme().muted_foreground)
+                                .child("launcher"),
                         ),
                 )
                 .child(
