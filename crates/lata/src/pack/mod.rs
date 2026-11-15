@@ -45,21 +45,38 @@ const NEVER: [&str; 6] = [
     "mods/default.txt",
 ];
 
-/// Keys of a server's settings that are secrets: they go in a pack blank, in any text file
-/// under `Server/` (a backup copy of the `.ini` holds them too) and in any case.
+/// Keys of a server's settings that are secrets: they go in a pack blank, in any file under
+/// `Server/` (a backup copy of the `.ini` holds them too) and in any case.
 const SECRETS: [&str; 3] = ["Password", "RCONPassword", "DiscordToken"];
 
 /// A server's settings file with the values of [`SECRETS`] taken out, keys kept.
-fn without_secrets(text: &str) -> String {
-    text.lines()
-        .map(|line| match line.split_once('=') {
-            Some((key, _)) if SECRETS.iter().any(|s| s.eq_ignore_ascii_case(key.trim())) => {
-                format!("{key}=")
+/// Works on bytes, so a file in another encoding than UTF-8 is cleaned the same.
+fn without_secrets(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len());
+    for line in bytes.split_inclusive(|b| *b == b'\n') {
+        let key = line.iter().position(|b| *b == b'=').map(|at| &line[..at]);
+        match key {
+            Some(key)
+                if SECRETS
+                    .iter()
+                    .any(|s| s.as_bytes().eq_ignore_ascii_case(key.trim_ascii())) =>
+            {
+                out.extend_from_slice(key);
+                out.push(b'=');
+                // Keep the line's own ending.
+                let ending = if line.ends_with(b"\r\n") {
+                    &b"\r\n"[..]
+                } else if line.ends_with(b"\n") {
+                    &b"\n"[..]
+                } else {
+                    &b""[..]
+                };
+                out.extend_from_slice(ending);
             }
-            _ => line.to_owned(),
-        })
-        .map(|line| line + "\n")
-        .collect()
+            _ => out.extend_from_slice(line),
+        }
+    }
+    out
 }
 
 /// `lata.index.json`.
@@ -292,16 +309,11 @@ pub fn export(
         for rel in &files {
             zip.start_file(format!("{OVERRIDES}/{}", zip_path(rel)), options)
                 .map_err(zipped)?;
-            // Text under `Server/` loses its secrets, whatever the file's name.
-            let text = rel
-                .starts_with("Server")
-                .then(|| std::fs::read_to_string(root.join(rel)).ok())
-                .flatten();
-            match text {
-                Some(text) => zip.write_all(without_secrets(&text).as_bytes())?,
-                None => {
-                    io::copy(&mut File::open(root.join(rel))?, &mut zip)?;
-                }
+            // Anything under `Server/` loses its secrets, whatever the file's name or encoding.
+            if rel.starts_with("Server") {
+                zip.write_all(&without_secrets(&std::fs::read(root.join(rel))?))?;
+            } else {
+                io::copy(&mut File::open(root.join(rel))?, &mut zip)?;
             }
         }
         zip.start_file(INDEX, options).map_err(zipped)?;
@@ -556,6 +568,16 @@ mod tests {
         assert_eq!(mods::active(&made).mods, ["Brita", "Local"]);
         std::fs::remove_dir_all(&root).unwrap();
         std::fs::remove_dir_all(&other).unwrap();
+    }
+
+    #[test]
+    fn blanks_secrets_in_any_encoding() {
+        // Latin-1 with Windows line endings: not UTF-8, cleaned all the same.
+        let file = b"PVP=false\r\nPassword=\xf1and\xfa\r\nRCONPassword = x\nPublic=true";
+        assert_eq!(
+            without_secrets(file),
+            b"PVP=false\r\nPassword=\r\nRCONPassword =\nPublic=true"
+        );
     }
 
     #[test]
