@@ -2,6 +2,8 @@
 //! from a Workshop page. Any web page can open one, so nothing here trusts what it says: it is
 //! read strictly, the item is checked against Steam, and the user always confirms.
 
+#[path = "install.view.rs"]
+pub mod install;
 #[path = "protocol.model.rs"]
 pub mod protocol;
 #[path = "single.model.rs"]
@@ -91,10 +93,6 @@ pub async fn resolve(text: &str) -> Result<Listing, String> {
 
 /// The instance to have selected in the install dialog: the one a mod went into last, if it
 /// still exists; else the only instance there is; else none, so the first time the user chooses.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the link handler (#37) will call it")
-)]
 pub fn preselect(instances: &[Instance], remembered: Option<&str>) -> Option<usize> {
     remembered
         .and_then(|id| instances.iter().position(|i| i.id == id))

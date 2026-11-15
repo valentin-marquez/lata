@@ -136,106 +136,9 @@ impl AddMod {
         });
     }
 
-    /// The mod as the Workshop describes it: its picture, then title, facts and tags.
+    /// The mod as the Workshop describes it, for this instance.
     fn card(&self, found: &Listing, cx: &App) -> Div {
-        let theme = cx.theme();
-        let item = &found.item;
-        let (builds, others): (Vec<&String>, Vec<&String>) =
-            item.tags.iter().partition(|tag| tag.starts_with("Build "));
-        let warning = other_build(&item.tags, mods::is_modern(&self.instance));
-        let chip = |text: &str, strong: bool| {
-            div()
-                .flex_none()
-                .px_2()
-                .py_0p5()
-                .rounded(px(6.))
-                .text_xs()
-                .font_weight(FontWeight::MEDIUM)
-                .map(|this| {
-                    if strong {
-                        this.bg(theme.primary.opacity(0.15))
-                    } else {
-                        this.bg(theme.muted).text_color(theme.muted_foreground)
-                    }
-                })
-                .child(text.to_owned())
-        };
-        let picture = match &found.picture {
-            Some(path) => div().flex_none().size(px(PICTURE)).child(
-                img(path.clone())
-                    .size_full()
-                    .rounded(theme.radius)
-                    .object_fit(ObjectFit::Cover),
-            ),
-            None => div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .size(px(PICTURE))
-                .rounded(theme.radius)
-                .bg(theme.muted)
-                .text_color(theme.muted_foreground)
-                .child(Icon::new(IconName::Puzzle).size_8()),
-        };
-        div()
-            .flex()
-            .gap_4()
-            .p_3()
-            .rounded(theme.radius_lg)
-            .bg(theme.group_box)
-            .border_1()
-            .border_color(theme.border)
-            .child(picture)
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .justify_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_lg()
-                            .font_weight(FontWeight::BOLD)
-                            .truncate()
-                            .child(item.title.clone()),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_wrap()
-                            .gap_4()
-                            .child(Meta::new(IconName::Download, size(item.size)))
-                            .children(item.updated.map(|at| {
-                                Meta::new(
-                                    IconName::Clock,
-                                    format!("Updated {}", branches::date(at as u64)),
-                                )
-                            })),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_wrap()
-                            .gap_1p5()
-                            .children(builds.iter().map(|tag| chip(tag, true)))
-                            .children(others.iter().take(TAGS).map(|tag| chip(tag, false))),
-                    )
-                    .children(warning.map(|build| {
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .text_sm()
-                            .text_color(ui::warning_text(cx))
-                            .child(Icon::new(IconName::TriangleAlert).size_4().flex_none())
-                            .child(format!(
-                                "Heads up! It's for {build} only, not this instance's"
-                            ))
-                    })),
-            )
+        card(found, Some(&self.instance), cx)
     }
 
     /// What fills the card's place before there is a mod to show.
@@ -261,6 +164,109 @@ impl AddMod {
             .child(Icon::new(icon).size_6())
             .child(text)
     }
+}
+
+/// The mod as the Workshop describes it: its picture, then title, facts and tags. With the
+/// instance it would go into, it warns when the mod is for the other build line.
+pub(crate) fn card(found: &Listing, instance: Option<&Instance>, cx: &App) -> Div {
+    let theme = cx.theme();
+    let item = &found.item;
+    let (builds, others): (Vec<&String>, Vec<&String>) =
+        item.tags.iter().partition(|tag| tag.starts_with("Build "));
+    let warning = instance.and_then(|instance| other_build(&item.tags, mods::is_modern(instance)));
+    let chip = |text: &str, strong: bool| {
+        div()
+            .flex_none()
+            .px_2()
+            .py_0p5()
+            .rounded(px(6.))
+            .text_xs()
+            .font_weight(FontWeight::MEDIUM)
+            .map(|this| {
+                if strong {
+                    this.bg(theme.primary.opacity(0.15))
+                } else {
+                    this.bg(theme.muted).text_color(theme.muted_foreground)
+                }
+            })
+            .child(text.to_owned())
+    };
+    let picture = match &found.picture {
+        Some(path) => div().flex_none().size(px(PICTURE)).child(
+            img(path.clone())
+                .size_full()
+                .rounded(theme.radius)
+                .object_fit(ObjectFit::Cover),
+        ),
+        None => div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .size(px(PICTURE))
+            .rounded(theme.radius)
+            .bg(theme.muted)
+            .text_color(theme.muted_foreground)
+            .child(Icon::new(IconName::Puzzle).size_8()),
+    };
+    div()
+        .flex()
+        .gap_4()
+        .p_3()
+        .rounded(theme.radius_lg)
+        .bg(theme.group_box)
+        .border_1()
+        .border_color(theme.border)
+        .child(picture)
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .justify_center()
+                .gap_2()
+                .child(
+                    div()
+                        .text_lg()
+                        .font_weight(FontWeight::BOLD)
+                        .truncate()
+                        .child(item.title.clone()),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap_4()
+                        .child(Meta::new(IconName::Download, size(item.size)))
+                        .children(item.updated.map(|at| {
+                            Meta::new(
+                                IconName::Clock,
+                                format!("Updated {}", branches::date(at as u64)),
+                            )
+                        })),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap_1p5()
+                        .children(builds.iter().map(|tag| chip(tag, true)))
+                        .children(others.iter().take(TAGS).map(|tag| chip(tag, false))),
+                )
+                .children(warning.map(|build| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .text_sm()
+                        .text_color(ui::warning_text(cx))
+                        .child(Icon::new(IconName::TriangleAlert).size_4().flex_none())
+                        .child(format!(
+                            "Heads up! It's for {build} only, not this instance's"
+                        ))
+                })),
+        )
 }
 
 impl Render for AddMod {

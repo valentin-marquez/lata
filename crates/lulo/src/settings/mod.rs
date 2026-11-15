@@ -55,13 +55,11 @@ pub fn update(change: impl FnOnce(&mut Saved)) {
 }
 
 /// The instance a mod was last installed into from a link, to have it selected the next time.
-#[expect(dead_code, reason = "the link handler (#37) will call it")]
 pub fn install_target() -> Option<String> {
     load().install_target
 }
 
 /// Remembers the instance a mod was just installed into from a link.
-#[expect(dead_code, reason = "the link handler (#37) will call it")]
 pub fn set_install_target(instance: &str) {
     update(|saved| saved.install_target = Some(instance.to_owned()));
 }

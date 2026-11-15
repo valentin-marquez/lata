@@ -7,7 +7,7 @@ mod sidebar;
 #[path = "topbar.view.rs"]
 mod topbar;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 
 use gpui_kit::component::ActiveTheme;
@@ -50,6 +50,10 @@ pub struct Shell {
     cached_banner: Option<std::path::PathBuf>,
     /// Scroll position of the panel's trending list, eased by `ui::smooth_scroll`.
     feed_scroll: ScrollHandle,
+    /// The mod of the link whose install dialog is open, if one is.
+    link_open: Option<u64>,
+    /// Mods from other links that arrived while that dialog was open; each gets its turn.
+    link_queue: VecDeque<crate::instance::mods::Listing>,
     /// Shows the loader under the title bar while the page's data loads.
     // ponytail: listing instances is instant; installs (roadmap 5) will set it.
     loading: bool,
@@ -88,6 +92,8 @@ impl Shell {
             page: Page::Library,
             detail: None,
             library: None,
+            link_open: None,
+            link_queue: VecDeque::new(),
             loading: false,
         };
         shell.check_builds(cx);
@@ -711,22 +717,59 @@ impl Shell {
     }
 
     /// A `lulo://` link from outside, such as the browser extension's. It brings the window to
-    /// the front and says what the link asks for, or why it can't be used.
-    // ponytail: only says it for now; the dialog that asks which instance to install into, and
-    // installs, comes next (#37).
+    /// the front, then asks which instance the mod goes into, or says why the link can't be
+    /// used. A link that arrives while that dialog is open waits its turn.
     pub fn receive_link(&mut self, text: String, window: AnyWindowHandle, cx: &mut Context<Self>) {
-        cx.spawn(async move |_, cx| {
-            let message = match crate::link::resolve(&text).await {
-                Ok(found) => format!("Link received for {} ({})", found.item.title, found.item.id),
-                Err(why) => format!("Couldn't use that link: {why}"),
-            };
-            let _ = window.update(cx, |_, window, cx| {
-                use gpui_kit::component::WindowExt;
-                window.activate_window();
-                window.push_notification(message, cx);
-            });
+        cx.spawn(async move |this, cx| {
+            let found = crate::link::resolve(&text).await;
+            let _ = window.update(cx, |_, window, _| window.activate_window());
+            match found {
+                Ok(found) => {
+                    let _ = this.update(cx, |shell, cx| shell.offer_mod(found, window, cx));
+                }
+                Err(why) => {
+                    let _ = window.update(cx, |_, window, cx| {
+                        use gpui_kit::component::WindowExt;
+                        window.push_notification(
+                            crate::ui::toast::failed_because("Couldn't use that link", why),
+                            cx,
+                        );
+                    });
+                }
+            }
         })
         .detach();
+    }
+
+    /// Opens the install dialog for `found`, or queues it behind the one that is open. The same
+    /// mod twice is offered once.
+    fn offer_mod(
+        &mut self,
+        found: crate::instance::mods::Listing,
+        window: AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) {
+        let id = found.item.id;
+        if self.link_open == Some(id) || self.link_queue.iter().any(|queued| queued.item.id == id) {
+            return;
+        }
+        if self.link_open.is_some() {
+            self.link_queue.push_back(found);
+            return;
+        }
+        self.link_open = Some(id);
+        let (instances, shell) = (self.instances.clone(), cx.entity().downgrade());
+        let _ = window.update(cx, |_, window, cx| {
+            crate::link::install::open(found, instances, shell, window, cx)
+        });
+    }
+
+    /// The install dialog closed, installed or not: the next waiting link gets its turn.
+    pub fn link_closed(&mut self, window: AnyWindowHandle, cx: &mut Context<Self>) {
+        self.link_open = None;
+        if let Some(next) = self.link_queue.pop_front() {
+            self.offer_mod(next, window, cx);
+        }
     }
 
     /// The sign-in dialog, unless an account is already signed in.
