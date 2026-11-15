@@ -19,6 +19,8 @@ const CONNECT: Duration = Duration::from_millis(500);
 const TIMEOUT: Duration = Duration::from_secs(2);
 /// What one connection may send, and how many messages of it count.
 const MAX_BYTES: u64 = 8 * 1024;
+/// How much a connection may still send after its messages were read, thrown away unread.
+const DRAIN_BYTES: u64 = 1024 * 1024;
 const MAX_MESSAGES: usize = 20;
 
 /// The messages a second lulo sends: its links, or a request to be shown if it has none.
@@ -99,6 +101,10 @@ fn read(stream: TcpStream, token: &str, deliver: &impl Fn(Incoming)) {
         }
     }
     let _ = reply.write_all(b"ok\n");
+    // Closing with unread bytes makes Windows reset the connection, which can throw away the
+    // reply before the sender reads it. Take what is left (bounded, and by the timeout) first.
+    let _ = reply.shutdown(Shutdown::Write);
+    let _ = io::copy(&mut reply.take(DRAIN_BYTES), &mut io::sink());
 }
 
 /// A secret for this run. The standard library seeds its hashers from the system's random
