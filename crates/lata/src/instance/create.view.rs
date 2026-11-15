@@ -33,6 +33,7 @@ pub type Mods = Option<(SharedString, Vec<u64>)>;
 
 type Created = Rc<dyn Fn(Instance, Mods, &mut Window, &mut App)>;
 type Bring = Rc<dyn Fn(Existing, &mut Window, &mut App)>;
+type Import = Rc<dyn Fn(PathBuf, &mut Window, &mut App)>;
 
 /// What is known about the pasted collection link.
 enum Lookup {
@@ -46,11 +47,12 @@ enum Lookup {
 /// Opens the dialog. `created` runs after a new instance is written under `root`, with the
 /// mods to install into it when it started from a collection. With `collection` (a link
 /// brought it) the dialog opens on that collection, already found. `bring` takes over when
-/// the game someone already plays is chosen as the start.
+/// the game someone already plays is chosen as the start, and `import` when a `.lata` is.
 pub fn open(
     root: PathBuf,
     collection: Option<Bundle>,
     bring: impl Fn(Existing, &mut Window, &mut App) + 'static,
+    import: impl Fn(PathBuf, &mut Window, &mut App) + 'static,
     created: impl Fn(Instance, Mods, &mut Window, &mut App) + 'static,
     window: &mut Window,
     cx: &mut App,
@@ -59,6 +61,7 @@ pub fn open(
     let view = cx.new(|cx| {
         let mut create = Create::new(root, created, window, cx);
         create.bring = Some(Rc::new(bring));
+        create.import = Some(Rc::new(import));
         create.load(cx);
         if let Some(found) = collection {
             create.start_from(found, window, cx);
@@ -80,6 +83,7 @@ struct Create {
     root: PathBuf,
     created: Created,
     bring: Option<Bring>,
+    import: Option<Import>,
     /// The game played without lata, when its folder has something to bring.
     existing: Option<Existing>,
     step: Step,
@@ -115,6 +119,7 @@ impl Create {
             root,
             created,
             bring: None,
+            import: None,
             existing: existing::home().and_then(|dir| existing::find(&dir)),
             step: Step::Choose,
             forward: true,
@@ -296,13 +301,6 @@ impl Create {
                 "Paste a collection link and get its mods installed.",
                 true,
             ),
-            (
-                Step::Choose,
-                IconName::Download,
-                "Import a .lata",
-                "Open a shared pack with its build, mods and settings. Coming soon.",
-                false,
-            ),
         ];
         // Its own dialog: the worlds found decide the game version, so there is no form here.
         let existing = self
@@ -325,16 +323,54 @@ impl Create {
                     window.defer(cx, move |window, cx| bring(game, window, cx));
                 })
             });
-        div().flex().flex_col().gap_3().children(existing).children(
-            options
-                .into_iter()
-                .enumerate()
-                .map(|(ix, (step, icon, title, line, enabled))| {
+        let pack = option(
+            options.len() + 1,
+            IconName::Download,
+            "Import a .lata",
+            "Open a shared pack with its build, mods and settings.",
+            true,
+            cx,
+        )
+        .on_click(cx.listener(|this, _, window, cx| this.pick_pack(window, cx)));
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .children(existing)
+            .children(options.into_iter().enumerate().map(
+                |(ix, (step, icon, title, line, enabled))| {
                     option(ix, icon, title, line, enabled, cx).when(enabled, |this| {
                         this.on_click(cx.listener(move |this, _, _, cx| this.go(step, cx)))
                     })
-                }),
-        )
+                },
+            ))
+            .child(pack)
+    }
+
+    /// Asks the OS for a `.lata` and hands it over, closing this dialog.
+    fn pick_pack(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let picked = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Import".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(paths))) = picked.await else {
+                return;
+            };
+            let Some(path) = paths.into_iter().next() else {
+                return;
+            };
+            let _ = this.update_in(cx, |this, window, cx| {
+                let Some(import) = this.import.clone() else {
+                    return;
+                };
+                window.close_dialog(cx);
+                window.defer(cx, move |window, cx| import(path, window, cx));
+            });
+        })
+        .detach();
     }
 
     /// Game version: one chip per Steam branch, the chosen one filled.

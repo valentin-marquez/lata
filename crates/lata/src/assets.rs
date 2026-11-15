@@ -45,6 +45,8 @@ ui_icons!(
     "ellipsis-vertical",
     "external-link",
     "eye",
+    "file",
+    "folder",
     "folder-open",
     "gamepad",
     "git-branch",

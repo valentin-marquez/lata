@@ -541,6 +541,11 @@ struct Pins {
     items: Vec<Pin>,
 }
 
+/// The Workshop items the instance has, at the version each was downloaded.
+pub fn pins(instance: &Instance) -> Vec<Pin> {
+    read_pins(instance).items
+}
+
 fn read_pins(instance: &Instance) -> Pins {
     std::fs::read_to_string(instance.dir.join("mods.json"))
         .ok()
@@ -682,6 +687,9 @@ pub struct Installed {
     /// Titles of the other Workshop items installed with it: the rest of what was asked for,
     /// then what those require.
     pub with: Vec<String>,
+    /// Titles of the items asked for at a version Steam no longer serves, which came at their
+    /// current one instead.
+    pub newer: Vec<String>,
 }
 
 /// The most items one install follows through `requires` beyond the ones asked for; a mod
@@ -761,12 +769,14 @@ fn land(instance: &Instance, item: &steam::workshop::Item, staging: &Path) -> io
 /// left alone. `progress` gets the title being downloaded with the bytes done and in total,
 /// over everything. Meant to run on the background runtime as one task, so aborting it stops
 /// the download; each item is moved into the instance as soon as it is down, so what finished
-/// before a cancel stays.
+/// before a cancel stays. Items in `exact` come at the manifest it gives (a pack's versions)
+/// when Steam still serves it.
 // ponytail: each instance keeps its own copy of a mod; share them like game builds if disk
 // use becomes a problem.
 pub async fn install(
     instance: Instance,
     ids: Vec<u64>,
+    exact: Vec<(u64, u64)>,
     progress: impl FnMut(&str, u64, u64) + Send + 'static,
 ) -> Result<Installed, String> {
     let fail = |err: steam::Error| err.to_string();
@@ -827,13 +837,40 @@ pub async fn install(
     // Moving an item in and turning it on edits `mods.json` and `default.txt`: one at a time.
     let landing = Arc::new(Mutex::new(()));
     let mut running = tokio::task::JoinSet::new();
-    for (ix, item) in items.iter().enumerate() {
+    let mut newer = Vec::new();
+    for (ix, item) in items.iter_mut().enumerate() {
         // The manifest needs the Steam client, so manifests come one by one while the items
         // before download. Per item that is most of the time: a 370 KB mod took 400 ms of
         // manifest and 40 ms of files.
-        let manifest = steam::workshop::manifest(&mut client, &http, &source, item)
-            .await
-            .map_err(fail)?;
+        let pinned = exact
+            .iter()
+            .find(|(id, manifest)| *id == item.id && *manifest != item.manifest);
+        let old = match pinned {
+            Some((_, manifest)) => {
+                let old = steam::workshop::Item {
+                    manifest: *manifest,
+                    ..item.clone()
+                };
+                steam::workshop::manifest(&mut client, &http, &source, &old)
+                    .await
+                    .ok()
+                    .map(|found| (found, old.manifest))
+            }
+            None => None,
+        };
+        if pinned.is_some() && old.is_none() {
+            newer.push(item.title.clone());
+        }
+        let manifest = match old {
+            // The pin `land` writes says which version came.
+            Some((found, number)) => {
+                item.manifest = number;
+                found
+            }
+            None => steam::workshop::manifest(&mut client, &http, &source, item)
+                .await
+                .map_err(fail)?,
+        };
         if running.len() >= PARALLEL_ITEMS
             && let Some(done) = running.join_next().await
         {
@@ -878,6 +915,7 @@ pub async fn install(
     Ok(Installed {
         title: titles.next().unwrap_or_default(),
         with: titles.collect(),
+        newer,
     })
 }
 
@@ -1478,6 +1516,7 @@ mod tests {
                 .block_on(install(
                     instance.clone(),
                     vec![id],
+                    Vec::new(),
                     move |_, done, total| {
                         *report.lock().unwrap() = (done, total);
                     },

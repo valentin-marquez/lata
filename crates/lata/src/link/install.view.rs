@@ -110,7 +110,7 @@ impl InstallLink {
                 Found::Collection(found) => {
                     let items = Self::fitting(&found, &instance);
                     let name = Some(found.title.into());
-                    shell.add_mods(instance, items, name, false, handle, cx)
+                    shell.add_mods(instance, items, name, false, None, handle, cx)
                 }
             });
         });

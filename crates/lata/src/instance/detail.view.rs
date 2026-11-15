@@ -132,6 +132,19 @@ impl Detail {
                     ),
             )
             .child({
+                let instance = instance.clone();
+                Button::new("export")
+                    .outline()
+                    .cursor_pointer()
+                    .icon(IconName::Box)
+                    .size(px(40.))
+                    .rounded(px(10.))
+                    .tooltip("Export as a .lata")
+                    .on_click(move |_, window, cx| {
+                        crate::pack::export::open(instance.clone(), window, cx)
+                    })
+            })
+            .child({
                 let (shell, id) = (self.shell.clone(), instance.id.clone());
                 Button::new("settings")
                     .outline()

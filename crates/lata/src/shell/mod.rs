@@ -434,7 +434,7 @@ impl Shell {
         window: AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        self.add_mods(instance, vec![item], None, false, window, cx);
+        self.add_mods(instance, vec![item], None, false, None, window, cx);
     }
 
     /// Downloads the current version of Workshop items `items` that `instance` already has.
@@ -445,18 +445,24 @@ impl Shell {
         window: AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        self.add_mods(instance, items, None, true, window, cx);
+        self.add_mods(instance, items, None, true, None, window, cx);
     }
 
     /// Downloads Workshop items `items` into `instance` as one entry of the download manager.
     /// `collection` names where they came from, for the note at the end; `update` says they
-    /// are already installed and this brings their current version.
+    /// are already installed and this brings their current version. `pack` comes with the
+    /// items of a `.lata`: their versions, and the mods it has on.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one call per kind of mod download"
+    )]
     pub fn add_mods(
         &mut self,
         instance: Instance,
         items: Vec<u64>,
         collection: Option<SharedString>,
         update: bool,
+        pack: Option<crate::pack::Wanted>,
         window: AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
@@ -474,13 +480,22 @@ impl Shell {
             return;
         }
         let (events_tx, mut events) = tokio::sync::mpsc::unbounded_channel();
-        let task = crate::runtime::spawn(instance::mods::install(
-            instance,
-            items,
-            move |title, done, total| {
-                let _ = events_tx.send((SharedString::from(title.to_owned()), done, total));
-            },
-        ));
+        let (exact, active) = pack.map_or((Vec::new(), None), |p| (p.exact, Some(p.active)));
+        let task = crate::runtime::spawn(async move {
+            let added = instance::mods::install(
+                instance.clone(),
+                items,
+                exact,
+                move |title, done, total| {
+                    let _ = events_tx.send((SharedString::from(title.to_owned()), done, total));
+                },
+            )
+            .await?;
+            if let Some(active) = active {
+                instance::mods::activate(&instance, &active).map_err(|err| err.to_string())?;
+            }
+            Ok::<_, String>(added)
+        });
         let name = match (&collection, update) {
             (Some(name), _) => name.clone(),
             (None, true) => "Mod updates".into(),
@@ -516,6 +531,13 @@ impl Shell {
                 Ok(Err(why)) if update => {
                     crate::ui::toast::failed_because("That update didn't make it", why)
                 }
+                Ok(Ok(added)) if !added.newer.is_empty() => crate::ui::toast::heads_up(
+                    "Some mods came at a newer version",
+                    format!(
+                        "Steam no longer has the version the pack used: {}",
+                        added.newer.join(", ")
+                    ),
+                ),
                 Ok(Ok(added)) => crate::ui::toast::done(match (&collection, added.with.len()) {
                     (Some(name), many) => {
                         format!("{name} is in! All {} mods are ready to go", many + 1)
@@ -960,9 +982,14 @@ impl Shell {
                     Ok(())
                 } else {
                     let items = sources.workshop.clone();
-                    instance::mods::install(instance.clone(), items, move |title, done, total| {
-                        let _ = events_tx.send((title.to_owned().into(), done, total));
-                    })
+                    instance::mods::install(
+                        instance.clone(),
+                        items,
+                        Vec::new(),
+                        move |title, done, total| {
+                            let _ = events_tx.send((title.to_owned().into(), done, total));
+                        },
+                    )
                     .await
                     // Installing turns on every mod an item carries; back to what was played.
                     .and_then(|_| {
@@ -1028,6 +1055,73 @@ impl Shell {
         Self::create_from(shell, None, window, cx);
     }
 
+    /// Makes an instance from the `.lata` at `path`, then installs its game and its mods.
+    pub fn import_pack(shell: WeakEntity<Shell>, path: PathBuf, window: &mut Window, cx: &mut App) {
+        use crate::ui::toast;
+        use gpui_kit::component::WindowExt;
+        let Ok(root) = shell.read_with(cx, |shell, _| shell.root.clone()) else {
+            return;
+        };
+        let handle = window.window_handle();
+        cx.spawn(async move |cx| {
+            let made = crate::runtime::blocking(move || crate::pack::import(&root, &path)).await;
+            let (instance, index) = match made {
+                Ok(Ok(made)) => made,
+                Ok(Err(why)) => {
+                    let _ = handle.update(cx, |_, window, cx| {
+                        window.push_notification(
+                            toast::failed_because("That pack wouldn't open", why),
+                            cx,
+                        )
+                    });
+                    return;
+                }
+                Err(_) => return,
+            };
+            // Steam only serves each branch's current build; an older pack gets that one.
+            let current = branches_build(&index.build.branch).await;
+            let older = index
+                .build
+                .id
+                .zip(current)
+                .is_some_and(|(made, now)| made != now);
+            let _ = handle.update(cx, |_, window, cx| {
+                let _ = shell.update(cx, |shell, cx| {
+                    shell.instances = store::list(&shell.root);
+                    let ix = shell.instances.iter().position(|i| i.id == instance.id);
+                    shell.go(ix.map_or(Page::Library, Page::Instance), cx);
+                    let (items, wanted) = index.wanted();
+                    if !items.is_empty() {
+                        let name = SharedString::from(instance.name.to_string());
+                        shell.add_mods(
+                            instance.clone(),
+                            items,
+                            Some(name),
+                            false,
+                            Some(wanted),
+                            handle,
+                            cx,
+                        );
+                    }
+                });
+                Shell::play(shell.clone(), instance.id.clone(), window, cx);
+                if older {
+                    window.push_notification(
+                        toast::heads_up(
+                            "This pack was made on an older build",
+                            format!(
+                                "Steam only has the current one of {}, so that's the one coming",
+                                index.build.branch
+                            ),
+                        ),
+                        cx,
+                    );
+                }
+            });
+        })
+        .detach();
+    }
+
     /// The create dialog, already on `collection` when a link brought one.
     pub fn create_from(
         shell: WeakEntity<Shell>,
@@ -1038,13 +1132,14 @@ impl Shell {
         let Ok(root) = shell.read_with(cx, |shell, _| shell.root.clone()) else {
             return;
         };
-        let existing = shell.clone();
+        let (existing, pack) = (shell.clone(), shell.clone());
         instance::create::open(
             root,
             collection,
             move |game, window, cx| {
                 instance::existing_view::open(game, existing.clone(), window, cx)
             },
+            move |path, window, cx| Shell::import_pack(pack.clone(), path, window, cx),
             move |created, mods, window, cx| {
                 let handle = window.window_handle();
                 let _ = shell.update(cx, |shell, cx| {
@@ -1053,7 +1148,15 @@ impl Shell {
                     shell.go(ix.map_or(Page::Library, Page::Instance), cx);
                     // Mods download anonymously, alongside the game.
                     if let Some((collection, items)) = mods {
-                        shell.add_mods(created.clone(), items, Some(collection), false, handle, cx);
+                        shell.add_mods(
+                            created.clone(),
+                            items,
+                            Some(collection),
+                            false,
+                            None,
+                            handle,
+                            cx,
+                        );
                     }
                 });
                 // A new instance has nothing to run yet: start its install right away, as its
@@ -1075,6 +1178,14 @@ impl Shell {
             cx,
         );
     }
+}
+
+/// The build Steam serves now on `branch`; `None` when Steam can't be asked.
+async fn branches_build(branch: &str) -> Option<u32> {
+    let list = instance::branches::fetch().await.ok()?;
+    list.into_iter()
+        .find(|b| b.name == branch)
+        .map(|b| b.build_id)
 }
 
 /// How many links wait their turn behind the open install dialog.
@@ -1102,11 +1213,22 @@ impl Render for Shell {
         crate::ui::smooth_scroll("discover-scroll", &self.feed_scroll, window, cx);
         // The panel on the right needs a window wide enough for it and the page.
         let discover = window.bounds().size.width >= crate::discover::MIN_WINDOW;
+        let shell = cx.entity().downgrade();
         div()
             .flex()
             .flex_col()
             .size_full()
             .bg(cx.theme().title_bar)
+            // A `.lata` dropped anywhere on the window is imported.
+            .on_drop(move |dropped: &ExternalPaths, window, cx| {
+                let packs = dropped.paths().iter().filter(|path| {
+                    path.extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case(crate::pack::EXT))
+                });
+                for path in packs {
+                    Shell::import_pack(shell.clone(), path.clone(), window, cx);
+                }
+            })
             .text_color(cx.theme().foreground)
             .child(Topbar {
                 running: self.running(),

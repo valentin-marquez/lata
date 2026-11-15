@@ -9,6 +9,7 @@ mod game;
 mod instance;
 mod library;
 mod link;
+mod pack;
 mod runtime;
 mod screenshots;
 mod settings;

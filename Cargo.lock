@@ -3545,6 +3545,7 @@ dependencies = [
  "steam",
  "sysinfo",
  "tokio",
+ "zip",
 ]
 
 [[package]]
