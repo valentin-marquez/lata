@@ -12,26 +12,34 @@ use crate::account::Account;
 use crate::instance::Status;
 
 const WIDTH: Pixels = px(248.);
+/// An instance row's height, fixed so the highlight can slide to any row by its index.
+const ROW: f32 = 60.;
+/// Space between instance rows (`gap_1`).
+const GAP: f32 = 4.;
 
-fn row(id: impl Into<ElementId>, active: bool, cx: &App) -> Stateful<Div> {
-    let theme = cx.theme();
+/// A row with no fill of its own, for the open instance: the sliding highlight is under it.
+fn bare(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
     div()
         .id(id)
         .flex()
         .items_center()
         .gap_3()
         .p_2()
-        .rounded(theme.radius)
+        .rounded(cx.theme().radius)
         .border_1()
+        .border_color(transparent_black())
         .cursor_pointer()
-        .map(|this| {
-            if active {
-                this.bg(theme.group_box).border_color(theme.border)
-            } else {
-                this.border_color(transparent_black())
-                    .hover(|s| s.bg(theme.sidebar_accent))
-            }
-        })
+}
+
+fn row(id: impl Into<ElementId>, active: bool, cx: &App) -> Stateful<Div> {
+    let theme = cx.theme();
+    bare(id, cx).map(|this| {
+        if active {
+            this.bg(theme.group_box).border_color(theme.border)
+        } else {
+            this.hover(|s| s.bg(theme.sidebar_accent))
+        }
+    })
 }
 
 fn tile(icon: IconName, cx: &App) -> Div {
@@ -98,51 +106,89 @@ fn nav(
         .on_click(cx.listener(move |shell, _, _, cx| shell.go(page, cx)))
 }
 
-pub fn render(shell: &Shell, cx: &mut Context<Shell>) -> impl IntoElement {
+pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> impl IntoElement {
     let handle = cx.entity().downgrade();
     let home = nav(Page::Library, IconName::Library, "Library", shell, cx);
     let screenshots = nav(Page::Screenshots, IconName::Image, "Screenshots", shell, cx);
-    let theme = cx.theme();
 
+    // Slides to the open instance on a spring, like the tabs' indicator, and fades out on
+    // pages that aren't an instance.
+    let open = match shell.page {
+        Page::Instance(ix) => Some(ix),
+        _ => None,
+    };
+    let top: f32 = gpui_kit::base::spring(
+        "sidebar-highlight-top",
+        open.unwrap_or(0) as f32 * (ROW + GAP),
+        crate::ui::SPRING,
+        window,
+        cx,
+    );
+    let shown: f32 = gpui_kit::base::spring(
+        "sidebar-highlight-shown",
+        if open.is_some() { 1. } else { 0. },
+        crate::ui::SPRING_FAST,
+        window,
+        cx,
+    );
+    let theme = cx.theme();
+    let highlight = div()
+        .absolute()
+        .left_0()
+        .right_0()
+        .top(px(top))
+        .h(px(ROW))
+        .rounded(theme.radius)
+        .border_1()
+        .border_color(theme.border)
+        .bg(theme.group_box)
+        .opacity(shown);
     let instances = shell.instances.iter().enumerate().map(|(ix, instance)| {
         let state = shell.status(instance);
         let (shell_for_menu, id, dir) = (handle.clone(), instance.id.clone(), instance.dir.clone());
         let accent = theme.primary;
-        row(instance.id.clone(), shell.page == Page::Instance(ix), cx)
-            .child(crate::instance::art::art(instance, 34., px(8.), cx))
-            .child(
+        // The highlight under the list marks the open one, so no row draws its own fill.
+        let open = shell.page == Page::Instance(ix);
+        if open {
+            bare(instance.id.clone(), cx)
+        } else {
+            row(instance.id.clone(), false, cx)
+        }
+        .h(px(ROW))
+        .child(crate::instance::art::art(instance, 34., px(8.), cx))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .min_w_0()
+                .child(label(instance.name.clone()))
+                .child(status(shell.status(instance), cx)),
+        )
+        .on_click(cx.listener(move |shell, _, _, cx| shell.go(Page::Instance(ix), cx)))
+        // Right click: the two things wanted without opening the page. The main action
+        // in the accent, as on the Library card's menu.
+        .context_menu(move |menu, _, _| {
+            let (label, icon, enabled) = state.action();
+            let label = SharedString::from(label);
+            let play = PopupMenuItem::element(move |_, _| {
                 div()
-                    .flex()
-                    .flex_col()
-                    .min_w_0()
-                    .child(label(instance.name.clone()))
-                    .child(status(shell.status(instance), cx)),
-            )
-            .on_click(cx.listener(move |shell, _, _, cx| shell.go(Page::Instance(ix), cx)))
-            // Right click: the two things wanted without opening the page. The main action
-            // in the accent, as on the Library card's menu.
-            .context_menu(move |menu, _, _| {
-                let (label, icon, enabled) = state.action();
-                let label = SharedString::from(label);
-                let play = PopupMenuItem::element(move |_, _| {
-                    div()
-                        .text_color(accent)
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(label.clone())
-                })
-                .icon(Icon::new(icon).text_color(accent))
-                .disabled(!enabled)
-                .on_click({
-                    let (shell, id) = (shell_for_menu.clone(), id.clone());
-                    move |_, window, cx| Shell::play(shell.clone(), id.clone(), window, cx)
-                });
-                let folder = dir.clone();
-                menu.item(play).item(
-                    PopupMenuItem::new("Open folder")
-                        .icon(IconName::FolderOpen)
-                        .on_click(move |_, _, cx| cx.open_with_system(&folder)),
-                )
+                    .text_color(accent)
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(label.clone())
             })
+            .icon(Icon::new(icon).text_color(accent))
+            .disabled(!enabled)
+            .on_click({
+                let (shell, id) = (shell_for_menu.clone(), id.clone());
+                move |_, window, cx| Shell::play(shell.clone(), id.clone(), window, cx)
+            });
+            let folder = dir.clone();
+            menu.item(play).item(
+                PopupMenuItem::new("Open folder")
+                    .icon(IconName::FolderOpen)
+                    .on_click(move |_, _, cx| cx.open_with_system(&folder)),
+            )
+        })
     });
 
     div()
@@ -176,10 +222,12 @@ pub fn render(shell: &Shell, cx: &mut Context<Shell>) -> impl IntoElement {
                 .id("sidebar-instances")
                 .flex()
                 .flex_col()
+                .relative()
                 .gap_1()
                 .min_h_0()
                 .overflow_y_scroll()
                 .track_scroll(&shell.sidebar_scroll)
+                .child(highlight)
                 .children(instances),
         )
         .child(div().h(px(1.)).mx_2().my_1().bg(theme.border))

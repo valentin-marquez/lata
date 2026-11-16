@@ -2,7 +2,8 @@
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::ActiveTheme;
-use gpui_kit::component::button::Button;
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -131,31 +132,6 @@ impl Detail {
                             .map(|bar| div().w(px(340.)).max_w_full().child(bar)),
                     ),
             )
-            .child({
-                let instance = instance.clone();
-                Button::new("export")
-                    .outline()
-                    .cursor_pointer()
-                    .icon(IconName::Box)
-                    .size(px(40.))
-                    .rounded(px(10.))
-                    .tooltip("Export as a .lata")
-                    .on_click(move |_, window, cx| {
-                        crate::pack::export::open(instance.clone(), window, cx)
-                    })
-            })
-            .child({
-                let (shell, id) = (self.shell.clone(), instance.id.clone());
-                Button::new("settings")
-                    .outline()
-                    .cursor_pointer()
-                    .icon(IconName::Settings)
-                    .size(px(40.))
-                    .rounded(px(10.))
-                    .on_click(move |_, window, cx| {
-                        Shell::settings(shell.clone(), id.clone(), window, cx)
-                    })
-            })
             .when(status == Status::Outdated, |this| {
                 let (shell, id) = (self.shell.clone(), instance.id.clone());
                 this.child(
@@ -184,6 +160,55 @@ impl Detail {
                             Shell::play(shell.clone(), id.clone(), window, cx)
                         })
                     })
+            })
+            .child(self.more(instance))
+    }
+
+    /// Everything but Play, behind one button: the header keeps a single strong action.
+    fn more(&self, instance: &Instance) -> impl IntoElement + use<> {
+        let (shell, instance) = (self.shell.clone(), instance.clone());
+        Button::new("instance-more")
+            .ghost()
+            .cursor_pointer()
+            .icon(IconName::EllipsisVertical)
+            .size(px(40.))
+            .rounded(px(10.))
+            .dropdown_menu(move |menu, _, _| {
+                let on = |action: fn(WeakEntity<Shell>, SharedString, &mut Window, &mut App)| {
+                    let (shell, id) = (shell.clone(), instance.id.clone());
+                    move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+                        action(shell.clone(), id.clone(), window, cx)
+                    }
+                };
+                let (pack, folder) = (instance.clone(), instance.dir.clone());
+                menu.item(
+                    PopupMenuItem::new("Settings")
+                        .icon(IconName::Settings)
+                        .on_click(on(Shell::settings)),
+                )
+                .item(
+                    PopupMenuItem::new("Edit icon")
+                        .icon(IconName::Palette)
+                        .on_click(on(Shell::customize)),
+                )
+                .item(
+                    PopupMenuItem::new("Export as .lata")
+                        .icon(IconName::Box)
+                        .on_click(move |_, window, cx| {
+                            crate::pack::export::open(pack.clone(), window, cx)
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new("Open folder")
+                        .icon(IconName::FolderOpen)
+                        .on_click(move |_, _, cx| cx.open_with_system(&folder)),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new("Delete")
+                        .icon(IconName::Trash)
+                        .on_click(on(Shell::confirm_delete)),
+                )
             })
     }
 

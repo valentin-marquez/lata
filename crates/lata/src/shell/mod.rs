@@ -1265,7 +1265,7 @@ impl Render for Shell {
                     .flex()
                     .flex_1()
                     .min_h_0()
-                    .child(sidebar::render(self, cx))
+                    .child(sidebar::render(self, window, cx))
                     .child(
                         div()
                             .flex()
