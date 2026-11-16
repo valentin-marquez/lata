@@ -5,12 +5,11 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/valentin-marquez/lata/ci.yml?label=CI)](https://github.com/valentin-marquez/lata/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
-Instance launcher for Project Zomboid, rewritten from scratch in Rust.
+Keep several Project Zomboid installs side by side, each with its own game version, mods and saves.
 
 > Early pre-release. Expect rough edges, and tell us about them on [Discord](https://discord.gg/jeGPaMkDbU).
 
-Each instance is its own install: game version (Steam branch), mods and saves. lata talks to Steam
-natively, no SteamCMD.
+The game and Workshop mods come straight from Steam, no SteamCMD needed.
 
 ![Library](assets/screenshots/library-dark.png)
 
