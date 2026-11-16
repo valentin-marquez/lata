@@ -1,6 +1,7 @@
 ![lata](assets/banner.jpg)
 
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/jeGPaMkDbU)
+[![Downloads](https://img.shields.io/github/downloads/valentin-marquez/lata/total?label=downloads)](https://github.com/valentin-marquez/lata/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/valentin-marquez/lata/ci.yml?label=CI)](https://github.com/valentin-marquez/lata/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
