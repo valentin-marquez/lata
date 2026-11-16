@@ -4,6 +4,8 @@
 pub mod art;
 #[path = "branches.model.rs"]
 pub mod branches;
+#[path = "build.model.rs"]
+pub mod build;
 #[path = "create.view.rs"]
 pub mod create;
 #[path = "detail.view.rs"]
@@ -193,6 +195,21 @@ impl Instance {
             return Some(own);
         }
         Some(store::builds(self.dir.parent()?).join(build.to_string()))
+    }
+
+    /// What the installed build is called ("42.22.2", or "Build 26486631" when unknown).
+    pub fn build_name(&self) -> Option<String> {
+        Some(build::name(self.build?, self.game().as_deref(), None))
+    }
+
+    /// The game version, when it is known.
+    pub fn version(&self) -> Option<String> {
+        build::version(self.build?, self.game().as_deref())
+    }
+
+    /// The update channel of the instance's branch ("Stable").
+    pub fn channel(&self) -> String {
+        build::channel(&self.branch)
     }
 
     /// `latest` is the branch's newest build id, when known; without it an install is `Ready`.

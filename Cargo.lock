@@ -3557,6 +3557,7 @@ dependencies = [
  "tar",
  "tokio",
  "zip",
+ "zomboid",
 ]
 
 [[package]]

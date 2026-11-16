@@ -282,6 +282,28 @@ async fn install(
     if !detached {
         store::set_complete(&game).map_err(|e| e.to_string())?;
     }
+    // Not fatal: a build with no record is read from its files the first time it is named.
+    let version = plan
+        .iter()
+        .flat_map(|(_, _, m)| &m.files)
+        .filter(|f| zomboid::version::is_source(&f.path))
+        .find_map(|f| zomboid::version::read(&game.join(&f.path)))
+        .map(|v| v.to_string());
+    let manifests = ["linux", "windows", "macos"]
+        .into_iter()
+        .flat_map(|os| pics::depots(&info, branch, os))
+        .map(|d| (d.id, d.manifest))
+        .collect();
+    let _ = super::build::record(
+        &game,
+        &zomboid::catalog::Build {
+            build,
+            version,
+            branches: vec![branch.to_owned()],
+            seen: store::now(),
+            manifests,
+        },
+    );
     if partial {
         let _ = std::fs::remove_dir_all(&own);
     }
