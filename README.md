@@ -7,7 +7,7 @@
 
 Instance launcher for Project Zomboid, rewritten from scratch in Rust.
 
-> Work in progress. Not usable yet.
+> Early pre-release. Expect rough edges, and tell us about them on [Discord](https://discord.gg/jeGPaMkDbU).
 
 Each instance is its own install: game version (Steam branch), mods and saves. lata talks to Steam
 natively, no SteamCMD.
@@ -27,6 +27,38 @@ natively, no SteamCMD.
 |---|---|
 | ![Mods of an instance](assets/screenshots/mods-dark.png) | ![Installing a collection](assets/screenshots/collection-dark.png) |
 | ![Installing a mod, light theme](assets/screenshots/mod-light.png) | |
+
+## Install
+
+Download the file for your system from [Releases](https://github.com/valentin-marquez/lata/releases).
+The builds aren't signed yet, so Windows and macOS warn the first time you open lata. `SHA256SUMS`
+in each release lists every file's checksum.
+
+### Linux
+
+Unpack it somewhere you own (lata updates itself only where it can write) and run the script inside,
+which adds lata to your app menu and makes it open the browser extension's `lata://` links:
+
+```sh
+mkdir -p ~/.local/opt && cd ~/.local/opt
+tar xzf ~/Downloads/lata-launcher-v*-linux-x86_64.tar.gz
+./lata-launcher-v*-linux-x86_64/packaging/linux/install-icons.sh
+```
+
+Then open **Lata** from the menu. It needs Vulkan (Mesa or your GPU's driver) and Wayland or X11.
+lata updates itself when it starts.
+
+### Windows
+
+Unzip `lata-launcher-v*-windows-x86_64.zip` anywhere and run `lata.exe`. If SmartScreen stops it,
+choose **More info** and **Run anyway**. To have the browser extension open lata, turn on
+**Open links from the browser** in Settings > Behavior. lata tells you when there is a new version.
+
+### macOS (Apple silicon)
+
+Open the `.dmg` and drag **Lata** into Applications. The first time, macOS blocks it: open
+System Settings > Privacy & Security and choose **Open Anyway**. lata tells you when there is a new
+version.
 
 ## lata link
 
