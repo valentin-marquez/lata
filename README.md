@@ -59,6 +59,21 @@ Open the `.dmg` and drag **Lata** into Applications. The first time, macOS block
 System Settings > Privacy & Security and choose **Open Anyway**. lata tells you when there is a new
 version.
 
+## Code signing policy
+
+Windows builds will be signed with free code signing provided by [SignPath.io](https://about.signpath.io/),
+certificate by [SignPath Foundation](https://signpath.org/). Only the release workflow
+(`.github/workflows/release.yml`) builds what gets signed, from a tagged commit of this repository.
+
+- Committers and reviewers: [Valentin Marquez](https://github.com/valentin-marquez)
+- Approvers: [Valentin Marquez](https://github.com/valentin-marquez)
+
+### Privacy
+
+lata only talks to Steam, to download the game and Workshop mods, sign in, and show news and
+mod pictures, and to GitHub, to check for a new version of lata. It sends no telemetry and no data
+to anyone else. Your Steam login stays on your computer, in the system keyring.
+
 ## lata link
 
 The browser extension adds an "Install in lata" button to Workshop pages.
