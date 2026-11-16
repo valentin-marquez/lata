@@ -76,6 +76,8 @@ struct Order {
     /// Their maps, the one that wins a shared cell on top.
     maps: Vec<Map>,
     saved: Saved,
+    /// The mod list's scroll position, eased by `ui::smooth_scroll`.
+    scroll: UniformListScrollHandle,
 }
 
 impl Order {
@@ -97,6 +99,7 @@ impl Order {
             mods,
             maps,
             saved,
+            scroll: UniformListScrollHandle::new(),
         }
     }
 
@@ -120,10 +123,25 @@ impl Order {
         cx.notify();
     }
 
-    fn auto(&mut self, cx: &mut Context<Self>) {
+    /// Sorts the mods the way Auto does and says how it went; nothing is saved yet.
+    fn auto(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let before: Vec<String> = self.mods.iter().map(|m| m.id.clone()).collect();
         let order = mods::auto_sort(&self.mods);
         self.mods
             .sort_by_key(|m| order.iter().position(|id| *id == m.id));
+        let refs: Vec<&Mod> = self.mods.iter().collect();
+        let note = match mods::out_of_order(&refs) {
+            // Mods that require each other in a circle: no order satisfies them all.
+            Some((m, late)) => toast::heads_up(
+                "Couldn't sort every requirement",
+                format!("{} still needs to load before {}", late.name, m.name),
+            ),
+            None if self.mods.iter().map(|m| &m.id).eq(before.iter()) => {
+                toast::done("Already lined up! Nothing to shuffle")
+            }
+            None => toast::done("All lined up! Hit Save order to keep it"),
+        };
+        window.push_notification(note, cx);
         cx.notify();
     }
 
@@ -134,8 +152,10 @@ impl Order {
         match mods::set_order(&self.instance, &ids, maps) {
             Ok(()) => {
                 window.close_dialog(cx);
-                window
-                    .push_notification(toast::done("Order saved! The game loads it that way"), cx);
+                window.push_notification(
+                    toast::done("Order saved! You're set for the next launch"),
+                    cx,
+                );
                 (self.saved)(window, cx);
             }
             Err(err) => {
@@ -163,7 +183,7 @@ impl Order {
         let step = |part: &'static str, icon: IconName, to: Option<usize>, tip: &'static str| {
             Button::new(key(part))
                 .ghost()
-                .xsmall()
+                .small()
                 .icon(icon)
                 .tooltip(tip)
                 .disabled(to.is_none())
@@ -183,6 +203,7 @@ impl Order {
         div()
             .id(key("row"))
             .flex()
+            .w_full()
             .items_center()
             .gap_3()
             .px_3()
@@ -245,28 +266,93 @@ impl Order {
                             .child(text)
                     })),
             )
-            .child(step(
-                "up",
-                IconName::ChevronUp,
-                ix.checked_sub(1),
-                "Move up",
-            ))
-            .child(step(
-                "down",
-                IconName::ChevronDown,
-                (ix + 1 < count).then_some(ix + 1),
-                "Move down",
-            ))
+            // The two arrows as one control, apart from the row's gaps.
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .gap_1()
+                    .child(step(
+                        "up",
+                        IconName::ChevronUp,
+                        ix.checked_sub(1),
+                        "Move up",
+                    ))
+                    .child(step(
+                        "down",
+                        IconName::ChevronDown,
+                        (ix + 1 < count).then_some(ix + 1),
+                        "Move down",
+                    )),
+            )
             .into_any_element()
     }
 
-    fn list(&self, id: &'static str, rows: Vec<AnyElement>, cx: &Context<Self>) -> Stateful<Div> {
+    /// The mods, built only for the rows in view: an instance can hold hundreds, each row
+    /// with a drag and two buttons, and building them all every frame made it crawl.
+    fn mods_list(&self, tall: Pixels, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        let base = self.scroll.0.borrow().base_handle.clone();
+        ui::smooth_scroll("order-scroll", &base, window, cx);
+        let theme = cx.theme();
+        div()
+            .flex()
+            .flex_col()
+            .max_h(tall)
+            .rounded(theme.radius_lg)
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme.background)
+            .overflow_hidden()
+            .child(
+                uniform_list(
+                    "order-mods",
+                    self.mods.len(),
+                    cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
+                        let refs: Vec<&Mod> = this.mods.iter().collect();
+                        // The game refuses a mod above one it requires; so does Save.
+                        let wrong = mods::out_of_order(&refs)
+                            .map(|(m, late)| (m.id.clone(), late.name.clone()));
+                        let count = this.mods.len();
+                        let rows: Vec<(usize, SharedString, (SharedString, bool))> = range
+                            .filter_map(|ix| this.mods.get(ix).map(|m| (ix, m)))
+                            .map(|(ix, m)| {
+                                let note = match &wrong {
+                                    Some((id, late)) if *id == m.id => {
+                                        (format!("Needs {late} above it").into(), true)
+                                    }
+                                    _ => (m.id.clone().into(), false),
+                                };
+                                (ix, SharedString::from(m.name.clone()), note)
+                            })
+                            .collect();
+                        rows.into_iter()
+                            .map(|(ix, name, note)| {
+                                this.row(List::Mods, ix, count, name, Some(note), cx)
+                            })
+                            .collect()
+                    }),
+                )
+                // Rows times their height, capped by the room: hugs a short list, scrolls a
+                // long one.
+                .with_sizing_behavior(ListSizingBehavior::Infer)
+                .track_scroll(&self.scroll)
+                .min_h_0(),
+            )
+    }
+
+    fn list(
+        &self,
+        id: &'static str,
+        rows: Vec<AnyElement>,
+        tall: Pixels,
+        cx: &Context<Self>,
+    ) -> Stateful<Div> {
         let theme = cx.theme();
         div()
             .id(id)
             .flex()
             .flex_col()
-            .max_h(px(300.))
+            .max_h(tall)
             .overflow_y_scroll()
             .rounded(theme.radius_lg)
             .border_1()
@@ -277,28 +363,15 @@ impl Order {
 }
 
 impl Render for Order {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // As much list as the window allows around the rest of the dialog: hundreds of mods
+        // through five rows felt like a mail slot.
+        let tall = (window.viewport_size().height - px(340.)).clamp(px(200.), px(480.));
         let refs: Vec<&Mod> = self.mods.iter().collect();
         // The game refuses an order with a mod above one it requires; so does Save.
-        let wrong = mods::out_of_order(&refs).map(|(m, late)| (m.id.clone(), late.name.clone()));
+        let wrong = mods::out_of_order(&refs)
+            .map(|(m, late)| (m.id.clone(), m.name.clone(), late.name.clone()));
         let count = self.mods.len();
-        let mods: Vec<AnyElement> = self
-            .mods
-            .iter()
-            .enumerate()
-            .map(|(ix, m)| {
-                let note = match &wrong {
-                    Some((id, late)) if *id == m.id => {
-                        (format!("Needs {late} above it").into(), true)
-                    }
-                    _ => (m.id.clone().into(), false),
-                };
-                (ix, SharedString::from(m.name.clone()), note)
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .map(|(ix, name, note)| self.row(List::Mods, ix, count, name, Some(note), cx))
-            .collect();
         let maps_matter = self.maps_matter();
         let map_count = self.maps.len();
         let maps: Vec<AnyElement> = if maps_matter {
@@ -319,6 +392,7 @@ impl Render for Order {
         } else {
             Vec::new()
         };
+        let mods_list = self.mods_list(tall, window, cx);
         let theme = cx.theme();
         let hint = |text: &'static str| {
             div()
@@ -326,48 +400,89 @@ impl Render for Order {
                 .text_color(theme.muted_foreground)
                 .child(text)
         };
+        let warning = wrong.as_ref().map(|(_, name, late)| {
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .text_sm()
+                .text_color(ui::warning_text(cx))
+                .child(Icon::new(IconName::TriangleAlert).size_4().flex_none())
+                .child(format!(
+                    "Heads up! {late} needs to load before {name}. Move it up before saving."
+                ))
+        });
+        let enabled = match count {
+            1 => "1 enabled mod".to_owned(),
+            many => format!("{many} enabled mods"),
+        };
         div()
             .flex()
             .flex_col()
             .gap_4()
             .child(hint(
-                "The game loads these from the top down, so a mod goes under the ones it \
-                 needs. Drag them around, or let Auto sort it out.",
+                "The game loads from the top down. Drag mods or use the arrows to move them.",
             ))
-            .child(self.list("order-mods", mods, cx))
+            // Auto sits with the list it changes, and says what it does before it's pressed.
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(enabled),
+                            )
+                            .child(
+                                // The toolbar's bordered look, as the other buttons there.
+                                Button::new("order-auto")
+                                    .outline()
+                                    .h(px(36.))
+                                    .cursor_pointer()
+                                    .icon(IconName::WandSparkles)
+                                    .label("Auto")
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| this.auto(window, cx)),
+                                    ),
+                            ),
+                    )
+                    .child(hint(
+                        "Auto puts each mod below the ones it needs, then honors the ones that \
+                         ask to load before or after others where it can. The rest go in \
+                         alphabetical order.",
+                    )),
+            )
+            .children(warning)
+            .child(mods_list)
             .when(maps_matter, |this| {
                 this.child(hint(
                     "Some of your maps want the same spot. Where they overlap, the one on \
-                     top wins.",
+                     top wins. Auto sorts mods only, so your map order stays put.",
                 ))
-                .child(self.list("order-maps", maps, cx))
+                .child(self.list("order-maps", maps, px(240.), cx))
             })
             .child(
                 div()
                     .flex()
-                    .justify_between()
+                    .justify_end()
+                    .gap_2()
                     .child(
-                        ui::secondary("order-auto", "Auto")
-                            .icon(IconName::WandSparkles)
-                            .on_click(cx.listener(|this, _, _, cx| this.auto(cx))),
+                        ui::secondary("order-cancel", "Cancel")
+                            .on_click(|_, window, cx| window.close_dialog(cx)),
                     )
                     .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                ui::secondary("order-cancel", "Cancel")
-                                    .on_click(|_, window, cx| window.close_dialog(cx)),
-                            )
-                            .child(
-                                FancyButton::new("order-save", "Save order")
-                                    .small()
-                                    .icon(IconName::Check)
-                                    .disabled(wrong.is_some())
-                                    .on_click(
-                                        cx.listener(|this, _, window, cx| this.save(window, cx)),
-                                    ),
-                            ),
+                        FancyButton::new("order-save", "Save order")
+                            .small()
+                            .icon(IconName::Check)
+                            .disabled(wrong.is_some())
+                            .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),
                     ),
             )
     }

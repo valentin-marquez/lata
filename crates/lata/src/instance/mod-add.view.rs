@@ -16,6 +16,8 @@ use crate::ui::{self, FancyButton, Loader, Meta};
 const WIDTH: f32 = 580.;
 /// Side of the mod's Workshop picture.
 pub(crate) const PICTURE: f32 = 120.;
+/// Side of the picture in [`summary`], where the picture is not the point.
+pub(crate) const SUMMARY: f32 = 80.;
 /// Tags shown besides the build ones; a mod can carry a dozen.
 const TAGS: usize = 4;
 
@@ -50,7 +52,7 @@ struct AddMod {
 }
 
 /// The build line a mod's Workshop tags say it is for, when they say only one.
-fn other_build(tags: &[String], modern: bool) -> Option<&'static str> {
+pub(crate) fn other_build(tags: &[String], modern: bool) -> Option<&'static str> {
     let has = |tag: &str| tags.iter().any(|t| t == tag);
     match (has("Build 41"), has("Build 42"), modern) {
         (true, false, true) => Some("Build 41"),
@@ -166,6 +168,113 @@ impl AddMod {
     }
 }
 
+/// A Workshop picture at `side` px, or `icon` on a muted square while there is none.
+pub(crate) fn picture(
+    path: Option<&std::path::PathBuf>,
+    icon: IconName,
+    side: f32,
+    radius: Pixels,
+    cx: &App,
+) -> Div {
+    let theme = cx.theme();
+    match path {
+        Some(path) => div().flex_none().size(px(side)).child(
+            img(path.clone())
+                .size_full()
+                .rounded(radius)
+                .object_fit(ObjectFit::Cover),
+        ),
+        None => div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .size(px(side))
+            .rounded(radius)
+            .bg(theme.muted)
+            .text_color(theme.muted_foreground)
+            .child(Icon::new(icon).size(px((side / 4.).clamp(20., 32.)))),
+    }
+}
+
+/// The mod in brief, for a dialog where choosing where it goes is the point: a small picture,
+/// the title in up to two lines, its facts, the build badge and a couple of other tags.
+pub(crate) fn summary(found: &Listing, cx: &App) -> Div {
+    let theme = cx.theme();
+    let item = &found.item;
+    let (builds, others): (Vec<&String>, Vec<&String>) =
+        item.tags.iter().partition(|tag| tag.starts_with("Build "));
+    const SHOWN: usize = 2;
+    let more = others.len().saturating_sub(SHOWN);
+    let quiet = |text: String| {
+        div()
+            .flex_none()
+            .text_xs()
+            .text_color(theme.muted_foreground)
+            .child(text)
+    };
+    div()
+        .flex()
+        .items_start()
+        .gap_4()
+        .child(picture(
+            found.picture.as_ref(),
+            IconName::Puzzle,
+            SUMMARY,
+            px(8.),
+            cx,
+        ))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .gap_1p5()
+                .child(
+                    div()
+                        .text_base()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .line_clamp(2)
+                        .text_ellipsis()
+                        .child(item.title.clone()),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap_4()
+                        .child(Meta::new(IconName::Download, size(item.size)))
+                        .children(item.updated.map(|at| {
+                            Meta::new(
+                                IconName::Clock,
+                                format!("Updated {}", branches::date(at as u64)),
+                            )
+                        })),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .items_center()
+                        .gap_2()
+                        .children(builds.iter().map(|tag| {
+                            div()
+                                .flex_none()
+                                .px_2()
+                                .py_0p5()
+                                .rounded(px(6.))
+                                .text_xs()
+                                .font_weight(FontWeight::MEDIUM)
+                                .bg(theme.primary.opacity(0.15))
+                                .child(tag.to_string())
+                        }))
+                        .children(others.iter().take(SHOWN).map(|tag| quiet(tag.to_string())))
+                        .when(more > 0, |this| this.child(quiet(format!("+{more} more")))),
+                ),
+        )
+}
+
 /// The mod as the Workshop describes it: its picture, then title, facts and tags. With the
 /// instance it would go into, it warns when the mod is for the other build line.
 pub(crate) fn card(found: &Listing, instance: Option<&Instance>, cx: &App) -> Div {
@@ -191,24 +300,13 @@ pub(crate) fn card(found: &Listing, instance: Option<&Instance>, cx: &App) -> Di
             })
             .child(text.to_owned())
     };
-    let picture = match &found.picture {
-        Some(path) => div().flex_none().size(px(PICTURE)).child(
-            img(path.clone())
-                .size_full()
-                .rounded(theme.radius)
-                .object_fit(ObjectFit::Cover),
-        ),
-        None => div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .size(px(PICTURE))
-            .rounded(theme.radius)
-            .bg(theme.muted)
-            .text_color(theme.muted_foreground)
-            .child(Icon::new(IconName::Puzzle).size_8()),
-    };
+    let picture = picture(
+        found.picture.as_ref(),
+        IconName::Puzzle,
+        PICTURE,
+        theme.radius,
+        cx,
+    );
     div()
         .flex()
         .gap_4()

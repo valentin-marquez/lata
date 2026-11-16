@@ -3,7 +3,7 @@ use std::rc::Rc;
 use gpui::{
     Anchor, AnyElement, App, Context, DismissEvent, Element, ElementId, Entity, FocusHandle,
     Focusable, GlobalElementId, InspectorElementId, InteractiveElement, IntoElement, LayoutId,
-    RenderOnce, SharedString, Styled, Window, prelude::FluentBuilder,
+    RenderOnce, SharedString, StyleRefinement, Styled, Window, prelude::FluentBuilder,
 };
 
 use crate::{Selectable, button::Button, menu::PopupMenu, popover::Popover};
@@ -39,6 +39,8 @@ pub struct DropdownMenuPopover<T: Selectable + IntoElement + 'static> {
     trigger: T,
     builder: Rc<dyn Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu>,
     on_open_change: Option<Rc<dyn Fn(&bool, &mut Window, &mut App)>>,
+    // lata: style for the container the parent lays out (a full-width select-like trigger).
+    trigger_style: Option<StyleRefinement>,
 }
 
 impl<T> DropdownMenuPopover<T>
@@ -57,7 +59,16 @@ where
             trigger,
             builder: Rc::new(builder),
             on_open_change: None,
+            trigger_style: None,
         }
+    }
+
+    // lata: forwarded to `Popover::trigger_style`. The trigger's own size can't make it wider:
+    // the popover's container is what its parent lays out.
+    /// Style the container around the trigger, e.g. `StyleRefinement::default().w_full()`.
+    pub fn trigger_style(mut self, style: StyleRefinement) -> Self {
+        self.trigger_style = Some(style);
+        self
     }
 
     /// Set the anchor corner for the dropdown menu popover.
@@ -110,6 +121,7 @@ where
             window.use_keyed_state(self.id.clone(), cx, |_, _| DropdownMenuState::default());
 
         Popover::new(SharedString::from(format!("popover:{}", self.id)))
+            .when_some(self.trigger_style, |this, style| this.trigger_style(style))
             .appearance(false)
             .overlay_closable(false)
             .trigger(self.trigger)

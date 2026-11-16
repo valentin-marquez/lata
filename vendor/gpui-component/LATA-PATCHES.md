@@ -26,3 +26,7 @@ changes on a fresh copy when upgrading.
 - `src/menu/popup_menu.rs`: menu items show the pointer cursor.
 - `src/tab/tab.rs`, `src/tab/tab_bar.rs`: pill tabs and their sliding fill use the theme radius
   less 4 px (they sit in a tray with the inputs' radius) instead of being fully round.
+- `src/menu/dropdown_menu.rs`: `DropdownMenuPopover::trigger_style`, forwarded to the
+  popover's own, so a `dropdown_menu` trigger can fill its row like a select.
+- `src/root.rs`: the toast layer paints deferred at priority 300, above dialogs (10 and up),
+  menus (100) and tooltips (200): a toast is always on top, even one raised from a dialog.

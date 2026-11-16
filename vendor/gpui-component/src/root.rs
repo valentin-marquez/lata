@@ -12,7 +12,8 @@ use crate::{
 use gpui::{
     App, AppContext, Bounds, Context, DefiniteLength, DispatchPhase, ElementId, Entity,
     FocusHandle, GlobalElementId, InteractiveElement, IntoElement, MouseMoveEvent,
-    ParentElement as _, Pixels, Render, RenderOnce, Styled, WeakFocusHandle, Window, canvas, div,
+    ParentElement as _, Pixels, Render, RenderOnce, Styled, WeakFocusHandle, Window, canvas,
+    deferred, div,
     prelude::FluentBuilder as _,
 };
 use gpui_base::{TextSelection, TextSelectionScopeId, motion::Presence};
@@ -186,7 +187,9 @@ impl WindowState {
         // Keep toasts out from under the system bars and the on-screen keyboard.
         let safe_insets = window_border::window_safe_insets(window);
 
-        Some(
+        // lata: painted in a deferred pass above everything else that paints deferred:
+        // dialogs (10 and up), menus (100) and tooltips (200). A toast is always seen.
+        Some(deferred(
             div()
                 .absolute()
                 .top(safe_insets.top)
@@ -204,6 +207,7 @@ impl WindowState {
                         .child(root.read(cx).notification.clone()),
                 ),
         )
+        .with_priority(300))
     }
 
     fn sheet_layer(

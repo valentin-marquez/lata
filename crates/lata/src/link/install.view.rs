@@ -13,7 +13,7 @@ use gpui_kit::*;
 
 use super::Found;
 use crate::instance::Instance;
-use crate::instance::mod_add::{PICTURE, card};
+use crate::instance::mod_add::{SUMMARY, other_build, picture, summary};
 use crate::instance::mods::{self, Bundle};
 use crate::shell::Shell;
 use crate::ui::{self, FancyButton, Meta};
@@ -131,48 +131,58 @@ impl InstallLink {
         });
     }
 
-    /// The instance picker: what is chosen, and the others to choose from.
+    /// The instance picker, full width like a select: what is chosen, and the others to
+    /// choose from.
     fn picker(&self, cx: &Context<Self>) -> impl IntoElement + use<> {
+        let theme = cx.theme();
         let this = cx.entity();
         let chosen = self.chosen;
         let names: Vec<SharedString> = self.instances.iter().map(|i| i.name.clone()).collect();
-        let label = chosen.map_or("Choose an instance".into(), |ix| names[ix].clone());
-        div()
-            .flex()
-            .items_center()
-            .gap_3()
+        let (label, placeholder) = match chosen {
+            Some(ix) => (names[ix].clone(), false),
+            None => ("Choose an instance".into(), true),
+        };
+        let muted = theme.muted_foreground;
+        Button::new("link-instance")
+            .outline()
+            .w_full()
+            .h(px(40.))
+            .cursor_pointer()
             .child(
                 div()
-                    .flex_none()
-                    .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("Install in"),
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .w_full()
+                    .child(Icon::new(IconName::Box).size_4().text_color(muted))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_sm()
+                            .when(placeholder, |this| this.text_color(muted))
+                            .child(label),
+                    )
+                    .child(Icon::new(IconName::ChevronDown).size_4().text_color(muted)),
             )
-            .child(
-                Button::new("link-instance")
-                    .outline()
-                    .flex_1()
-                    .h(px(36.))
-                    .cursor_pointer()
-                    .icon(IconName::Box)
-                    .label(label)
-                    .dropdown_menu(move |mut menu, _, _| {
-                        for (ix, name) in names.iter().enumerate() {
-                            let this = this.clone();
-                            menu = menu.item(
-                                PopupMenuItem::new(name.clone())
-                                    .checked(chosen == Some(ix))
-                                    .on_click(move |_, _, cx| {
-                                        this.update(cx, |view, cx| {
-                                            view.select(ix);
-                                            cx.notify();
-                                        });
-                                    }),
-                            );
-                        }
-                        menu
-                    }),
-            )
+            .dropdown_menu(move |mut menu, _, _| {
+                for (ix, name) in names.iter().enumerate() {
+                    let this = this.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(name.clone())
+                            .checked(chosen == Some(ix))
+                            .on_click(move |_, _, cx| {
+                                this.update(cx, |view, cx| {
+                                    view.select(ix);
+                                    cx.notify();
+                                });
+                            }),
+                    );
+                }
+                menu
+            })
+            .trigger_style(StyleRefinement::default().w_full())
     }
 }
 
@@ -180,13 +190,17 @@ impl Render for InstallLink {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let chosen = self.chosen.map(|ix| &self.instances[ix]);
-        let note = |icon: IconName, text: String| {
+        let note = |icon: IconName, text: String, warn: bool| {
             div()
                 .flex()
                 .items_center()
                 .gap_2()
                 .text_sm()
-                .text_color(theme.muted_foreground)
+                .text_color(if warn {
+                    ui::warning_text(cx)
+                } else {
+                    theme.muted_foreground
+                })
                 .child(Icon::new(icon).size_4().flex_none())
                 .child(text)
         };
@@ -199,52 +213,86 @@ impl Render for InstallLink {
         };
         let ready = chosen.is_some() && fit != Some(0);
         let collection = matches!(self.found, Found::Collection(_));
-        let card = match &self.found {
-            Found::Mod(found) => card(found, chosen, cx),
-            Found::Collection(found) => bundle_card(found, cx),
+        let none = self.instances.is_empty();
+        let summary = match &self.found {
+            Found::Mod(found) => summary(found, cx),
+            Found::Collection(found) => bundle_summary(found, cx),
         };
         let install = match fit {
             Some(1) => "Install 1 mod".into(),
             Some(count) => format!("Install {count} mods").into(),
-            None if self.already => SharedString::from("Update"),
-            None => "Install".into(),
+            None if self.already => SharedString::from("Update mod"),
+            None => "Install mod".into(),
+        };
+        // What the chosen instance means for this mod: already there, the other build line,
+        // or nothing of a collection fits.
+        let notes: Vec<Div> = match (&self.found, chosen) {
+            (Found::Mod(found), Some(instance)) => {
+                let other = other_build(&found.item.tags, mods::is_modern(instance));
+                [
+                    self.already.then(|| {
+                        note(
+                            IconName::Check,
+                            format!(
+                                "{} already has it. Installing brings its current version.",
+                                instance.name
+                            ),
+                            false,
+                        )
+                    }),
+                    other.map(|build| {
+                        note(
+                            IconName::TriangleAlert,
+                            format!("Heads up! It's for {build} only, not this instance's"),
+                            true,
+                        )
+                    }),
+                ]
+                .into_iter()
+                .flatten()
+                .collect()
+            }
+            (Found::Collection(_), Some(instance)) if fit == Some(0) => vec![note(
+                IconName::TriangleAlert,
+                format!(
+                    "None of its mods are made for {}'s game version.",
+                    instance.name
+                ),
+                true,
+            )],
+            _ => Vec::new(),
+        };
+        let destination = if none {
+            note(
+                IconName::Box,
+                if collection {
+                    "No instances yet. Make one out of this collection.".into()
+                } else {
+                    "No instances yet. Make one and this mod goes right in.".into()
+                },
+                false,
+            )
+        } else {
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Install in"),
+                )
+                .child(self.picker(cx))
+                .children(notes)
         };
         div()
             .flex()
             .flex_col()
-            .gap_4()
-            .child(ui::enter(card, "link-mod"))
-            .when(self.instances.is_empty(), |this| {
-                this.child(note(
-                    IconName::Box,
-                    if collection {
-                        "No instances yet. Make one out of this collection.".into()
-                    } else {
-                        "No instances yet. Make one and this mod goes right in.".into()
-                    },
-                ))
-            })
-            .when(!self.instances.is_empty(), |this| {
-                this.child(self.picker(cx))
-            })
-            .children(chosen.filter(|_| self.already).map(|instance| {
-                note(
-                    IconName::Check,
-                    format!(
-                        "{} already has it. Installing brings its current version.",
-                        instance.name
-                    ),
-                )
-            }))
-            .children(chosen.filter(|_| fit == Some(0)).map(|instance| {
-                note(
-                    IconName::TriangleAlert,
-                    format!(
-                        "None of its mods are made for {}'s game version.",
-                        instance.name
-                    ),
-                )
-            }))
+            .gap_6()
+            .pt_2()
+            .child(ui::enter(summary, "link-mod"))
+            .child(destination)
             .child(
                 div()
                     .flex()
@@ -254,10 +302,8 @@ impl Render for InstallLink {
                         ui::secondary("link-cancel", "Cancel")
                             .on_click(|_, window, cx| window.close_dialog(cx)),
                     )
-                    // A collection can always start an instance of its own instead. While no
-                    // instance is chosen that is the one thing to do here, so it is the primary
-                    // button below; once Install is there, it steps back to this plain one.
-                    .when(collection && ready, |this| {
+                    // A collection can always start an instance of its own instead.
+                    .when(collection && !none, |this| {
                         this.child(
                             ui::secondary("link-new", "New instance")
                                 .icon(IconName::Plus)
@@ -266,9 +312,10 @@ impl Render for InstallLink {
                                 ),
                         )
                     })
-                    .when(
-                        self.instances.is_empty() || (collection && !ready),
-                        |this| {
+                    // The one thing to do without instances is to make one; otherwise Install
+                    // is always there, waiting for a destination.
+                    .map(|this| {
+                        if none {
                             this.child(
                                 FancyButton::new("link-create", "New instance")
                                     .small()
@@ -277,70 +324,53 @@ impl Render for InstallLink {
                                         cx.listener(|this, _, window, cx| this.create(window, cx)),
                                     ),
                             )
-                        },
-                    )
-                    .when(ready, |this| {
-                        this.child(
-                            FancyButton::new("link-install", install)
-                                .small()
-                                .icon(IconName::Download)
-                                .on_click(
-                                    cx.listener(|this, _, window, cx| this.install(window, cx)),
-                                ),
-                        )
+                        } else {
+                            this.child(
+                                FancyButton::new("link-install", install)
+                                    .small()
+                                    .icon(IconName::Download)
+                                    .disabled(!ready)
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| this.install(window, cx)),
+                                    ),
+                            )
+                        }
                     }),
             )
     }
 }
 
-/// The collection as the Workshop describes it, in the mod card's shape: its picture, its name
-/// and how many mods it brings.
-fn bundle_card(found: &Bundle, cx: &App) -> Div {
-    let theme = cx.theme();
-    let picture = match &found.picture {
-        Some(path) => div().flex_none().size(px(PICTURE)).child(
-            img(path.clone())
-                .size_full()
-                .rounded(theme.radius)
-                .object_fit(ObjectFit::Cover),
-        ),
-        None => div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .size(px(PICTURE))
-            .rounded(theme.radius)
-            .bg(theme.muted)
-            .text_color(theme.muted_foreground)
-            .child(Icon::new(IconName::Layers).size_8()),
-    };
+/// The collection in brief, in the mod summary's shape: its picture, its name and how many
+/// mods it brings.
+fn bundle_summary(found: &Bundle, cx: &App) -> Div {
     let count = match found.mods.len() {
         1 => "1 mod".to_owned(),
         many => format!("{many} mods"),
     };
     div()
         .flex()
+        .items_start()
         .gap_4()
-        .p_3()
-        .rounded(theme.radius_lg)
-        .bg(theme.group_box)
-        .border_1()
-        .border_color(theme.border)
-        .child(picture)
+        .child(picture(
+            found.picture.as_ref(),
+            IconName::Layers,
+            SUMMARY,
+            px(8.),
+            cx,
+        ))
         .child(
             div()
                 .flex()
                 .flex_col()
                 .flex_1()
                 .min_w_0()
-                .justify_center()
-                .gap_2()
+                .gap_1p5()
                 .child(
                     div()
-                        .text_lg()
-                        .font_weight(FontWeight::BOLD)
-                        .truncate()
+                        .text_base()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .line_clamp(2)
+                        .text_ellipsis()
                         .child(found.title.clone()),
                 )
                 .child(Meta::new(IconName::Puzzle, count)),
