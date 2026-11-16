@@ -40,9 +40,8 @@ python -m zipfile -c ../lata-link.zip manifest.json content.js content.css _loca
 
 ## Publish it
 
-lata link lives in the store listings that used to be KnoxLink, the extension of the launcher
-lata replaced, so the people who had that one get this as an update. The texts to paste are in
-`STORE.md`.
+lata link keeps its existing store listings, so the people who already have it get each
+version as an update. The texts to paste are in `STORE.md`.
 
 - **Firefox**: `addons.mozilla.org/firefox/addon/lata-link`. The add-on id in `manifest.json`
   (`browser_specific_settings.gecko.id`) is that listing's; with another id the upload would be

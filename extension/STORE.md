@@ -25,7 +25,7 @@ One button under Subscribe. Click it, pick an instance, done.
 
 Needs lata launcher: https://github.com/valentin-marquez/lata
 
-Formerly KnoxLink. Not affiliated with Valve or The Indie Stone.
+Not affiliated with Valve or The Indie Stone.
 
 ## Permissions
 
