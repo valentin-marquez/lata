@@ -30,3 +30,5 @@ opt-level = 3
 # gpui-component patched for things it can't do yet (see vendor/gpui-component/LATA-PATCHES.md).
 [patch.crates-io]
 gpui-component = { path = "vendor/gpui-component" }
+# gpui's Linux backend, patched to copy images (see vendor/gpui-pre-linux/LATA-PATCHES.md).
+gpui-pre-linux = { path = "vendor/gpui-pre-linux" }

@@ -36,6 +36,7 @@ pub struct Shell {
     detail: Option<Entity<Detail>>,
     /// Made on first view; it needs a window for its search field.
     library: Option<Entity<Library>>,
+    screenshots: Option<Entity<screenshots::Screenshots>>,
     account: Option<Account>,
     /// Newest Steam build id per branch name; empty until the first check succeeds.
     latest: HashMap<SharedString, u32>,
@@ -98,6 +99,7 @@ impl Shell {
             page: Page::Library,
             detail: None,
             library: None,
+            screenshots: None,
             link_open: None,
             link_queue: VecDeque::new(),
             link_resolving: 0,
@@ -181,6 +183,11 @@ impl Shell {
                 }
             }
             self.check_builds(cx);
+        }
+        // New screenshots land while the game runs: look again on every visit.
+        if let (Page::Screenshots, Some(view)) = (page, &self.screenshots) {
+            let instances = self.instances.clone();
+            view.update(cx, |view, cx| view.reload(instances, cx));
         }
         self.page = page;
         cx.notify();
@@ -1226,7 +1233,15 @@ impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let page = match (self.page, &self.detail) {
             (Page::Instance(_), Some(detail)) => detail.clone().into_any_element(),
-            (Page::Screenshots, _) => screenshots::render().into_any_element(),
+            (Page::Screenshots, _) => {
+                let instances = self.instances.clone();
+                self.screenshots
+                    .get_or_insert_with(|| {
+                        cx.new(|cx| screenshots::Screenshots::new(instances, cx))
+                    })
+                    .clone()
+                    .into_any_element()
+            }
             _ => {
                 let shell = cx.entity().downgrade();
                 self.library
