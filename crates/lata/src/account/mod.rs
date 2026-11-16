@@ -53,7 +53,7 @@ impl Account {
 /// Downloaded profile pictures. Named by Steam's file name, which changes with the picture,
 /// so the image cache never shows a stale one.
 fn avatars() -> std::path::PathBuf {
-    crate::instance::store::root().with_file_name("avatars")
+    crate::instance::store::data().join("avatars")
 }
 
 /// Brings the name and picture up to date with the public profile. Offline, the last ones
@@ -94,7 +94,7 @@ fn entry() -> Result<keyring::Entry, String> {
 /// Where the login goes when there is no OS keyring (Linux without a Secret Service, common
 /// on tiling window managers): a file only this user can read, next to the instances.
 fn file() -> std::path::PathBuf {
-    crate::instance::store::root().with_file_name("account.json")
+    crate::instance::store::data().join("account.json")
 }
 
 /// The account as saved, from the keyring or the private file. Blocking.

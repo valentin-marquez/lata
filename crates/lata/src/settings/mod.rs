@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::theme::{self, Mode};
 use crate::ui::FancyButton;
 
-/// What is saved in `settings.json`, next to the instances folder.
+/// What is saved in `settings.json`, in the app's data folder.
 #[derive(Default, Serialize, Deserialize)]
 pub struct Saved {
     #[serde(default)]
@@ -30,10 +30,14 @@ pub struct Saved {
     /// once, and stays in the create dialog after that.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub existing_offered: bool,
+    /// Where instances and game builds live; `None` is the app's data folder, and means
+    /// nobody picked yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub library: Option<PathBuf>,
 }
 
 fn file() -> PathBuf {
-    crate::instance::store::root().with_file_name("settings.json")
+    crate::instance::store::data().join("settings.json")
 }
 
 /// The saved settings; a missing or unreadable file means the defaults.
@@ -72,15 +76,17 @@ pub fn set_install_target(instance: &str) {
 enum Section {
     Appearance,
     Behavior,
+    Storage,
 }
 
 impl Section {
-    const ALL: [Section; 2] = [Section::Appearance, Section::Behavior];
+    const ALL: [Section; 3] = [Section::Appearance, Section::Behavior, Section::Storage];
 
     fn label(self) -> &'static str {
         match self {
             Section::Appearance => "Appearance",
             Section::Behavior => "Behavior",
+            Section::Storage => "Storage",
         }
     }
 
@@ -88,12 +94,14 @@ impl Section {
         match self {
             Section::Appearance => IconName::Palette,
             Section::Behavior => IconName::Settings2,
+            Section::Storage => IconName::HardDrive,
         }
     }
 }
 
 pub const WIDTH: f32 = 860.;
-pub const HEIGHT: f32 = 440.;
+/// Tall enough for Storage's drive tiles and its button without scrolling.
+pub const HEIGHT: f32 = 560.;
 pub const NAV: f32 = 220.;
 /// The height of a theme card's preview.
 const PREVIEW: f32 = 96.;
@@ -101,14 +109,16 @@ const PREVIEW: f32 = 96.;
 /// out of sight.
 const BAR_TRAVEL: f32 = 80.;
 
-pub fn open(window: &mut Window, cx: &mut App) {
+pub fn open(shell: WeakEntity<crate::shell::Shell>, window: &mut Window, cx: &mut App) {
     use gpui_kit::component::WindowExt;
     let now = Values {
         theme: theme::mode(cx),
         startup: startup::enabled(),
         protocol: crate::link::protocol::enabled(),
     };
+    let storage = cx.new(|cx| crate::storage::picker::Picker::new(shell, false, cx));
     let view = cx.new(|_| Settings {
+        storage: storage.clone(),
         section: Section::Appearance,
         saved: now,
         draft: now,
@@ -120,9 +130,14 @@ pub fn open(window: &mut Window, cx: &mut App) {
         theme::preview(settings.saved.theme, None, cx)
     })
     .detach();
-    window.open_dialog(cx, move |dialog, _, _| {
+    window.open_dialog(cx, move |dialog, _, cx| {
+        // A library half copied can't be left: the dialog stays until the move is done.
+        let moving = storage.read(cx).moving();
         dialog
             .entrance(DialogEntrance::FadeSlide)
+            .close_button(!moving)
+            .overlay_closable(!moving)
+            .keyboard(!moving)
             .title("Settings")
             .centered()
             .w(px(WIDTH))
@@ -142,6 +157,7 @@ struct Values {
 
 struct Settings {
     section: Section,
+    storage: Entity<crate::storage::picker::Picker>,
     /// What is in effect now.
     saved: Values,
     /// What the dialog shows. The theme is previewed as it is picked; only Save keeps it, and
@@ -229,7 +245,7 @@ fn preview(mode: Mode, radius: Pixels) -> Div {
     }
 }
 
-fn radio(selected: bool, cx: &App) -> Div {
+pub fn radio(selected: bool, cx: &App) -> Div {
     let theme = cx.theme();
     div()
         .flex()
@@ -531,6 +547,16 @@ impl Render for Settings {
         let content = match self.section {
             Section::Appearance => self.appearance(cx),
             Section::Behavior => self.behavior(cx),
+            Section::Storage => div()
+                .flex()
+                .flex_col()
+                .gap_4()
+                .child(heading(
+                    "Library location",
+                    "Where your instances and game files live. New downloads go here too.",
+                    cx,
+                ))
+                .child(self.storage.clone()),
         };
         let dirty = self.draft != self.saved;
         if self.was_dirty && !dirty {

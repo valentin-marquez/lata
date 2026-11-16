@@ -14,6 +14,7 @@ mod runtime;
 mod screenshots;
 mod settings;
 mod shell;
+mod storage;
 mod theme;
 mod ui;
 
@@ -40,7 +41,7 @@ fn main() {
     let started_with = link::from_args(std::env::args().skip(1));
     // Only one lata per data folder: a second one hands its links over (or asks the first to
     // show itself) and leaves, instead of opening another window.
-    let lock = instance::store::root().with_file_name("lata.lock");
+    let lock = instance::store::data().join("lata.lock");
     if link::single::forward(&lock, &link::single::messages(&started_with)) {
         return;
     }

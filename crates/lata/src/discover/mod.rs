@@ -54,9 +54,7 @@ const COVER_SHOT: usize = 0;
 
 /// Where the screenshots are kept, next to the instances.
 fn cache() -> PathBuf {
-    crate::instance::store::root()
-        .with_file_name("cache")
-        .join("game")
+    crate::instance::store::data().join("cache").join("game")
 }
 
 /// The file that names the last banner, so the next start shows it before Steam answers.

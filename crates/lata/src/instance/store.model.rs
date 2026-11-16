@@ -33,13 +33,22 @@ struct Manifest {
     launch_args: String,
 }
 
-/// Where instances live: `$LATA_HOME/instances`, else the OS data dir.
-pub fn root() -> PathBuf {
+/// The app's own files (settings, account, caches): `$LATA_HOME`, else the OS data dir.
+pub fn data() -> PathBuf {
     std::env::var_os("LATA_HOME")
         .map(PathBuf::from)
         .or_else(|| dirs::data_dir().map(|d| d.join("lata")))
         .unwrap_or_else(|| PathBuf::from("lata"))
-        .join("instances")
+}
+
+/// The folder holding `instances/` and `builds/`: the one picked in Settings, else [`data`].
+pub fn library() -> PathBuf {
+    crate::settings::load().library.unwrap_or_else(data)
+}
+
+/// Where instances live.
+pub fn root() -> PathBuf {
+    library().join("instances")
 }
 
 /// Moves the data folder from when the app was called lulo, so nothing is downloaded again.
@@ -249,7 +258,7 @@ pub fn delete(root: &Path, dir: &Path, mut progress: impl FnMut(u64, u64)) -> io
 }
 
 /// Every file under `dir` (links as themselves, never followed) with its size, and their sum.
-fn files(dir: &Path) -> io::Result<(Vec<(PathBuf, u64)>, u64)> {
+pub fn files(dir: &Path) -> io::Result<(Vec<(PathBuf, u64)>, u64)> {
     let (mut files, mut total, mut stack) = (Vec::new(), 0, vec![dir.to_owned()]);
     while let Some(next) = stack.pop() {
         for entry in std::fs::read_dir(next)? {

@@ -13,13 +13,10 @@ use gpui_kit::*;
 
 use super::picture::{self, Picker};
 use super::{Icon, Instance, store};
-use crate::settings::{NAV, WIDTH, heading};
+use crate::settings::{HEIGHT, NAV, WIDTH, heading};
 use crate::shell::Shell;
 use crate::ui::{self, FancyButton};
 
-/// Taller than the app's settings: General and Game hold more than fits in its height, and a
-/// form that scrolls without saying so hides its last fields.
-const HEIGHT: f32 = 560.;
 /// Height shared by the buttons of the form.
 const CONTROL: Pixels = px(36.);
 /// What the game gives itself when nothing is set (`-Xmx3072m` in its launcher config).

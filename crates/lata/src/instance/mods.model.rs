@@ -622,9 +622,7 @@ fn picture_ext(bytes: &[u8]) -> Option<&'static str> {
 /// avatars). `None` when it has none, it couldn't be fetched, or it is in a format that
 /// isn't shown.
 pub async fn picture(http: &steam::reqwest::Client, url: Option<&str>) -> Option<PathBuf> {
-    let cache = super::store::root()
-        .with_file_name("cache")
-        .join("workshop");
+    let cache = super::store::data().join("cache").join("workshop");
     let url = url?;
     // Named by the picture's own address, which changes when its author replaces it.
     let name: String = url

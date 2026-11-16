@@ -737,6 +737,25 @@ impl Shell {
         Ok(())
     }
 
+    /// Shows or hides the loader under the title bar.
+    pub fn set_loading(&mut self, on: bool, cx: &mut Context<Self>) {
+        if self.loading != on {
+            self.loading = on;
+            cx.notify();
+        }
+    }
+
+    /// Whether a game runs or anything downloads, deletes or copies: the library can't move.
+    pub fn busy(&self) -> bool {
+        !self.running.is_empty() || !self.installs.is_empty()
+    }
+
+    /// The library moved: instances are read from its new place.
+    pub fn relocated(&mut self, cx: &mut Context<Self>) {
+        self.root = store::root();
+        self.reload(cx);
+    }
+
     /// Re-reads instances from disk, keeping the current page.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         self.instances = store::list(&self.root);
@@ -883,7 +902,12 @@ impl Shell {
         let fresh = shell
             .read_with(cx, |shell, _| shell.instances.is_empty())
             .unwrap_or(false);
-        if !fresh || crate::settings::load().existing_offered {
+        let saved = crate::settings::load();
+        // Where instances go is asked first; it comes back here once picked.
+        if fresh && saved.library.is_none() {
+            return crate::storage::picker::first_start(shell, window, cx);
+        }
+        if !fresh || saved.existing_offered {
             return;
         }
         let Some(game) = existing::home().and_then(|dir| existing::find(&dir)) else {

@@ -52,6 +52,7 @@ ui_icons!(
     "gamepad",
     "git-branch",
     "globe",
+    "hard-drive",
     "grip-vertical",
     "history",
     "house",
@@ -79,6 +80,7 @@ ui_icons!(
     "trash",
     "triangle-alert",
     "undo-2",
+    "usb",
     "wand-sparkles",
 );
 
