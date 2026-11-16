@@ -91,10 +91,14 @@ impl Detail {
             .map_or(instance.status(latest), |shell| {
                 shell.read(cx).status(instance)
             });
-        let note = match (status, instance.build, latest) {
+        let newest = self
+            .shell
+            .upgrade()
+            .and_then(|shell| shell.read(cx).latest_name(instance));
+        let note = match (status, instance.build_name(), newest) {
             (Status::Installing(_) | Status::Bringing(_), _, _) => Some(status.label()),
             (Status::Outdated, Some(have), Some(newest)) => {
-                Some(format!("Update available: build {have}, newest {newest}"))
+                Some(format!("Update available: {have} \u{2192} {newest}"))
             }
             _ => None,
         };
@@ -121,7 +125,8 @@ impl Detail {
                         div()
                             .flex()
                             .gap_4()
-                            .child(Meta::new(IconName::GitBranch, instance.branch.clone()))
+                            .children(instance.version().map(|v| Meta::new(IconName::Gamepad, v)))
+                            .child(Meta::new(IconName::GitBranch, instance.channel()))
                             .child(Meta::new(IconName::Clock, played))
                             .children(note.map(|text| Meta::new(IconName::Download, text))),
                     )

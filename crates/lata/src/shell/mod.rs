@@ -39,7 +39,7 @@ pub struct Shell {
     screenshots: Option<Entity<screenshots::Screenshots>>,
     account: Option<Account>,
     /// Newest Steam build id per branch name; empty until the first check succeeds.
-    latest: HashMap<SharedString, u32>,
+    latest: HashMap<SharedString, instance::branches::Branch>,
     /// Downloads in progress: a game install by its instance id, a mod by [`mod_key`].
     installs: HashMap<SharedString, install::Download>,
     /// Games running, by instance id, with the process lata spawned if it started the game in
@@ -234,7 +234,13 @@ impl Shell {
 
     /// Newest build of the instance's branch, when it is known.
     pub fn latest(&self, instance: &Instance) -> Option<u32> {
-        self.latest.get(&instance.branch).copied()
+        self.latest.get(&instance.branch).map(|b| b.build_id)
+    }
+
+    /// What the newest build of the instance's branch is called.
+    pub fn latest_name(&self, instance: &Instance) -> Option<String> {
+        let branch = self.latest.get(&instance.branch)?;
+        Some(instance::build::name(branch.build_id, None, Some(branch)))
     }
 
     /// Asks Steam anonymously for each branch's build; offline just leaves the marks as they were.
@@ -246,7 +252,7 @@ impl Shell {
             let _ = this.update(cx, |shell, cx| {
                 shell.latest = branches
                     .into_iter()
-                    .map(|b| (SharedString::from(b.name), b.build_id))
+                    .map(|b| (SharedString::from(b.name.clone()), b))
                     .collect();
                 if let (Page::Instance(ix), Some(detail)) = (shell.page, &shell.detail)
                     && let Some(instance) = shell.instances.get(ix).cloned()
@@ -373,21 +379,23 @@ impl Shell {
         let Ok((instance, account)) = shell.read_with(cx, |shell, _| {
             let instance = shell.instances.iter().find(|i| i.id == id).cloned();
             (
-                instance.map(|i| (shell.latest(&i), i)),
+                instance.map(|i| (shell.latest(&i), shell.latest_name(&i), i)),
                 shell.account.clone(),
             )
         }) else {
             return;
         };
-        let Some((Some(newest), instance)) = instance else {
+        let Some((Some(_), Some(newest), instance)) = instance else {
             return;
         };
-        let Some(have) = instance.build else { return };
+        let Some(have) = instance.build_name() else {
+            return;
+        };
         let Some(account) = account else {
             return Self::open_account(shell, window, cx);
         };
         let text = format!(
-            "Build {have} will be replaced by build {newest}. A new build can break saves and \
+            "{have} will be replaced by {newest}. A new version can break saves and \
              mods. Files that didn't change are not downloaded again."
         );
         window.open_dialog(cx, move |dialog, _, _| {

@@ -431,17 +431,18 @@ impl Create {
                 .when(selected, |this| {
                     this.child(Glyph::new(IconName::Check).size_4())
                 })
-                .child(branch.name.clone())
+                .child(branches::channel(&branch.name))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.branch = ix;
                     cx.notify();
                 }))
         });
         let chosen = &list[self.branch.min(list.len().saturating_sub(1))];
+        // A description that only says the version is shown as the version itself.
         let about = match (&chosen.description, chosen.name.as_str()) {
-            (Some(text), _) => text.clone(),
+            (Some(text), _) if branches::described(text).is_none() => text.clone(),
             (None, "public") => "Current release".into(),
-            (None, _) => String::new(),
+            _ => String::new(),
         };
         div()
             .flex()
@@ -455,7 +456,7 @@ impl Create {
                     .text_xs()
                     .text_color(theme.muted_foreground)
                     .when(!about.is_empty(), |this| this.child(about))
-                    .child(format!("Build {}", chosen.build_id))
+                    .child(branches::build_name(chosen))
                     .children(
                         chosen
                             .updated

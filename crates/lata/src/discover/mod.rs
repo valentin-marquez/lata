@@ -443,7 +443,7 @@ fn pick(item: Item, shell: WeakEntity<Shell>, window: &mut Window, cx: &mut App)
                             div()
                                 .text_xs()
                                 .text_color(theme.muted_foreground)
-                                .child(instance.branch.clone()),
+                                .child(instance.version().unwrap_or_else(|| instance.channel())),
                         ),
                 )
                 .on_click(move |_, window, cx| {

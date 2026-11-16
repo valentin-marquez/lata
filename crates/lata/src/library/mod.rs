@@ -181,12 +181,12 @@ impl Library {
                     .cursor_pointer()
                     .icon(IconName::Layers)
                     .label(if grouped {
-                        "Group by branch"
+                        "Group by channel"
                     } else {
                         "No groups"
                     })
                     .dropdown_menu(move |mut menu, _, _| {
-                        for (label, value) in [("Group by branch", true), ("No groups", false)] {
+                        for (label, value) in [("Group by channel", true), ("No groups", false)] {
                             let this = this.clone();
                             menu = menu.item(
                                 PopupMenuItem::new(label)
@@ -258,7 +258,7 @@ impl Library {
                         })
                         .size_4(),
                     )
-                    .child(branch.clone())
+                    .child(crate::instance::build::channel(&branch))
                     .child(div().text_xs().child(count.to_string()))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if !this.collapsed.remove(&branch) {
@@ -349,11 +349,12 @@ fn card(
     let art = crate::instance::art::art(&instance, ART, theme.radius, cx)
         .relative()
         .child(
-            div()
-                .absolute()
-                .top_2()
-                .right_2()
-                .child(badge(instance.branch.clone())),
+            div().absolute().top_2().right_2().child(badge(
+                instance
+                    .version()
+                    .unwrap_or_else(|| instance.channel())
+                    .into(),
+            )),
         )
         .children(state.map(|state| div().absolute().top_2().left_2().child(state)))
         .when(reveal > 0.01 && enabled, |this| {

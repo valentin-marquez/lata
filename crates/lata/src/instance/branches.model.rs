@@ -3,7 +3,13 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+pub use super::build::{channel, described};
 pub use steam::pics::Branch;
+
+/// What the branch's current build is called: its version when known, else the build id.
+pub fn build_name(branch: &Branch) -> String {
+    super::build::name(branch.build_id, None, Some(branch))
+}
 
 /// Opening an instance asks again, so the cache only spares repeated fetches within minutes.
 const TTL: Duration = Duration::from_secs(600);

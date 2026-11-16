@@ -297,10 +297,9 @@ impl Settings {
     fn about(&self, cx: &mut Context<Self>) -> Div {
         let theme = cx.theme();
         let instance = &self.instance;
-        let build = match instance.build {
-            Some(build) => format!("Build {build}"),
-            None => "Not installed yet".to_owned(),
-        };
+        let build = instance
+            .build_name()
+            .unwrap_or_else(|| "Not installed yet".to_owned());
         let fact = |name: &'static str, value: String| {
             div()
                 .flex()
@@ -335,8 +334,9 @@ impl Settings {
                 div()
                     .flex()
                     .gap_8()
-                    .child(fact("Branch", instance.branch.to_string()))
                     .child(fact("Game", build))
+                    .child(fact("Channel", instance.channel()))
+                    .children(instance.build.map(|id| fact("Build", id.to_string())))
                     .child(fact("Activity", instance.played())),
             )
             .child(
