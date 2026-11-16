@@ -309,6 +309,8 @@ mod tests {
         dir
     }
 
+    // Only the Unix-only staging test parses versions.
+    #[cfg(unix)]
     fn v(text: &str) -> Version {
         Version::parse(text).unwrap()
     }
