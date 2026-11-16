@@ -9257,8 +9257,11 @@ name = "zomboid"
 version = "0.6.0"
 dependencies = [
  "flate2",
+ "reqwest",
  "serde",
  "serde_json",
+ "steam",
+ "tokio",
  "zip",
 ]
 

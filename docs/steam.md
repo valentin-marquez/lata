@@ -28,6 +28,11 @@ Each Project Zomboid version is a Steam branch (`public`, `legacy41`...). lata r
 app's product info, picks the branch's depots for the current OS and the manifest each one
 uses on that branch.
 
+Steam keeps no history, only each branch's current build, so a scheduled GitHub Action
+records every build into `crates/zomboid/versions.json` (anonymously, no login) and opens a
+pull request. The game's depots can't be downloaded without owning it, so the version is read
+from the dedicated server's `projectzomboid.jar` on the same branch.
+
 ## Downloads
 
 1. Get the depot key and a content server (CDN) host.

@@ -1,0 +1,73 @@
+name: Game versions
+
+# Steam keeps no build history, so a Project Zomboid build nobody recorded while it was current
+# is lost. This records every branch's current build (anonymously, no secrets) into
+# crates/zomboid/versions.json and opens one pull request for the maintainer to review: the
+# version is read from the dedicated server's same branch and could mis-pair with the game build.
+#
+# Needs the repo setting "Allow GitHub Actions to create and approve pull requests"
+# (Settings > Actions > General).
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency: versions
+
+env:
+  CARGO_PROFILE_DEV_DEBUG: 0
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Rust
+        run: rustup toolchain install stable --profile minimal
+
+      # Pinned to a commit: it runs with this job's write token.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      # Start from the open PR's file, not main's: builds recorded by an earlier run that nobody
+      # has merged yet would be lost when the branch is rewritten. Only while that PR is open:
+      # once merged, main's file wins (it may carry hand fixes to a version).
+      - name: Resume
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          open=$(gh pr list --head catalog --state open --json number --jq '.[0].number')
+          if [ -n "$open" ] && git fetch origin catalog; then
+            git checkout FETCH_HEAD -- crates/zomboid/versions.json
+            git reset --quiet
+            git show FETCH_HEAD:crates/zomboid/versions.json > "$RUNNER_TEMP/base.json"
+          else
+            git show HEAD:crates/zomboid/versions.json > "$RUNNER_TEMP/base.json"
+          fi
+
+      - name: Record builds
+        run: cargo run -p zomboid --example catalog -- crates/zomboid/versions.json
+
+      - name: Open the pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if cmp -s "$RUNNER_TEMP/base.json" crates/zomboid/versions.json; then
+            echo "nothing new"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C catalog
+          git commit -a -q -m "chore: record new game builds"
+          git push --force origin catalog
+          # One PR: a later run only updates the branch.
+          if [ -z "$(gh pr list --head catalog --state open --json number --jq '.[0].number')" ]; then
+            gh pr create --base main --head catalog \
+              --title "chore: record new game builds" \
+              --body "New Project Zomboid builds seen on Steam. Check that each version matches its build."
+          fi
