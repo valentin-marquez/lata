@@ -246,6 +246,11 @@ async fn install(
     }
     drop(client);
 
+    let need = plan.iter().map(|(_, _, m)| content::need(m, &game)).sum();
+    if let Some(why) = crate::storage::room(&game, need) {
+        return Err(why);
+    }
+
     let total: u64 = plan
         .iter()
         .flat_map(|(_, _, m)| &m.files)

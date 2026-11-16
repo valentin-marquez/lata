@@ -222,6 +222,20 @@ pub async fn install(
     Ok(timings)
 }
 
+/// Bytes `manifest` still has to put under `dir`: every file not already there at its size.
+/// A guess for checking free space before starting, not a promise.
+// ponytail: an interrupted download leaves files at full size (`set_len`) with holes, so a
+// resume counts them as done; check allocated blocks if that undercount ever matters.
+pub fn need(manifest: &Manifest, dir: &Path) -> u64 {
+    manifest
+        .files
+        .iter()
+        .filter(|f| !f.is_dir)
+        .filter(|f| std::fs::metadata(dir.join(&f.path)).map(|m| m.len()).ok() != Some(f.size))
+        .map(|f| f.size)
+        .sum()
+}
+
 /// Whether the chunks, sorted by offset, cover the file end to end with no gaps or overlaps.
 fn tiles(file: &manifest::File) -> bool {
     let mut end = 0;
@@ -370,6 +384,24 @@ mod tests {
         );
         assert!(!verified(path.clone(), &file(b"ab")).await, "other size");
         assert!(!verified(dir.join("missing"), &file(b"abc")).await);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn needs_only_files_missing_or_of_another_size() {
+        let dir = std::env::temp_dir().join(format!("steam-need-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("f"), b"abc").unwrap();
+        let named = |path: &str, body: &[u8]| manifest::File {
+            path: path.into(),
+            ..file(body)
+        };
+        let manifest = Manifest {
+            files: vec![named("f", b"abc"), named("g", b"12345"), named("f2", b"xy")],
+            depot: 0,
+            id: 0,
+        };
+        assert_eq!(need(&manifest, &dir), 7);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

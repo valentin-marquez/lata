@@ -827,6 +827,9 @@ pub async fn install(
 
     let _ = std::fs::remove_dir_all(&incoming);
     let total: u64 = items.iter().map(|item| item.size).sum();
+    if let Some(why) = crate::storage::room(&instance.dir, total) {
+        return Err(why);
+    }
     let source = steam::workshop::source(&mut client, APP)
         .await
         .map_err(fail)?;

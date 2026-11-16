@@ -104,6 +104,18 @@ fn label(device: &str, mount: &Path) -> String {
         .unwrap_or_else(|| mount.display().to_string())
 }
 
+/// Free bytes on the filesystem that holds `path` (which may not exist yet), as the OS reports
+/// them. Unlike [`list`] it filters nothing, so any folder gets an answer.
+pub fn free(path: &Path) -> Option<u64> {
+    let path = std::path::absolute(path).ok()?;
+    Disks::new_with_refreshed_list()
+        .list()
+        .iter()
+        .filter(|d| path.starts_with(d.mount_point()))
+        .max_by_key(|d| d.mount_point().as_os_str().len())
+        .map(|d| d.available_space())
+}
+
 /// The drive `path` is on: the one with the longest mount that contains it.
 pub fn of<'a>(drives: &'a [Drive], path: &Path) -> Option<&'a Drive> {
     drives

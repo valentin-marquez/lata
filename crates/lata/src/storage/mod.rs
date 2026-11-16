@@ -47,6 +47,20 @@ pub fn check(from: &Path, to: &Path) -> Option<String> {
     (!writable).then(|| "lata can't write in that folder, pick one you own".into())
 }
 
+/// Why a download of `need` bytes into `dir` can't start; `None` when it fits (or the OS
+/// doesn't say). Checked up front so a download doesn't run out of space halfway.
+pub fn room(dir: &Path, need: u64) -> Option<String> {
+    let free = drives::free(dir)?;
+    (need > free).then(|| {
+        use crate::instance::install::size;
+        format!(
+            "Not enough space: this needs {} and the drive only has {} free. Clear some up, or move your library in Settings",
+            size(need),
+            size(free)
+        )
+    })
+}
+
 fn empty(dir: &Path) -> bool {
     std::fs::read_dir(dir).map_or(true, |mut entries| entries.next().is_none())
 }
