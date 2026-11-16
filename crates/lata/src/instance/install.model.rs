@@ -29,6 +29,8 @@ pub enum Kind {
     /// Deleting an instance: bytes freed instead of downloaded, and no cancel, since half a
     /// deleted instance is worth less than none.
     Delete,
+    /// Duplicating an instance: bytes copied, and no cancel, so no half copy is left to find.
+    Copy,
     /// Copying in a game someone already plays; its mods then download under the same entry.
     Existing,
 }

@@ -136,6 +136,10 @@ pub fn list(root: &Path) -> Vec<Instance> {
         .flatten()
         .filter_map(|entry| {
             let dir = entry.path();
+            // Hidden folders are work in progress (a duplicate being copied), not instances.
+            if entry.file_name().to_string_lossy().starts_with('.') {
+                return None;
+            }
             let text = std::fs::read_to_string(dir.join(FILE)).ok()?;
             let manifest: Manifest = serde_json::from_str(&text).ok()?;
             let id = dir.file_name()?.to_string_lossy().into_owned();
@@ -151,9 +155,10 @@ pub fn list(root: &Path) -> Vec<Instance> {
     out.into_iter().map(|(i, _)| i).collect()
 }
 
-pub fn create(root: &Path, name: &str, branch: &str) -> io::Result<Instance> {
+/// A folder id from `name` that nothing under `root` uses yet.
+fn unused(root: &Path, name: &str) -> (String, PathBuf) {
     let base = slug(name);
-    let (id, dir) = (1..)
+    (1..)
         .map(|n| {
             if n == 1 {
                 base.clone()
@@ -163,7 +168,11 @@ pub fn create(root: &Path, name: &str, branch: &str) -> io::Result<Instance> {
         })
         .map(|id| (id.clone(), root.join(id)))
         .find(|(_, dir)| !dir.exists())
-        .expect("an unused name exists");
+        .expect("an unused name exists")
+}
+
+pub fn create(root: &Path, name: &str, branch: &str) -> io::Result<Instance> {
+    let (id, dir) = unused(root, name);
 
     std::fs::create_dir_all(dir.join("zomboid"))?;
     let manifest = Manifest {
@@ -179,6 +188,49 @@ pub fn create(root: &Path, name: &str, branch: &str) -> io::Result<Instance> {
     };
     write(&dir, &manifest)?;
     Ok(instance(id, dir, &manifest))
+}
+
+/// Copies the instance in `dir` (mods, worlds, settings, picture, and its own `game/` if it is
+/// detached) into a new one named "<name> (copy)", or "(copy 2)"... when taken. The shared
+/// build is only referenced, never copied. The copy is a new instance: created now, never
+/// played. It is built in a hidden folder and renamed at the end, so a failure or a crash
+/// leaves no half instance behind. `progress` gets the bytes copied so far and in all.
+pub fn duplicate(
+    root: &Path,
+    dir: &Path,
+    mut progress: impl FnMut(u64, u64),
+) -> io::Result<Instance> {
+    let mut manifest: Manifest = serde_json::from_str(&std::fs::read_to_string(dir.join(FILE))?)?;
+    let names: Vec<String> = list(root).into_iter().map(|i| i.name.to_string()).collect();
+    let base = manifest.name.clone();
+    manifest.name = (1..)
+        .map(|n| match n {
+            1 => format!("{base} (copy)"),
+            n => format!("{base} (copy {n})"),
+        })
+        .find(|name| !names.contains(name))
+        .expect("an unused name exists");
+    manifest.created = now();
+    manifest.last_played = None;
+
+    let (id, target) = unused(root, &manifest.name);
+    let staging = root.join(format!(".copy-{id}"));
+    let _ = std::fs::remove_dir_all(&staging);
+    let (_, total) = files(dir)?;
+    let built = (|| {
+        let mut done = 0;
+        super::worlds::copy(dir, &staging, &mut done, total, &mut |done, total| {
+            progress(done, total);
+            Ok(())
+        })?;
+        write(&staging, &manifest)?;
+        std::fs::rename(&staging, &target)
+    })();
+    if let Err(err) = built {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(err);
+    }
+    Ok(instance(id, target, &manifest))
 }
 
 /// Records the Steam build the instance now runs.
@@ -357,6 +409,51 @@ mod tests {
                 .iter()
                 .any(|i| i.branch.as_ref() == "legacy41" && i.build.is_none())
         );
+        std::fs::remove_dir_all(root.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn duplicates_an_instance_as_a_new_one() {
+        let root = temp_root("dup");
+        let a = create(&root, "Brita", "public").unwrap();
+        set_build(&a.dir, 7).unwrap();
+        set_last_played(&a.dir, 1_800_000_000).unwrap();
+        std::fs::create_dir_all(a.dir.join("zomboid/Saves")).unwrap();
+        std::fs::write(a.dir.join("zomboid/Saves/world.bin"), "save").unwrap();
+
+        let mut last = (0, 0);
+        let b = duplicate(&root, &a.dir, |done, total| last = (done, total)).unwrap();
+        let c = duplicate(&root, &a.dir, |_, _| {}).unwrap();
+        assert_eq!(b.name.as_ref(), "Brita (copy)");
+        assert_eq!(c.name.as_ref(), "Brita (copy 2)");
+        assert_ne!(b.id, a.id);
+        assert_eq!((b.build, b.branch.as_ref()), (Some(7), "public"));
+        assert_eq!(b.last_played, None, "never played yet");
+        assert_eq!(last.0, last.1);
+        assert_eq!(
+            std::fs::read_to_string(b.dir.join("zomboid/Saves/world.bin")).unwrap(),
+            "save"
+        );
+        assert_eq!(list(&root).len(), 3);
+        std::fs::remove_dir_all(root.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a_failed_duplicate_leaves_nothing() {
+        let root = temp_root("dup-fail");
+        let a = create(&root, "Brita", "public").unwrap();
+        // A file the copy can't read: the folder is there but its listing fails.
+        let missing = root.join("nope");
+        assert!(duplicate(&root, &missing, |_, _| {}).is_err());
+        // A copy that dies after it started (the target's parent is a file).
+        std::fs::write(a.dir.join("zomboid/x"), "x").unwrap();
+        std::fs::write(root.join(".copy-brita-copy"), "in the way").unwrap();
+        assert!(duplicate(&root, &a.dir, |_, _| {}).is_err());
+        assert!(!root.join("brita-copy").exists());
+        // A copy cut short by a crash already holds the source's manifest; it must not show.
+        std::fs::create_dir_all(root.join(".copy-x")).unwrap();
+        std::fs::copy(a.dir.join(FILE), root.join(".copy-x").join(FILE)).unwrap();
+        assert_eq!(list(&root).len(), 1);
         std::fs::remove_dir_all(root.parent().unwrap()).unwrap();
     }
 

@@ -212,6 +212,7 @@ fn row(
         Kind::Game => (IconName::Box, "Downloading game", ""),
         Kind::Mods => (IconName::Puzzle, "Downloading mods", ""),
         Kind::Delete => (IconName::Trash, "Deleting", " freed"),
+        Kind::Copy => (IconName::Copy, "Duplicating", ""),
         Kind::Existing => (IconName::FolderOpen, "Bringing your game", ""),
     };
     let sizes = format!(

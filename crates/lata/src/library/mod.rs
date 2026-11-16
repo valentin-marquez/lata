@@ -525,6 +525,7 @@ fn card(
                     )
                     .item(item("Edit icon", IconName::Palette).on_click(on(Shell::customize)))
                     .item(item("Settings", IconName::Settings).on_click(on(Shell::settings)))
+                    .item(item("Duplicate", IconName::Copy).on_click(on(Shell::duplicate)))
                     .separator()
                     .item(item("Delete", IconName::Trash).on_click(on(Shell::confirm_delete)))
             }

@@ -183,11 +183,23 @@ pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> im
                 move |_, window, cx| Shell::play(shell.clone(), id.clone(), window, cx)
             });
             let folder = dir.clone();
-            menu.item(play).item(
-                PopupMenuItem::new("Open folder")
-                    .icon(IconName::FolderOpen)
-                    .on_click(move |_, _, cx| cx.open_with_system(&folder)),
-            )
+            let copy = {
+                let (shell, id) = (shell_for_menu.clone(), id.clone());
+                move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+                    Shell::duplicate(shell.clone(), id.clone(), window, cx)
+                }
+            };
+            menu.item(play)
+                .item(
+                    PopupMenuItem::new("Open folder")
+                        .icon(IconName::FolderOpen)
+                        .on_click(move |_, _, cx| cx.open_with_system(&folder)),
+                )
+                .item(
+                    PopupMenuItem::new("Duplicate")
+                        .icon(IconName::Copy)
+                        .on_click(copy),
+                )
         })
     });
 

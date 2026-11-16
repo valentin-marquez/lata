@@ -847,6 +847,83 @@ impl Shell {
         Ok(())
     }
 
+    /// Copies instance `id` into a new one and opens it. The copy runs in the background, shown
+    /// in the download manager; nothing is listed until it is whole. Refused while the game
+    /// runs or an install writes into it, since the files would change under the copy.
+    pub fn duplicate(
+        shell: WeakEntity<Shell>,
+        id: SharedString,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        use crate::ui::toast;
+        use gpui_kit::component::WindowExt;
+        let handle = window.window_handle();
+        let started = shell.update(cx, |shell, cx| {
+            if shell.running.contains_key(&id)
+                || shell.installs.contains_key(&id)
+                || shell.adding_mods(&id)
+            {
+                return Err("Whoa! Stop the game before duplicating it".to_owned());
+            }
+            let Some(instance) = shell.instances.iter().find(|i| i.id == id).cloned() else {
+                return Ok(());
+            };
+            let key: SharedString = format!("copy:{id}").into();
+            if shell.installs.contains_key(&key) {
+                return Ok(());
+            }
+            shell.installs.insert(
+                key.clone(),
+                install::Download::new(instance.name.clone(), install::Kind::Copy, None),
+            );
+            shell.changed(cx);
+            let (events_tx, mut events) = tokio::sync::mpsc::unbounded_channel();
+            let root = shell.root.clone();
+            let copying = crate::runtime::spawn(crate::runtime::blocking(move || {
+                store::duplicate(&root, &instance.dir, |done, total| {
+                    let _ = events_tx.send((done, total));
+                })
+                .map_err(|err| err.to_string())
+            }));
+            cx.spawn(async move |this, cx| {
+                while let Some((done, total)) = events.recv().await {
+                    let _ = this.update(cx, |shell, cx| {
+                        if let Some(task) = shell.installs.get_mut(&key)
+                            && task.progress(done, total, std::time::Instant::now())
+                        {
+                            shell.changed(cx);
+                        }
+                    });
+                }
+                let made = copying
+                    .await
+                    .map_err(|err| err.to_string())
+                    .and_then(|result| result)
+                    .and_then(|result| result);
+                let note = match &made {
+                    Ok(copy) => toast::done(format!("{} is ready", copy.name)),
+                    Err(why) => toast::failed_because("That copy didn't work out", why.clone()),
+                };
+                let _ = this.update(cx, |shell, cx| {
+                    shell.installs.remove(&key);
+                    shell.reload(cx);
+                    if let Ok(copy) = &made
+                        && let Some(ix) = shell.instances.iter().position(|i| i.id == copy.id)
+                    {
+                        shell.go(Page::Instance(ix), cx);
+                    }
+                });
+                let _ = handle.update(cx, |_, window, cx| window.push_notification(note, cx));
+            })
+            .detach();
+            Ok(())
+        });
+        if let Ok(Err(why)) = started {
+            window.push_notification(toast::failed(why), cx);
+        }
+    }
+
     /// Shows or hides the loader under the title bar.
     pub fn set_loading(&mut self, on: bool, cx: &mut Context<Self>) {
         if self.loading != on {
