@@ -34,6 +34,10 @@ pub struct Saved {
     /// nobody picked yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub library: Option<PathBuf>,
+    /// Set when lata shouldn't look for newer versions of itself. Stored as the "off" so the
+    /// default, and a file from before the setting, mean it does.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub updates_off: bool,
 }
 
 fn file() -> PathBuf {
@@ -115,6 +119,7 @@ pub fn open(shell: WeakEntity<crate::shell::Shell>, window: &mut Window, cx: &mu
         theme: theme::mode(cx),
         startup: startup::enabled(),
         protocol: crate::link::protocol::enabled(),
+        updates: !load().updates_off,
     };
     let storage = cx.new(|cx| crate::storage::picker::Picker::new(shell, false, cx));
     let view = cx.new(|_| Settings {
@@ -153,6 +158,8 @@ struct Values {
     startup: bool,
     /// Whether the system opens `lata://` links (the browser extension's) with this lata.
     protocol: bool,
+    /// Whether lata looks for newer versions of itself.
+    updates: bool,
 }
 
 struct Settings {
@@ -327,6 +334,11 @@ impl Settings {
                 return;
             }
             self.saved.protocol = self.draft.protocol;
+        }
+        if self.draft.updates != self.saved.updates {
+            let off = !self.draft.updates;
+            update(|saved| saved.updates_off = off);
+            self.saved.updates = self.draft.updates;
         }
         if self.draft.theme != self.saved.theme {
             theme::choose(self.draft.theme, window, cx);
@@ -516,6 +528,16 @@ impl Settings {
                 cx,
             )
         });
+        let this = cx.entity();
+        let updates = Switch::new("updates")
+            .cursor_pointer()
+            .checked(self.draft.updates)
+            .on_click(move |&on, _, cx| {
+                this.update(cx, |this, cx| {
+                    this.draft.updates = on;
+                    cx.notify();
+                })
+            });
         div()
             .flex()
             .flex_col()
@@ -532,6 +554,12 @@ impl Settings {
                 cx,
             ))
             .children(links)
+            .child(row(
+                "Update lata automatically",
+                "When lata starts it downloads and installs a new version if there is one, and tells you when one comes out later. Off, it never looks.",
+                updates,
+                cx,
+            ))
             .child(row(
                 "Minimize to the system tray",
                 "Closing the window keeps lata running in the tray. Coming soon.",

@@ -63,6 +63,8 @@ pub struct Shell {
     link_waiting: Option<crate::instance::mods::Listing>,
     /// Shows the loader under the title bar while the page's data loads.
     loading: bool,
+    /// A newer lata, once a check finds one.
+    update: Option<crate::update::Found>,
 }
 
 impl Shell {
@@ -105,7 +107,9 @@ impl Shell {
             link_resolving: 0,
             link_waiting: None,
             loading: false,
+            update: None,
         };
+        shell.check_updates(cx);
         shell.check_builds(cx);
         shell.find_games(cx);
         shell
@@ -126,6 +130,106 @@ impl Shell {
             });
         })
         .detach();
+    }
+
+    /// Looks for a newer lata now and every few hours, quietly: offline or refused just
+    /// means asking again later. The setting is read each time, so turning it off stops it.
+    /// The update window already asked at startup where lata can install updates; this is
+    /// for a lata left open, for where it can't, and for when GitHub was slow to answer then.
+    fn check_updates(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            loop {
+                if crate::update::enabled()
+                    && let Ok(Some(found)) = crate::update::check().await
+                    && this
+                        .update(cx, |shell, cx| shell.update_found(found, cx))
+                        .is_err()
+                {
+                    return;
+                }
+                cx.background_executor().timer(crate::update::EVERY).await;
+            }
+        })
+        .detach();
+    }
+
+    /// A check found a newer release: the title bar offers it, and a toast says so once per
+    /// version. Nothing is interrupted.
+    fn update_found(&mut self, found: crate::update::Found, cx: &mut Context<Self>) {
+        let version = found.release.version.clone();
+        if self
+            .update
+            .as_ref()
+            .is_some_and(|known| known.release.version >= version)
+        {
+            return;
+        }
+        self.update = Some(found);
+        let label = self.update_button().map(|(label, _)| label);
+        cx.notify();
+        let shell = cx.entity().downgrade();
+        notify(cx, move || {
+            crate::ui::toast::update(
+                format!("lata {version} is out"),
+                "Fresh out of the can, whenever you feel like it",
+                label.unwrap_or_default(),
+                shell,
+            )
+        });
+    }
+
+    /// The label and icon of the update button in the title bar; none while there is
+    /// nothing newer.
+    fn update_button(&self) -> Option<(SharedString, gpui_kit::assets::IconName)> {
+        use gpui_kit::assets::IconName;
+        let found = self.update.as_ref()?;
+        Some(if found.installable {
+            ("Restart to update".into(), IconName::Rocket)
+        } else {
+            // lata can't replace itself here: the button opens the release's page.
+            (
+                format!("Get lata {}", found.release.version).into(),
+                IconName::ExternalLink,
+            )
+        })
+    }
+
+    /// What the update button and the toast's button do: close lata and start it again
+    /// through the update window, which installs the release; or open the release's page
+    /// where lata can't install it.
+    pub fn update_lata(shell: WeakEntity<Shell>, window: &mut Window, cx: &mut App) {
+        use gpui_kit::component::WindowExt;
+        let outcome = shell.update(cx, |shell, cx| {
+            let found = shell.update.as_ref()?;
+            if !found.installable {
+                cx.open_url(&found.release.page());
+                return None;
+            }
+            // Restarting would take a running game's log and the downloads with it, and a
+            // mod link that is being looked up or waits in its dialog.
+            let links = shell.link_resolving > 0
+                || shell.link_open.is_some()
+                || !shell.link_queue.is_empty();
+            if shell.busy() || links {
+                return Some(crate::ui::toast::heads_up(
+                    "Hold on, lata is busy",
+                    "Restart once the game is closed and the downloads and mod links are done",
+                ));
+            }
+            match crate::update::restart() {
+                Ok(()) => {
+                    cx.quit();
+                    None
+                }
+                Err(err) => Some(crate::ui::toast::failed_because(
+                    "Oof, lata couldn't restart itself",
+                    format!("{err}. Close it and open it again to update"),
+                )),
+            }
+        });
+        if let Ok(Some(toast)) = outcome {
+            window.push_notification(toast, cx);
+        }
     }
 
     /// Newest build of the instance's branch, when it is known.
@@ -1224,6 +1328,18 @@ async fn branches_build(branch: &str) -> Option<u32> {
 /// How many links wait their turn behind the open install dialog.
 const LINK_QUEUE: usize = 8;
 
+/// Shows a toast from work that has no window of its own (a background check): on the
+/// active window, or the only one.
+fn notify(cx: &mut App, toast: impl FnOnce() -> crate::ui::toast::Notification) {
+    let Some(window) = cx.active_window().or_else(|| cx.windows().first().copied()) else {
+        return;
+    };
+    let _ = window.update(cx, |_, window, cx| {
+        use gpui_kit::component::WindowExt;
+        window.push_notification(toast(), cx);
+    });
+}
+
 /// The download manager's key for Workshop item `item` going into instance `instance`.
 fn mod_key(instance: &SharedString, item: &str) -> SharedString {
     format!("mod:{instance}:{item}").into()
@@ -1273,6 +1389,8 @@ impl Render for Shell {
             .text_color(cx.theme().foreground)
             .child(Topbar {
                 running: self.running(),
+                update: self.update_button(),
+                shell: cx.entity().downgrade(),
                 downloads: downloads::Pill::new(self, cx.entity().downgrade()),
             })
             .child(

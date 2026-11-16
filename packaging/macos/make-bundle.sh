@@ -8,6 +8,9 @@ APP="Lata.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/lata"
-cp "$HERE/Info.plist" "$APP/Contents/Info.plist"
+# The app says the version the workspace has, not the one written in the template.
+VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$HERE/../../Cargo.toml" | head -n 1)"
+sed "s|<key>CFBundleShortVersionString</key><string>[^<]*</string>|<key>CFBundleShortVersionString</key><string>$VERSION</string>|; s|<key>CFBundleVersion</key><string>[^<]*</string>|<key>CFBundleVersion</key><string>$VERSION</string>|" \
+  "$HERE/Info.plist" > "$APP/Contents/Info.plist"
 cp "$HERE/../../assets/icons/lata.icns" "$APP/Contents/Resources/lata.icns"
 echo "Done: $APP"

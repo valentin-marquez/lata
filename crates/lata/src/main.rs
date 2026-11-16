@@ -17,6 +17,7 @@ mod shell;
 mod storage;
 mod theme;
 mod ui;
+mod update;
 
 use std::sync::Arc;
 
@@ -37,22 +38,34 @@ fn window_icon() -> Option<Arc<image::RgbaImage>> {
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    // Before anything else, and touching nothing: an update asks the lata it downloaded for
+    // this, to know it starts on this computer before it replaces the one that works.
+    if args.first().is_some_and(|arg| arg == "--version") {
+        println!("lata {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     instance::store::adopt_old_name();
-    let started_with = link::from_args(std::env::args().skip(1));
+    let started_with = link::from_args(args.iter().cloned());
     // Only one lata per data folder: a second one hands its links over (or asks the first to
-    // show itself) and leaves, instead of opening another window.
+    // show itself) and leaves, instead of opening another window. Not when a lata started
+    // this one to take its place (a restart, an update): that one is still closing, and
+    // would take the message with it.
     let lock = instance::store::data().join("lata.lock");
-    if link::single::forward(&lock, &link::single::messages(&started_with)) {
+    let restarted = args
+        .iter()
+        .any(|arg| arg == update::RESTARTED || arg == update::UPDATED);
+    if !restarted && link::single::forward(&lock, &link::single::messages(&started_with)) {
         return;
     }
 
     // What reaches this lata from outside: the links it was started with, those another lata
     // hands over, and (on macOS, which delivers them this way) links that arrive while it runs.
-    let (outside, mut incoming) = tokio::sync::mpsc::unbounded_channel::<link::Incoming>();
+    let (outside, incoming) = tokio::sync::mpsc::unbounded_channel::<link::Incoming>();
     for link in started_with {
         let _ = outside.send(link::Incoming::Link(link));
     }
-    let from_others = outside.clone();
+    let (from_others, back) = (outside.clone(), outside.clone());
     if let Err(err) = link::single::serve(&lock, move |message| {
         let _ = from_others.send(message);
     }) {
@@ -67,44 +80,50 @@ fn main() {
     app.run(move |cx| {
         gpui_kit::init(cx);
         theme::init(cx);
+        // The update window comes first; it opens the main one unless lata replaces itself.
+        update::start(&args, back, incoming, open, cx);
+    });
+}
 
-        let options = WindowOptions {
-            app_id: Some(APP_ID.into()),
-            icon: window_icon(),
-            window_bounds: Some(WindowBounds::centered(size(px(1280.), px(800.)), cx)),
-            window_min_size: Some(size(px(900.), px(600.))),
-            titlebar: Some(TitlebarOptions {
-                // Centre macOS traffic lights in the taller title bar.
-                traffic_light_position: Some(point(px(16.), px(17.))),
-                ..TitleBar::title_bar_options()
-            }),
-            ..TitleBar::window_options()
-        };
-        gpui_kit::open_window(options, cx, |window, cx| {
-            theme::follow_system(window, cx);
-            let shell = cx.new(Shell::new);
-            let (handle, weak) = (window.window_handle(), shell.downgrade());
-            cx.spawn(async move |cx| {
-                while let Some(message) = incoming.recv().await {
-                    match message {
-                        link::Incoming::Link(text) => {
-                            let _ =
-                                weak.update(cx, |shell, cx| shell.receive_link(text, handle, cx));
-                        }
-                        link::Incoming::Show => {
-                            let _ = handle.update(cx, |_, window, _| window.activate_window());
-                        }
+/// Opens the main window, and delivers to it what reaches lata from outside.
+fn open(mut incoming: tokio::sync::mpsc::UnboundedReceiver<link::Incoming>, cx: &mut App) {
+    let options = WindowOptions {
+        app_id: Some(APP_ID.into()),
+        icon: window_icon(),
+        window_bounds: Some(WindowBounds::centered(size(px(1280.), px(800.)), cx)),
+        window_min_size: Some(size(px(900.), px(600.))),
+        titlebar: Some(TitlebarOptions {
+            // Centre macOS traffic lights in the taller title bar.
+            traffic_light_position: Some(point(px(16.), px(17.))),
+            ..TitleBar::title_bar_options()
+        }),
+        ..TitleBar::window_options()
+    };
+    gpui_kit::open_window(options, cx, |window, cx| {
+        theme::follow_system(window, cx);
+        let shell = cx.new(Shell::new);
+        let (handle, weak) = (window.window_handle(), shell.downgrade());
+        cx.spawn(async move |cx| {
+            while let Some(message) = incoming.recv().await {
+                match message {
+                    link::Incoming::Link(text) => {
+                        let _ = weak.update(cx, |shell, cx| shell.receive_link(text, handle, cx));
+                    }
+                    link::Incoming::Show => {
+                        let _ = handle.update(cx, |_, window, _| window.activate_window());
                     }
                 }
-            })
-            .detach();
-            // Once the window is up: a dialog needs its root view in place.
-            let first = shell.downgrade();
-            window.defer(cx, move |window, cx| Shell::welcome(first, window, cx));
-            shell
+            }
         })
-        .expect("failed to open main window");
-    });
+        .detach();
+        // Once the window is up: a dialog needs its root view in place.
+        let first = shell.downgrade();
+        window.defer(cx, move |window, cx| Shell::welcome(first, window, cx));
+        shell
+    })
+    .expect("failed to open main window");
+    // Only now is the lata an update replaced let go: this one got as far as its window.
+    update::tidy();
 }
 
 #[cfg(test)]

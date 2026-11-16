@@ -31,6 +31,13 @@ jobs:
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+            # lata finds its updates by tag and trusts the binary to say the same version:
+            # a tag that disagrees with Cargo.toml would be an update nobody can install.
+            built="v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+            if [[ "$built" != "$GITHUB_REF_NAME" ]]; then
+              echo "::error::tag $GITHUB_REF_NAME but Cargo.toml says $built"
+              exit 1
+            fi
           else
             echo "VERSION=dev-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
           fi
@@ -85,6 +92,10 @@ jobs:
           sh packaging/macos/make-bundle.sh target/release/lata
           codesign --force --deep --sign - Lata.app
           mkdir -p dmg dist
+          # The same app as a .zip: what lata downloads to update itself, since a .dmg has to
+          # be mounted to get anything out of it. Without resource forks, so the archive holds
+          # only the app's own files.
+          ditto -c -k --norsrc --keepParent Lata.app "dist/$name.zip"
           mv Lata.app dmg/
           hdiutil create -volname Lata -srcfolder dmg -ov -format UDZO "dist/$name.dmg"
 
@@ -107,6 +118,16 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # lata checks what it downloads to update itself against this file. It comes from the
+      # same place as the packages, so it catches a broken or swapped download, not someone
+      # who can change the release itself (that would take a signature).
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum * > ../SHA256SUMS
+          mv ../SHA256SUMS .
+          cat SHA256SUMS
+
       - name: Draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -114,4 +135,10 @@ jobs:
         run: |
           gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 \
             || gh release create "$GITHUB_REF_NAME" --draft --title "lata launcher $GITHUB_REF_NAME" --generate-notes
+          # Files are only replaced while it is a draft. Once published, latas out there may
+          # be downloading them: new files under old checksums would fail for all of them.
+          if [[ "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)" != "true" ]]; then
+            echo "::error::$GITHUB_REF_NAME is already published; tag a new version instead"
+            exit 1
+          fi
           gh release upload "$GITHUB_REF_NAME" dist/* --clobber

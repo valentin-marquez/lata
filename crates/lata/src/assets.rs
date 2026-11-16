@@ -94,6 +94,18 @@ icon_assets!(
 
 pub const LOGO: &str = "brand/mark-64.png";
 
+fn splash_layer(path: &str) -> Option<&'static [u8]> {
+    macro_rules! layers {
+        ($($name:literal),*) => {
+            match path.strip_prefix("splash/")?.strip_suffix(".svg")? {
+                $($name => Some(include_bytes!(concat!("../../../assets/icons/splash/", $name, ".svg"))),)*
+                _ => None,
+            }
+        };
+    }
+    layers!("fill", "body", "eye", "ring-outer", "ring-inner")
+}
+
 pub struct AppAssets;
 
 impl AssetSource for AppAssets {
@@ -102,6 +114,10 @@ impl AssetSource for AppAssets {
             return Ok(Some(Cow::Borrowed(include_bytes!(
                 "../../../assets/icons/png/mark-64.png"
             ))));
+        }
+        // The splash can's layers, animated one by one (`update/can.view.rs`).
+        if let Some(bytes) = splash_layer(path) {
+            return Ok(Some(Cow::Borrowed(bytes)));
         }
         if let Some(item) = path
             .strip_prefix("instance-icons/")

@@ -244,6 +244,33 @@ pub mod toast {
             .autohide(true)
     }
 
+    /// News about lata's own update, with a button that takes the next step
+    /// (`Shell::update_lata`: restart into it, or open its page).
+    pub fn update(
+        title: String,
+        text: &'static str,
+        action: SharedString,
+        shell: gpui_kit::WeakEntity<crate::shell::Shell>,
+    ) -> Notification {
+        use gpui_kit::component::button::{Button, ButtonVariants};
+        use gpui_kit::*;
+        Notification::info(text)
+            .title(title)
+            .action(move |_, _, cx| {
+                let shell = shell.clone();
+                Button::new("update")
+                    .ghost()
+                    .cursor_pointer()
+                    .label(action.clone())
+                    .on_click(cx.listener(move |toast, _, window, cx| {
+                        crate::shell::Shell::update_lata(shell.clone(), window, cx);
+                        toast.dismiss(window, cx);
+                    }))
+            })
+            // The title bar keeps the button; the toast is only the news.
+            .autohide(true)
+    }
+
     /// Something worked, with a catch the user should know about.
     pub fn heads_up(what: &'static str, detail: impl ToString) -> Notification {
         Notification::warning(detail.to_string()).title(what)

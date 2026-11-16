@@ -1,0 +1,30 @@
+[
+  {
+    "tag_name": "v0.6.0",
+    "name": "lata launcher v0.6.0",
+    "draft": false,
+    "prerelease": true,
+    "published_at": "2026-11-16T01:48:44Z",
+    "html_url": "https://github.com/valentin-marquez/lata/releases/tag/v0.6.0",
+    "assets": [
+      {
+        "name": "lata-launcher-v0.6.0-linux-x86_64.tar.gz",
+        "size": 26990864,
+        "digest": "sha256:e4a153ec9f4a060b58082288191ade6e67d3794f980abe2ce9bad11f92e3c1df",
+        "browser_download_url": "https://github.com/valentin-marquez/lata/releases/download/v0.6.0/lata-launcher-v0.6.0-linux-x86_64.tar.gz"
+      },
+      {
+        "name": "lata-launcher-v0.6.0-macos-arm64.dmg",
+        "size": 16525160,
+        "digest": "sha256:78beb597a2a84c17a3c60ce8125b66d92abd86a1a6c8988e4ad9ffb028fdb007",
+        "browser_download_url": "https://github.com/valentin-marquez/lata/releases/download/v0.6.0/lata-launcher-v0.6.0-macos-arm64.dmg"
+      },
+      {
+        "name": "lata-launcher-v0.6.0-windows-x86_64.zip",
+        "size": 15900179,
+        "digest": "sha256:5b5d24372192f42a30576bede2207e3acf456f209f6566ba39a5828c7790756e",
+        "browser_download_url": "https://github.com/valentin-marquez/lata/releases/download/v0.6.0/lata-launcher-v0.6.0-windows-x86_64.zip"
+      }
+    ]
+  }
+]

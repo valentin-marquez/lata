@@ -1,4 +1,5 @@
-//! Title bar: logo, the download manager, and which instance is running.
+//! Title bar: logo, an update when there is one, the download manager, and which instance is
+//! running.
 
 use gpui_kit::component::{ActiveTheme, Icon, TitleBar};
 use gpui_kit::*;
@@ -14,6 +15,9 @@ pub const PILL: Pixels = px(36.);
 pub struct Topbar {
     /// Name of the game running, if any.
     pub running: Option<SharedString>,
+    /// The label and icon of the update button, when a newer lata is out or ready.
+    pub update: Option<(SharedString, gpui_kit::assets::IconName)>,
+    pub shell: WeakEntity<super::Shell>,
     pub downloads: super::downloads::Pill,
 }
 
@@ -22,6 +26,14 @@ impl RenderOnce for Topbar {
         let theme = cx.theme();
 
         let status = self.status(theme);
+        let shell = self.shell;
+        // The one accent in the bar while it is there: it is the thing to do next.
+        let update = self.update.map(|(label, icon)| {
+            crate::ui::FancyButton::new("update", label)
+                .small()
+                .icon(icon)
+                .on_click(move |_, window, cx| super::Shell::update_lata(shell.clone(), window, cx))
+        });
         TitleBar::new().h(HEIGHT).child(
             div()
                 .flex()
@@ -60,6 +72,7 @@ impl RenderOnce for Topbar {
                         .flex()
                         .items_center()
                         .gap_2()
+                        .children(update)
                         .child(self.downloads)
                         .child(status),
                 ),
