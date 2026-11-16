@@ -155,7 +155,7 @@ impl Settings {
             .icon
             .clone()
             .unwrap_or_else(|| Icon::picked(&instance.id));
-        let picture = cx.new(|_| Picker::new(Some(shown), true));
+        let picture = cx.new(|_| Picker::new(Some(shown), true).in_dir(instance.dir.clone()));
         let installed = installed_memory();
         let slider = cx.new(|_| {
             SliderState::new()

@@ -27,6 +27,8 @@ pub struct Picker {
     full: bool,
     /// The name field the short form shows beside the picture, above its buttons.
     name: Option<Entity<InputState>>,
+    /// The instance's folder: a saved picture's file is relative to it.
+    dir: PathBuf,
 }
 
 impl Picker {
@@ -37,7 +39,14 @@ impl Picker {
             theme: 0,
             full,
             name: None,
+            dir: PathBuf::new(),
         }
+    }
+
+    /// Resolves a saved picture against the folder of the instance it belongs to.
+    pub fn in_dir(mut self, dir: PathBuf) -> Self {
+        self.dir = dir;
+        self
     }
 
     /// Shows `name` beside the picture, with the buttons under it in a row.
@@ -79,7 +88,7 @@ impl Picker {
             jvm_args: String::new(),
             launch_args: String::new(),
             id: "preview".into(),
-            dir: PathBuf::new(),
+            dir: self.dir.clone(),
             name: "".into(),
             branch: "".into(),
             build: None,
