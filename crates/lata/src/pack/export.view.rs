@@ -450,6 +450,17 @@ impl Render for Export {
         let theme = cx.theme().clone();
         let table = match &self.tree {
             None => div().h(TABLE).child(Loader).into_any_element(),
+            // Never played: the game writes its settings on the first start, so there are
+            // none yet. The pack still carries the game version and the mods.
+            Some(tree) if tree.is_empty() => div()
+                .flex()
+                .h(TABLE)
+                .child(ui::Empty::new(
+                    IconName::Folder,
+                    "No files yet",
+                    "The game makes its settings the first time you play. The pack still brings the game version and the mods.",
+                ))
+                .into_any_element(),
             Some(_) => div()
                 .flex()
                 .flex_col()
