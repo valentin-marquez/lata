@@ -107,6 +107,11 @@ const PARALLEL: usize = 32;
 /// Tries per chunk, each on the next CDN host, before the install fails.
 const TRIES: usize = 3;
 
+/// How long a chunk keeps retrying while the network is down, waiting longer each time up to
+/// [`PAUSE`]. Changing networks drops every connection at once; this rides it out.
+const OFFLINE: Duration = Duration::from_secs(180);
+const PAUSE: Duration = Duration::from_secs(10);
+
 /// Where an install's time went. Network and decode are summed over chunks in flight at once,
 /// so they can add up to more than the wall time; compare them with each other.
 #[derive(Debug, Default, Clone, Copy)]
@@ -275,14 +280,24 @@ async fn fetch(
     chunk: manifest::Chunk,
 ) -> Result<(usize, std::sync::Arc<std::path::PathBuf>, u64, Timings)> {
     let mut spent = Timings::default();
-    let mut tries = 0;
+    let (mut tries, mut turn) = (0, 0);
+    let mut offline: Option<(Instant, Duration)> = None;
     let plain = loop {
-        let host = &hosts[(ix + tries) % hosts.len()];
-        tries += 1;
+        let host = &hosts[(ix + turn) % hosts.len()];
+        turn += 1;
         match download(http, host, depot, key, &chunk, &mut spent).await {
             Ok(plain) => break plain,
-            // A dropped connection or a corrupt chunk is usually one bad host or a hiccup.
-            Err(err) if tries < TRIES && !matches!(err, Error::Io(_)) => continue,
+            // No connection at all: wait for the network to come back, then go on.
+            Err(err) if err.is_network() => {
+                let (since, wait) = offline.get_or_insert((Instant::now(), Duration::ZERO));
+                if since.elapsed() >= OFFLINE {
+                    return Err(err);
+                }
+                *wait = (*wait * 2).clamp(Duration::from_millis(500), PAUSE);
+                tokio::time::sleep(*wait).await;
+            }
+            // A bad status or a corrupt chunk is usually one bad host: try the next.
+            Err(err) if tries + 1 < TRIES && !matches!(err, Error::Io(_)) => tries += 1,
             Err(err) => return Err(err),
         }
     };

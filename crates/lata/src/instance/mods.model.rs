@@ -852,7 +852,7 @@ pub async fn install(
                     manifest: *manifest,
                     ..item.clone()
                 };
-                steam::workshop::manifest(&mut client, &http, &source, &old)
+                ask(&mut client, &http, &source, &old)
                     .await
                     .ok()
                     .map(|found| (found, old.manifest))
@@ -868,9 +868,7 @@ pub async fn install(
                 item.manifest = number;
                 found
             }
-            None => steam::workshop::manifest(&mut client, &http, &source, item)
-                .await
-                .map_err(fail)?,
+            None => ask(&mut client, &http, &source, item).await.map_err(fail)?,
         };
         if running.len() >= PARALLEL_ITEMS
             && let Some(done) = running.join_next().await
@@ -919,6 +917,31 @@ pub async fn install(
         newer,
     })
 }
+
+/// [`steam::workshop::manifest`], reconnecting while the network is down: a batch asks for
+/// manifests while files download, and changing networks kills the Steam session under it.
+async fn ask(
+    client: &mut steam::Client,
+    http: &steam::reqwest::Client,
+    source: &steam::workshop::Source,
+    item: &steam::workshop::Item,
+) -> Result<steam::content::Manifest, steam::Error> {
+    let started = std::time::Instant::now();
+    loop {
+        match steam::workshop::manifest(client, http, source, item).await {
+            Err(err) if err.is_network() && started.elapsed() < OFFLINE => {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                if let Ok(fresh) = steam::Client::anonymous(http).await {
+                    *client = fresh;
+                }
+            }
+            done => return done,
+        }
+    }
+}
+
+/// How long a batch waits for the network to come back before giving up.
+const OFFLINE: std::time::Duration = std::time::Duration::from_secs(180);
 
 /// A Workshop collection as the create dialog shows it before installing.
 #[derive(Debug, Clone)]

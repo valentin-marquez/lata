@@ -43,6 +43,20 @@ pub enum Error {
     TooLarge(&'static str),
     #[error("that is not a Workshop collection, or it is private")]
     NotCollection,
+    #[error("Steam took too long to answer")]
+    Timeout,
+}
+
+impl Error {
+    /// Whether this is the connection rather than Steam saying no: the network dropped or
+    /// changed (Wi-Fi to cable, a VPN, sleep), so the same request may work once it is back.
+    pub fn is_network(&self) -> bool {
+        match self {
+            Error::Http(err) => err.status().is_none_or(|s| s.is_server_error()),
+            Error::Socket(_) | Error::Closed | Error::Timeout => true,
+            _ => false,
+        }
+    }
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -50,7 +64,13 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// HTTP client for Steam's web endpoints and CDN. Installs the TLS provider on first use.
 pub fn http() -> reqwest::Client {
     tls();
-    reqwest::Client::new()
+    // Without timeouts a connection left on a network that went away (Wi-Fi changed, VPN up)
+    // waits forever: no reset ever arrives. A read timeout turns it into an error to retry.
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .read_timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_default()
 }
 
 /// rustls needs a process-wide crypto provider; we ship `ring` so builds need no C toolchain

@@ -321,9 +321,16 @@ impl Client {
 /// The receiving end of a request's replies.
 struct Reply(UnboundedReceiver<Result<Packet>>);
 
+/// How long a reply may take. A socket left on a network that went away never closes on its
+/// own, so a request would wait forever.
+const REPLY: Duration = Duration::from_secs(60);
+
 impl Reply {
     async fn recv(&mut self) -> Result<Packet> {
-        self.0.recv().await.ok_or(Error::Closed)?
+        tokio::time::timeout(REPLY, self.0.recv())
+            .await
+            .map_err(|_| Error::Timeout)?
+            .ok_or(Error::Closed)?
     }
 }
 
