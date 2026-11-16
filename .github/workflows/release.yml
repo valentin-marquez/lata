@@ -23,7 +23,7 @@ jobs:
         # one, so building on the latest would leave older distributions out.
         os: [ubuntu-22.04, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # What the packages are called: the tag, or the commit for a run by hand.
       - name: Version
@@ -99,7 +99,7 @@ jobs:
           mv Lata.app dmg/
           hdiutil create -volname Lata -srcfolder dmg -ov -format UDZO "dist/$name.dmg"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: lata-${{ runner.os }}
           path: dist/*
@@ -113,7 +113,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true

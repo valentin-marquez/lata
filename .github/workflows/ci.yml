@@ -30,7 +30,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # gpui and keyring link these; the Wayland and X11 libraries themselves load at run time.
       - name: Linux libraries
