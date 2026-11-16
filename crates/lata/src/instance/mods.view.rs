@@ -12,7 +12,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::switch::Switch;
-use gpui_kit::component::{ActiveTheme, Icon, WindowExt};
+use gpui_kit::component::{ActiveTheme, Disableable, Icon, WindowExt};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -28,6 +28,11 @@ const CONTROL: Pixels = px(36.);
 /// Width of the Version and Actions columns; Mod takes the rest.
 const VERSION: Pixels = px(190.);
 const ACTIONS: Pixels = px(168.);
+/// Smallest width of the search field, so its placeholder always reads.
+const SEARCH: f32 = 240.;
+/// The toolbar's two groups at their least; when both don't fit side by side, the second wraps.
+const QUERY: f32 = 560.;
+const ACTIONS_ROW: f32 = 392.;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Sort {
@@ -69,6 +74,15 @@ impl Filter {
     }
 }
 
+/// Where asking Steam for newer versions stands.
+#[derive(Clone, Copy, PartialEq)]
+enum Check {
+    Running,
+    Done,
+    /// Offline or Steam down: the table works the same, without update marks.
+    Failed,
+}
+
 pub struct Mods {
     instance: Instance,
     /// Read from disk when the tab opens and after every change.
@@ -76,7 +90,8 @@ pub struct Mods {
     /// Names of the mods made for a newer game than the instance runs, read with `mods`.
     too_new: Vec<String>,
     /// What [`mods::stamp`] said when `mods` was read; the same stamp means nothing new.
-    stamp: mods::Stamp,
+    /// `None` until the first read is in.
+    stamp: Option<mods::Stamp>,
     /// A read is running in the background; `stale` asks for one more after it.
     loading: bool,
     stale: bool,
@@ -87,6 +102,7 @@ pub struct Mods {
     selected: HashSet<String>,
     /// The current manifest of each installed Workshop item; empty until Steam answers.
     latest: HashMap<u64, u64>,
+    check: Check,
     shell: WeakEntity<Shell>,
     /// The table's scroll position, eased by `ui::smooth_scroll`.
     scroll: UniformListScrollHandle,
@@ -106,25 +122,16 @@ impl Mods {
                 cx.notify();
             }
         });
-        let check = instance.clone();
-        cx.spawn(async move |this, cx| {
-            // Offline or Steam down: no marks, the table works the same.
-            let Ok(latest) = mods::latest(&check).await else {
-                return;
-            };
-            let _ = this.update(cx, |this, cx| {
-                this.latest = latest;
-                cx.notify();
-            });
-        })
-        .detach();
-        Self {
+        let mut mods = Self {
             latest: HashMap::new(),
-            stamp: mods::stamp(&instance),
+            check: Check::Running,
+            // Read in the background: a collection is hundreds of `mod.info` files, and
+            // reading them here froze the window on the way into the instance.
+            stamp: None,
             loading: false,
             stale: false,
-            mods: mods::list(&instance),
-            too_new: mods::too_new(&instance),
+            mods: Vec::new(),
+            too_new: Vec::new(),
             instance,
             search,
             sort: Sort::Name,
@@ -133,7 +140,31 @@ impl Mods {
             shell,
             scroll: UniformListScrollHandle::new(),
             _search: on_search,
-        }
+        };
+        mods.check_updates(cx);
+        mods.refresh(cx);
+        mods
+    }
+
+    /// Asks Steam for the current version of the instance's Workshop mods.
+    fn check_updates(&mut self, cx: &mut Context<Self>) {
+        self.check = Check::Running;
+        cx.notify();
+        let instance = self.instance.clone();
+        cx.spawn(async move |this, cx| {
+            let found = mods::latest(&instance).await;
+            let _ = this.update(cx, |this, cx| {
+                match found {
+                    Ok(latest) => {
+                        this.latest = latest;
+                        this.check = Check::Done;
+                    }
+                    Err(_) => this.check = Check::Failed,
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Reads the mods from disk again when they changed; the shell calls it on every step of
@@ -141,7 +172,7 @@ impl Mods {
     /// files) and only one runs at a time.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         let stamp = mods::stamp(&self.instance);
-        if stamp == self.stamp {
+        if Some(stamp) == self.stamp {
             return;
         }
         if self.loading {
@@ -150,16 +181,24 @@ impl Mods {
         }
         self.loading = true;
         let instance = self.instance.clone();
+        // The first read is the page loading: the bar under the title bar says so.
+        let first = self.stamp.is_none().then(|| self.shell.clone());
         cx.spawn(async move |this, cx| {
+            if let Some(shell) = &first {
+                let _ = shell.update(cx, |shell, cx| shell.set_loading(true, cx));
+            }
             let found =
                 crate::runtime::blocking(move || (mods::list(&instance), mods::too_new(&instance)))
                     .await;
+            if let Some(shell) = &first {
+                let _ = shell.update(cx, |shell, cx| shell.set_loading(false, cx));
+            }
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;
                 if let Ok((found, too_new)) = found {
                     this.mods = found;
                     this.too_new = too_new;
-                    this.stamp = stamp;
+                    this.stamp = Some(stamp);
                     // A mod that is gone can't stay checked.
                     this.selected
                         .retain(|folder| this.mods.iter().any(|m| m.folder == *folder));
@@ -260,106 +299,125 @@ impl Mods {
         };
         div()
             .flex()
+            .flex_wrap()
             .items_center()
             .gap_2()
+            // Two groups that wrap whole: finding mods (search, sort, filter) and changing the
+            // instance (load order, updates, add). When both don't fit on one line, the second
+            // drops below, instead of the search shrinking to nothing.
             .child(
-                // The input's own frame only comes in 32 or 44 px, so ours carries the border
-                // at the toolbar's height and the input sits inside it bare.
                 div()
-                    .flex_1()
                     .flex()
                     .items_center()
-                    .gap_1()
-                    .h(CONTROL)
-                    .pl_3()
-                    .rounded(theme.radius)
-                    .bg(theme.background)
-                    .border_1()
-                    .border_color(theme.input)
+                    .gap_2()
+                    .flex_1()
+                    .flex_basis(px(QUERY))
+                    .min_w(px(QUERY))
                     .child(
-                        Icon::new(IconName::Search)
-                            .size_4()
-                            .text_color(theme.muted_foreground),
-                    )
-                    .child(Input::new(&self.search).appearance(false).cleanable(true)),
-            )
-            .child(
-                pick("mods-sort", IconName::ArrowDownWideNarrow, sort.label()).dropdown_menu({
-                    let this = this.clone();
-                    move |mut menu, _, _| {
-                        for option in [Sort::Name, Sort::OnFirst] {
-                            let this = this.clone();
-                            menu = menu.item(
-                                PopupMenuItem::new(option.label())
-                                    .checked(option == sort)
-                                    .on_click(move |_, _, cx| {
-                                        let _ = this.update(cx, |mods, cx| {
-                                            mods.sort = option;
-                                            cx.notify();
-                                        });
-                                    }),
-                            );
-                        }
-                        menu
-                    }
-                }),
-            )
-            .child(
-                pick("mods-filter", IconName::Layers, filter.label()).dropdown_menu(
-                    move |mut menu, _, _| {
-                        for option in [Filter::All, Filter::On, Filter::Off] {
-                            let this = this.clone();
-                            menu = menu.item(
-                                PopupMenuItem::new(option.label())
-                                    .checked(option == filter)
-                                    .on_click(move |_, _, cx| {
-                                        let _ = this.update(cx, |mods, cx| {
-                                            mods.filter = option;
-                                            cx.notify();
-                                        });
-                                    }),
-                            );
-                        }
-                        menu
-                    },
-                ),
-            )
-            // With two mods on there is an order to speak of.
-            .when(self.mods.iter().filter(|m| m.enabled).count() > 1, |this| {
-                let (instance, mods) = (self.instance.clone(), cx.entity().downgrade());
-                this.child(
-                    ui::secondary("mods-order", "Load order")
-                        .icon(IconName::ListOrdered)
-                        .on_click(move |_, window, cx| {
-                            let mods = mods.clone();
-                            super::order::open(
-                                instance.clone(),
-                                move |_, cx| {
-                                    let _ = mods.update(cx, |mods, cx| mods.refresh(cx));
-                                },
-                                window,
-                                cx,
+                        // The input's own frame only comes in 32 or 44 px, so ours carries the border
+                        // at the toolbar's height and the input sits inside it bare.
+                        div()
+                            .flex_1()
+                            .min_w(px(SEARCH))
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .h(CONTROL)
+                            .pl_3()
+                            .rounded(theme.radius)
+                            .bg(theme.background)
+                            .border_1()
+                            .border_color(theme.input)
+                            .child(
+                                Icon::new(IconName::Search)
+                                    .size_4()
+                                    .text_color(theme.muted_foreground),
                             )
-                        }),
-                )
-            })
-            .when(!outdated.is_empty(), |this| {
-                this.child(
-                    ui::secondary("mods-update-all", "Update all")
-                        .icon(IconName::Download)
-                        .text_color(theme.primary)
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.update(outdated.clone(), window, cx)
-                        })),
-                )
-            })
+                            .child(Input::new(&self.search).appearance(false).cleanable(true)),
+                    )
+                    .child(
+                        pick("mods-sort", IconName::ArrowDownWideNarrow, sort.label())
+                            .dropdown_menu({
+                                let this = this.clone();
+                                move |mut menu, _, _| {
+                                    for option in [Sort::Name, Sort::OnFirst] {
+                                        let this = this.clone();
+                                        menu = menu.item(
+                                            PopupMenuItem::new(option.label())
+                                                .checked(option == sort)
+                                                .on_click(move |_, _, cx| {
+                                                    let _ = this.update(cx, |mods, cx| {
+                                                        mods.sort = option;
+                                                        cx.notify();
+                                                    });
+                                                }),
+                                        );
+                                    }
+                                    menu
+                                }
+                            }),
+                    )
+                    .child(
+                        pick("mods-filter", IconName::Layers, filter.label()).dropdown_menu(
+                            move |mut menu, _, _| {
+                                for option in [Filter::All, Filter::On, Filter::Off] {
+                                    let this = this.clone();
+                                    menu = menu.item(
+                                        PopupMenuItem::new(option.label())
+                                            .checked(option == filter)
+                                            .on_click(move |_, _, cx| {
+                                                let _ = this.update(cx, |mods, cx| {
+                                                    mods.filter = option;
+                                                    cx.notify();
+                                                });
+                                            }),
+                                    );
+                                }
+                                menu
+                            },
+                        ),
+                    ),
+            )
             .child(
-                FancyButton::new("mod-add", "Add mod")
-                    .small()
-                    .icon(IconName::Plus)
-                    .on_click(move |_, window, cx| {
-                        super::mod_add::open(instance.clone(), shell.clone(), window, cx)
-                    }),
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .flex_1()
+                    .flex_basis(px(ACTIONS_ROW))
+                    .min_w(px(ACTIONS_ROW))
+                    // With two mods on there is an order to speak of.
+                    .when(self.mods.iter().filter(|m| m.enabled).count() > 1, |this| {
+                        let (instance, mods) = (self.instance.clone(), cx.entity().downgrade());
+                        this.child(
+                            pick("mods-order", IconName::ListOrdered, "Load order").on_click(
+                                move |_, window, cx| {
+                                    let mods = mods.clone();
+                                    super::order::open(
+                                        instance.clone(),
+                                        move |_, cx| {
+                                            let _ = mods.update(cx, |mods, cx| mods.refresh(cx));
+                                        },
+                                        window,
+                                        cx,
+                                    )
+                                },
+                            ),
+                        )
+                    })
+                    // Load order on the left, updates and adding on the right.
+                    .child(div().flex_1())
+                    // Always there, saying where the check for updates stands, so its spot
+                    // doesn't appear out of nowhere when Steam answers.
+                    .child(self.updates(outdated, cx))
+                    .child(
+                        FancyButton::new("mod-add", "Add mod")
+                            .small()
+                            .icon(IconName::Plus)
+                            .on_click(move |_, window, cx| {
+                                super::mod_add::open(instance.clone(), shell.clone(), window, cx)
+                            }),
+                    ),
             )
     }
 
@@ -396,6 +454,69 @@ impl Mods {
                 )
                 .child(div().pl_6().child(self.too_new.join(", "))),
         )
+    }
+
+    /// The updates button: checking (a spinning icon), how many to update, up to date, or
+    /// couldn't check. The last two check again on a click.
+    fn updates(&self, outdated: Vec<u64>, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme();
+        let button = Button::new("mods-updates")
+            .outline()
+            .h(CONTROL)
+            .cursor_pointer();
+        match (self.check, outdated.len()) {
+            // Nothing to press while Steam is asked: disabled, with the arrow cursor.
+            (Check::Running, _) => button
+                .disabled(true)
+                .cursor_default()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            Icon::new(IconName::LoaderCircle)
+                                .size_4()
+                                .text_color(theme.muted_foreground)
+                                .with_animation(
+                                    "mods-checking",
+                                    // Indeterminate, so it loops, eased like the page loader.
+                                    Animation::new(std::time::Duration::from_millis(1000))
+                                        .repeat()
+                                        .with_easing(ease_in_out),
+                                    |icon, t| icon.rotate(percentage(t)),
+                                ),
+                        )
+                        .child("Checking for updates"),
+                )
+                .into_any_element(),
+            (Check::Done, 0) => button
+                .icon(IconName::Check)
+                .label("Up to date")
+                .tooltip("Check again")
+                .on_click(cx.listener(|this, _, _, cx| this.check_updates(cx)))
+                .into_any_element(),
+            (Check::Done, count) => {
+                let label = match count {
+                    1 => "Update 1 mod".to_owned(),
+                    many => format!("Update {many} mods"),
+                };
+                button
+                    .icon(IconName::Download)
+                    .label(label)
+                    .text_color(theme.primary)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.update(outdated.clone(), window, cx)
+                    }))
+                    .into_any_element()
+            }
+            (Check::Failed, _) => button
+                .icon(Icon::empty().path("icons/history.svg"))
+                .label("Couldn't check")
+                .tooltip("Steam didn't answer. Click to try again")
+                .on_click(cx.listener(|this, _, _, cx| this.check_updates(cx)))
+                .into_any_element(),
+        }
     }
 
     /// The checked mods, in the list's order.
@@ -754,6 +875,10 @@ impl Render for Mods {
             .shell
             .read_with(cx, |shell, _| shell.adding_mods(&self.instance.id))
             .unwrap_or(false);
+        // Still reading: the shell's bar shows it, and "No mods yet" would be a lie.
+        if self.stamp.is_none() {
+            return div().flex_1().into_any_element();
+        }
         let shown: Vec<Mod> = self.shown(cx).into_iter().cloned().collect();
         // No mods yet: the page says so and offers the one thing to do. A search, a sort and a
         // filter with nothing to work on would only be noise.
@@ -853,12 +978,22 @@ impl Render for Mods {
             .when(adding, |this| this.child(Loader))
             .children(self.too_new_note(cx))
             .when(!self.mods.is_empty(), |this| {
+                // How many show (the search and filter apply), and how many the game loads.
+                let total = self.mods.len();
+                let noun = if total == 1 { "mod" } else { "mods" };
+                let count = if shown.len() == total {
+                    format!("{total} {noun}")
+                } else {
+                    format!("{} of {total} {noun}", shown.len())
+                };
                 this.child(
                     div()
-                        .text_xs()
-                        .font_weight(FontWeight::SEMIBOLD)
+                        .flex()
+                        .justify_between()
+                        .text_sm()
                         .text_color(cx.theme().muted_foreground)
-                        .child(format!("{on} of {} on", self.mods.len())),
+                        .child(count)
+                        .child(format!("{on} enabled")),
                 )
             })
             .child(list)

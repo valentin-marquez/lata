@@ -61,7 +61,6 @@ pub struct Shell {
     /// A linked mod that found no instance to go into: it is offered again once one is created.
     link_waiting: Option<crate::instance::mods::Listing>,
     /// Shows the loader under the title bar while the page's data loads.
-    // ponytail: listing instances is instant; installs (roadmap 5) will set it.
     loading: bool,
 }
 
@@ -1282,10 +1281,22 @@ impl Render for Shell {
                             .border_color(cx.theme().border)
                             .bg(cx.theme().muted)
                             .overflow_hidden()
+                            .relative()
+                            .child(div().flex_1().min_h_0().child(page))
+                            // Over the page instead of above it, so nothing shifts when it
+                            // shows; inset by the corner radius, since GPUI clips to a plain
+                            // rectangle and a full-width bar cut straight through the round
+                            // corners.
                             .when(self.loading || self.link_resolving > 0, |this| {
-                                this.child(Loader)
-                            })
-                            .child(div().flex_1().min_h_0().child(page)),
+                                this.child(
+                                    div()
+                                        .absolute()
+                                        .top_0()
+                                        .left(px(14.))
+                                        .right(px(14.))
+                                        .child(Loader),
+                                )
+                            }),
                     )
                     .when(discover, |this| {
                         this.child(crate::discover::render(self, self.feed.as_ref(), cx))

@@ -1,4 +1,4 @@
-//! Thin orange bar that sweeps across the top of a view while it loads.
+//! Thin accent bar that sweeps across the top of a view while it loads.
 
 use std::time::Duration;
 
