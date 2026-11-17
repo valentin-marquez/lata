@@ -9,7 +9,8 @@ use gpui_kit::*;
 /// Lucide names gpui-kit and gpui-component ask for, so every icon in the app, the components'
 /// own included, comes from one set: Bold for app icons, Linear for the small glyphs inside
 /// controls (chevrons, check, close), where filled shapes read as blobs. Add one by saving the
-/// Solar SVG as `assets/icons/ui/<lucide name>.svg` and listing it here.
+/// Solar SVG as `assets/icons/ui/<lucide name>.svg` and listing it here. `discord` and `github`
+/// are those brands' own marks, the only icons not from Solar.
 macro_rules! ui_icons {
     ($($name:literal),* $(,)?) => {
         const UI_ICONS: &[&str] = &[$($name),*];
@@ -42,6 +43,7 @@ ui_icons!(
     "compass",
     "copy",
     "cpu",
+    "discord",
     "download",
     "ellipsis-vertical",
     "external-link",
@@ -50,6 +52,7 @@ ui_icons!(
     "folder",
     "folder-open",
     "gamepad",
+    "github",
     "git-branch",
     "globe",
     "hard-drive",

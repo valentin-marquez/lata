@@ -73,11 +73,43 @@ impl RenderOnce for Topbar {
                         .items_center()
                         .gap_2()
                         .children(update)
+                        .child(discord(cx.theme()))
                         .child(self.downloads)
                         .child(status),
                 ),
         )
     }
+}
+
+/// Discord's own blue, for its mark only.
+const DISCORD: u32 = 0x5865F2;
+pub const DISCORD_INVITE: &str = "https://discord.gg/jeGPaMkDbU";
+
+/// The way into the community, always in sight: where people ask for help and say what broke.
+fn discord(theme: &gpui_kit::component::Theme) -> impl IntoElement + use<> {
+    let blue = rgb(DISCORD);
+    div()
+        .id("discord-pill")
+        .flex()
+        .items_center()
+        .gap_2()
+        .h(PILL)
+        .px_3p5()
+        .rounded_full()
+        .border_1()
+        .border_color(theme.border)
+        .text_sm()
+        .text_color(theme.muted_foreground)
+        .cursor_pointer()
+        .hover(|style| style.border_color(blue))
+        .child(
+            Icon::empty()
+                .path("icons/discord.svg")
+                .size_4()
+                .text_color(blue),
+        )
+        .child("Discord")
+        .on_click(|_, _, cx| cx.open_url(DISCORD_INVITE))
 }
 
 impl Topbar {
