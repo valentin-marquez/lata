@@ -81,16 +81,23 @@ enum Section {
     Appearance,
     Behavior,
     Storage,
+    About,
 }
 
 impl Section {
-    const ALL: [Section; 3] = [Section::Appearance, Section::Behavior, Section::Storage];
+    const ALL: [Section; 4] = [
+        Section::Appearance,
+        Section::Behavior,
+        Section::Storage,
+        Section::About,
+    ];
 
     fn label(self) -> &'static str {
         match self {
             Section::Appearance => "Appearance",
             Section::Behavior => "Behavior",
             Section::Storage => "Storage",
+            Section::About => "About",
         }
     }
 
@@ -99,6 +106,7 @@ impl Section {
             Section::Appearance => IconName::Palette,
             Section::Behavior => IconName::Settings2,
             Section::Storage => IconName::HardDrive,
+            Section::About => IconName::Info,
         }
     }
 }
@@ -310,6 +318,80 @@ fn row(title: &'static str, line: &'static str, control: impl IntoElement, cx: &
                 ),
         )
         .child(control)
+}
+
+/// A label over its value, like the instance settings' About facts.
+fn fact(name: &'static str, value: &'static str, cx: &App) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap_0p5()
+        .min_w_0()
+        .child(
+            div()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(name),
+        )
+        .child(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .truncate()
+                .child(value),
+        )
+}
+
+/// Which lata this is, so a bug report or a question can say so.
+fn about(cx: &App) -> Div {
+    let theme = cx.theme();
+    let link = |id: &'static str, label: &'static str, url: &'static str| {
+        Button::new(id)
+            .ghost()
+            .cursor_pointer()
+            .icon(IconName::ExternalLink)
+            .label(label)
+            .on_click(move |_, _, cx| cx.open_url(url))
+    };
+    div()
+        .flex()
+        .flex_col()
+        .gap_4()
+        .child(heading(
+            "About",
+            "Which lata you're running, and where to find out what's new.",
+            cx,
+        ))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_4()
+                .p_4()
+                .rounded(theme.radius_lg)
+                .bg(theme.group_box)
+                .border_1()
+                .border_color(theme.border)
+                .child(
+                    div()
+                        .flex()
+                        .gap_8()
+                        .child(fact("App", "lata launcher", cx))
+                        .child(fact("Version", env!("CARGO_PKG_VERSION"), cx)),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .gap_1()
+                        .child(link(
+                            "releases",
+                            "Releases",
+                            "https://github.com/valentin-marquez/lata/releases",
+                        ))
+                        .child(link("discord", "Discord", "https://discord.gg/jeGPaMkDbU")),
+                ),
+        )
 }
 
 impl Settings {
@@ -585,6 +667,7 @@ impl Render for Settings {
                     cx,
                 ))
                 .child(self.storage.clone()),
+            Section::About => about(cx),
         };
         let dirty = self.draft != self.saved;
         if self.was_dirty && !dirty {
