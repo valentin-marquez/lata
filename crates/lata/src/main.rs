@@ -9,6 +9,7 @@ mod game;
 mod instance;
 mod library;
 mod link;
+mod news;
 mod pack;
 mod runtime;
 mod screenshots;
@@ -118,7 +119,12 @@ fn open(mut incoming: tokio::sync::mpsc::UnboundedReceiver<link::Incoming>, cx: 
         .detach();
         // Once the window is up: a dialog needs its root view in place.
         let first = shell.downgrade();
-        window.defer(cx, move |window, cx| Shell::welcome(first, window, cx));
+        window.defer(cx, move |window, cx| {
+            Shell::welcome(first, window, cx);
+            // Here and not at the update splash: after an update it is this window, of the
+            // new lata, that says what changed.
+            news::start(window, cx);
+        });
         shell
     })
     .expect("failed to open main window");

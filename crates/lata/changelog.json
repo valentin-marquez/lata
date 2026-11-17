@@ -1,0 +1,37 @@
+[
+  {
+    "version": "0.7.0",
+    "date": "November 16, 2026",
+    "added": [
+      "Duplicate an instance from its menu, mods and settings included.",
+      "Change a mod's version: go back to an older one when the newest breaks your save.",
+      "Undo a mod update with one click.",
+      "Java mods (ZombieBuddy) can be turned on for an instance in its settings.",
+      "A heads up when a mod you use has left the Workshop.",
+      "An About section in Settings, with the lata you're running."
+    ],
+    "changed": [
+      "Game versions read like the game shows them (42.13.1) instead of Steam's build numbers, with the channel next to them: Stable or Pre-release.",
+      "Toasts got a new look, and some come with a button to act right there."
+    ],
+    "fixed": [
+      "A download checks the drive has room before it starts, not halfway through.",
+      "Downloads keep going when your network changes, like hopping from Wi-Fi to cable."
+    ]
+  },
+  {
+    "version": "0.6.0",
+    "date": "November 15, 2026",
+    "added": [
+      "The first lata you can try. Hi!",
+      "Several installs of the game side by side, each with its own game version, mods and saves.",
+      "Mods per instance: add them, turn them on or off, sort the load order, remove them.",
+      "Workshop mods and whole collections installed from a link, with the lata link browser extension.",
+      "Bring in the game you already play, worlds and mods included.",
+      "Share an instance as a pack, and open the ones your friends send.",
+      "Worlds, screenshots and live game logs for each instance.",
+      "Light and dark themes.",
+      "lata keeps itself up to date."
+    ]
+  }
+]

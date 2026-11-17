@@ -38,6 +38,9 @@ pub struct Saved {
     /// default, and a file from before the setting, mean it does.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub updates_off: bool,
+    /// The version whose "what's new" was last shown; `None` until lata runs once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub news_seen: Option<String>,
 }
 
 fn file() -> PathBuf {
@@ -384,6 +387,14 @@ fn about(cx: &App) -> Div {
                     div()
                         .flex()
                         .gap_1()
+                        .child(
+                            Button::new("news")
+                                .ghost()
+                                .cursor_pointer()
+                                .icon(IconName::WandSparkles)
+                                .label("What's new")
+                                .on_click(|_, window, cx| crate::news::open(window, cx)),
+                        )
                         .child(link(
                             "releases",
                             "Releases",
