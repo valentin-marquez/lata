@@ -1,5 +1,25 @@
 [
   {
+    "version": "0.8.0",
+    "date": "November 17, 2026",
+    "added": [
+      "lata updates itself on Windows too, the same way it does on Linux.",
+      "Change version shows only the versions that run on your instance's game, and says what the others need.",
+      "About in Settings says whether a newer lata is out, and where to report a problem or find lata's folder."
+    ],
+    "changed": [
+      "The update window has a line to read while it works, you can drag it around, and Skip for now shows up only when the download gets stuck.",
+      "On Windows, lata comes as a plain .exe: nothing to unzip.",
+      "Changing where your library lives opens right below, the drives coming in one after another.",
+      "Mod versions show the date and time where you are, not in UTC.",
+      "The logo's cross and eye have smooth edges."
+    ],
+    "fixed": [
+      "The switch for automatic updates was squeezed out of sight in Settings.",
+      "Toast icons sit centered when there are two lines."
+    ]
+  },
+  {
     "version": "0.7.0",
     "date": "November 16, 2026",
     "added": [
