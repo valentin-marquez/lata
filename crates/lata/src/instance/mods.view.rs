@@ -20,7 +20,7 @@ use super::Instance;
 use super::java;
 use super::mods::{self, Mod};
 use crate::shell::Shell;
-use crate::ui::{self, Empty, FancyButton, Loader, toast};
+use crate::ui::{self, Empty, FancyButton, toast};
 
 /// Side of a mod's picture in its row.
 const ICON: Pixels = px(40.);
@@ -1090,10 +1090,6 @@ impl Render for Mods {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let base = self.scroll.0.borrow().base_handle.clone();
         ui::smooth_scroll("mods-scroll", &base, window, cx);
-        let adding = self
-            .shell
-            .read_with(cx, |shell, _| shell.adding_mods(&self.instance.id))
-            .unwrap_or(false);
         // Still reading: the shell's bar shows it, and "No mods yet" would be a lie.
         if self.stamp.is_none() {
             return div().flex_1().into_any_element();
@@ -1110,7 +1106,6 @@ impl Render for Mods {
                 .flex_1()
                 .min_h_0()
                 .gap_2()
-                .when(adding, |this| this.child(Loader))
                 .children(self.too_new_note(cx))
                 .children(self.gone_note(cx))
                 .children(self.java_note(cx))
@@ -1196,7 +1191,6 @@ impl Render for Mods {
             .min_h_0()
             .gap_4()
             .child(self.toolbar(cx))
-            .when(adding, |this| this.child(Loader))
             .children(self.too_new_note(cx))
             .children(self.gone_note(cx))
             .children(self.java_note(cx))

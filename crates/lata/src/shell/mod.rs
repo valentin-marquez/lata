@@ -1546,6 +1546,15 @@ impl Render for Shell {
         crate::ui::smooth_scroll("sidebar-scroll", &self.sidebar_scroll, window, cx);
         // The panel on the right needs a window wide enough for it and the page.
         let discover = window.bounds().size.width >= crate::discover::MIN_WINDOW;
+        // Mods downloading into the instance on screen load under the title bar, where the
+        // Library's own loading shows, instead of in the middle of the Mods tab.
+        let adding = match self.page {
+            Page::Instance(ix) => self
+                .instances
+                .get(ix)
+                .is_some_and(|instance| self.adding_mods(&instance.id)),
+            _ => false,
+        };
         let shell = cx.entity().downgrade();
         div()
             .flex()
@@ -1596,7 +1605,7 @@ impl Render for Shell {
                             // shows; inset by the corner radius, since GPUI clips to a plain
                             // rectangle and a full-width bar cut straight through the round
                             // corners.
-                            .when(self.loading || self.link_resolving > 0, |this| {
+                            .when(self.loading || self.link_resolving > 0 || adding, |this| {
                                 this.child(
                                     div()
                                         .absolute()
