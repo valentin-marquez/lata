@@ -49,9 +49,10 @@ lata updates itself when it starts.
 
 ### Windows
 
-Unzip `lata-launcher-v*-windows-x86_64.zip` anywhere and run `lata.exe`. If SmartScreen stops it,
-choose **More info** and **Run anyway**. To have the browser extension open lata, turn on
-**Open links from the browser** in Settings > Behavior. lata tells you when there is a new version.
+Download `lata-launcher-v*-windows-x86_64.exe`, put it in a folder of your own (lata updates itself
+only where it can write) and run it. If SmartScreen stops it, choose **More info** and **Run anyway**.
+To have the browser extension open lata, turn on **Open links from the browser** in Settings >
+Behavior. lata updates itself when it starts.
 
 ### macOS (Apple silicon)
 

@@ -46,11 +46,11 @@ pub fn in_store() -> bool {
     std::env::var_os("FLATPAK_ID").is_some() || std::env::var_os("SNAP").is_some()
 }
 
-/// Where lata replaces itself. Only Linux for now: the Windows and macOS swaps (renaming a
-/// running .exe, replacing a whole .app) have never run on those systems, and an updater
-/// that breaks an install is worse than none. There lata says a newer version is out and
-/// links it.
-const SELF_INSTALL: bool = cfg!(target_os = "linux");
+/// Where lata replaces itself: Linux, and Windows (the swap renames the running .exe; run
+/// end to end on Windows 11, 2026-11-17). Not macOS yet: replacing a whole .app has never
+/// run there, and an updater that breaks an install is worse than none. There lata says a
+/// newer version is out and links it.
+const SELF_INSTALL: bool = cfg!(any(target_os = "linux", windows));
 
 /// [`installed`], when lata may replace it. Not when something else owns the install: a
 /// store, an AppImage (one read-only file, mounted while it runs), or a folder this user
@@ -256,8 +256,8 @@ pub fn swap(new: &Path, target: &Path) -> io::Result<()> {
     // two renames, and the first undone if the second fails.
     // shortcut: between the two renames nothing is at `target`; a crash right there leaves
     // the old one as `target.old`, to rename back by hand. Closing that takes an atomic
-    // exchange (renamex_np on macOS) or a helper that outlives lata; until one exists,
-    // [`SELF_INSTALL`] keeps these systems from getting here.
+    // exchange (renamex_np on macOS; Windows has no safe one for a running .exe) or a
+    // helper that outlives lata. The gap is two renames on one folder, so it stays.
     std::fs::rename(target, &old)?;
     std::fs::rename(new, target).map_err(|err| match std::fs::rename(&old, target) {
         Ok(()) => err,
