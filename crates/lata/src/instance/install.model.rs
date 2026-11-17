@@ -297,7 +297,7 @@ async fn install(
     let _ = super::build::record(
         &game,
         &zomboid::catalog::Build {
-            build,
+            build: Some(build),
             version,
             branches: vec![branch.to_owned()],
             seen: store::now(),

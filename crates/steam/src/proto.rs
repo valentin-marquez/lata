@@ -236,6 +236,8 @@ pub struct ContentManifestMetadata {
     pub depot_id: Option<u32>,
     #[prost(uint64, optional, tag = "2")]
     pub gid_manifest: Option<u64>,
+    #[prost(uint32, optional, tag = "3")]
+    pub creation_time: Option<u32>,
     #[prost(bool, optional, tag = "4")]
     pub filenames_encrypted: Option<bool>,
 }

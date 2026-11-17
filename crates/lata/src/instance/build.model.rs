@@ -26,8 +26,8 @@ pub fn read(game: &Path) -> Option<Build> {
 pub fn record(game: &Path, build: &Build) -> io::Result<()> {
     let text = serde_json::to_string_pretty(build).map_err(io::Error::other)?;
     std::fs::write(game.join(FILE), text + "\n")?;
-    if let Some(version) = &build.version {
-        remember(build.build, Some(version.clone()));
+    if let (Some(id), Some(version)) = (build.build, &build.version) {
+        remember(id, Some(version.clone()));
     }
     Ok(())
 }
@@ -79,7 +79,7 @@ pub fn version(build: u32, game: Option<&Path>) -> Option<String> {
             && let Some(version) = read_files(game)
         {
             let mut rec = found.take().unwrap_or(Build {
-                build,
+                build: Some(build),
                 version: None,
                 branches: Vec::new(),
                 seen: super::store::now(),
@@ -143,7 +143,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("lata-build-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let build = Build {
-            build: 7,
+            build: Some(7),
             version: Some("42.22.2".into()),
             branches: vec!["public".into()],
             seen: 1,

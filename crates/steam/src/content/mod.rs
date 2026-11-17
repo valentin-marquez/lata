@@ -415,6 +415,7 @@ mod tests {
             files: vec![named("f", b"abc"), named("g", b"12345"), named("f2", b"xy")],
             depot: 0,
             id: 0,
+            created: 0,
         };
         assert_eq!(need(&manifest, &dir), 7);
         std::fs::remove_dir_all(dir).unwrap();

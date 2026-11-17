@@ -23,6 +23,8 @@ const CAP: u64 = 256 << 20;
 pub struct Manifest {
     pub depot: u32,
     pub id: u64,
+    /// When Steam built it, in seconds since the epoch (0 when the manifest doesn't say).
+    pub created: u32,
     pub files: Vec<File>,
 }
 
@@ -134,6 +136,7 @@ pub fn parse(zip: &[u8], key: &Key) -> Result<Manifest> {
     Ok(Manifest {
         depot: meta.depot_id.unwrap_or(0),
         id: meta.gid_manifest.unwrap_or(0),
+        created: meta.creation_time.unwrap_or(0),
         files,
     })
 }
@@ -217,6 +220,7 @@ mod tests {
         let meta = ContentManifestMetadata {
             depot_id: Some(108600),
             gid_manifest: Some(42),
+            creation_time: Some(1_794_233_055),
             filenames_encrypted: Some(true),
         };
         let mut z = Vec::new();
@@ -239,7 +243,10 @@ mod tests {
             &key,
         );
         let manifest = parse(&zip, &key).unwrap();
-        assert_eq!((manifest.depot, manifest.id), (108600, 42));
+        assert_eq!(
+            (manifest.depot, manifest.id, manifest.created),
+            (108600, 42, 1_794_233_055)
+        );
         assert_eq!(manifest.files[0].path, "mods/Example");
         assert!(manifest.files[0].is_dir);
         assert_eq!(manifest.files[1].path, "mods/Example/mod.info");

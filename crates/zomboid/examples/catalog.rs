@@ -67,7 +67,7 @@ async fn main() -> Result<()> {
             }
         }
         let changed = catalog.record(Build {
-            build: branch.build_id,
+            build: Some(branch.build_id),
             version: version.clone(),
             branches: vec![branch.name.clone()],
             seen: now,
