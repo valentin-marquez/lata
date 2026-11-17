@@ -206,6 +206,40 @@ pub fn enter(content: gpui_kit::Div, key: &'static str) -> impl gpui_kit::IntoEl
     )
 }
 
+/// How far apart the items of a list start their entrance: short enough that the last of a
+/// few is in before the eye waits for it, long enough to read as one after another.
+pub const STAGGER: Duration = Duration::from_millis(40);
+
+/// [`enter`] for the `index`th item of a group that comes in together (drive tiles, a grid):
+/// each starts [`STAGGER`] after the one before, fading in and rising 8 px. With reduced
+/// motion it is just there.
+pub fn enter_nth<E>(
+    content: E,
+    key: impl Into<gpui_kit::ElementId>,
+    index: usize,
+    reduce: bool,
+) -> gpui_kit::AnimationElement<E>
+where
+    E: gpui_kit::IntoElement + gpui_kit::Styled + 'static,
+{
+    use gpui_kit::*;
+    let delay = STAGGER.as_secs_f32() * index as f32;
+    let length = ENTER.as_secs_f32();
+    let total = if reduce { 0.001 } else { delay + length };
+    content.with_animation(
+        key,
+        Animation::new(Duration::from_secs_f32(total)),
+        move |content, t| {
+            if reduce {
+                return content;
+            }
+            // The whole animation runs from 0 to 1; this item's own part starts at its delay.
+            let own = crate::ui::ease_out_quint(((t * total - delay) / length).clamp(0., 1.));
+            content.relative().top(px(8. * (1. - own))).opacity(own)
+        },
+    )
+}
+
 /// Toasts by what they say, each with its own icon. They talk like a friend would, the way
 /// Discord does: short, warm, a little playful, and still saying what happened and what to do.
 pub mod toast {

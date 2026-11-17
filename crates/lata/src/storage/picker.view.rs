@@ -426,10 +426,14 @@ impl Picker {
         let at = |path: &std::path::Path| drives::of(&self.drives, path).map(|d| d.mount.clone());
         let picked = self.target.as_deref().and_then(at);
         let here = at(&self.current);
+        // Where it goes comes in first, where the summary and its button were, and the drives
+        // below it one after another.
+        let reduce = cx.reduce_motion();
         let mut tiles = Vec::new();
         for (ix, drive) in self.drives.iter().enumerate() {
             let is = |mount: &Option<PathBuf>| mount.as_ref() == Some(&drive.mount);
-            tiles.push(self.tile(ix, is(&picked), is(&here), cx));
+            let tile = self.tile(ix, is(&picked), is(&here), cx);
+            tiles.push(ui::enter_nth(tile, ("drive-in", ix), ix + 1, reduce));
         }
         let (lines, ok) = self.verdict();
         let actions = self.actions(ok, cx);
@@ -488,19 +492,29 @@ impl Picker {
                     .flex()
                     .items_end()
                     .gap_4()
-                    .child(div().flex().flex_col().flex_1().min_w_0().gap_1().children(
-                        lines.into_iter().map(|(text, tone)| {
-                            div().text_xs().text_color(color(tone)).child(text)
-                        }),
-                    ))
+                    // Room for its two lines whether or not they are there: picking another
+                    // drive mustn't move the tiles below under the pointer.
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .min_h(px(36.))
+                            .justify_end()
+                            .gap_1()
+                            .children(lines.into_iter().map(|(text, tone)| {
+                                div().text_xs().text_color(color(tone)).child(text)
+                            })),
+                    )
                     .child(actions),
             );
         div()
             .flex()
             .flex_col()
             .gap_4()
+            .child(ui::enter_nth(destination, "destination-in", 0, reduce))
             .child(div().grid().grid_cols(2).gap_3().children(tiles))
-            .child(destination)
     }
 
     fn actions(&self, ok: bool, cx: &mut Context<Self>) -> Div {
@@ -588,11 +602,12 @@ impl Picker {
 impl Render for Picker {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let Some((done, total)) = self.moving {
-            self.progress(done, total, cx)
+            self.progress(done, total, cx).into_any_element()
         } else if self.choosing {
-            self.chooser(cx)
+            self.chooser(cx).into_any_element()
         } else {
-            self.summary(cx)
+            // Back from choosing (Cancel, or a move that finished) it comes in again.
+            ui::enter(self.summary(cx), "library-summary").into_any_element()
         }
     }
 }
