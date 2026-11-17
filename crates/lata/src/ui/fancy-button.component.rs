@@ -17,6 +17,7 @@ pub enum Size {
     #[default]
     Medium,
     Small,
+    Compact,
 }
 
 impl Size {
@@ -24,20 +25,21 @@ impl Size {
         match self {
             Size::Medium => px(40.),
             Size::Small => px(36.),
+            Size::Compact => px(32.),
         }
     }
 
     fn padding(self) -> Pixels {
         match self {
             Size::Medium => px(14.),
-            Size::Small => px(12.),
+            Size::Small | Size::Compact => px(12.),
         }
     }
 
     fn radius(self) -> Pixels {
         match self {
             Size::Medium => px(10.),
-            Size::Small => px(8.),
+            Size::Small | Size::Compact => px(8.),
         }
     }
 }
@@ -95,6 +97,12 @@ impl FancyButton {
 
     pub fn small(mut self) -> Self {
         self.size = Size::Small;
+        self
+    }
+
+    /// 32 px, for a button inside something already compact, like a toast.
+    pub fn compact(mut self) -> Self {
+        self.size = Size::Compact;
         self
     }
 

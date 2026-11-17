@@ -20,8 +20,7 @@ use gpui_base::{
 };
 
 use crate::{
-    ActiveTheme as _, Edges, Icon, IconName, Sizable as _, StyledExt, TITLE_BAR_HEIGHT,
-    button::Button,
+    ActiveTheme as _, Edges, Icon, IconName, StyledExt, TITLE_BAR_HEIGHT,
     styled::toast_shadow,
     v_flex,
 };
@@ -37,9 +36,8 @@ fn lata_motion() -> ToastMotion {
     ToastMotion {
         duration: NOTIFICATION_TRANSITION_DURATION,
         exit_duration: NOTIFICATION_EXIT_DURATION,
-        // A list of pills rather than Sonner's pile of same-sized cards: each sits its own
-        // height above the next (40 px + 8 px), full size, and only the newest three show.
-        collapsed_peek: px(48.),
+        // Unused: the pile is a single stack item (see `NotificationList::render`).
+        collapsed_peek: px(0.),
         expanded_gap: px(8.),
         collapsed_scale_step: 0.,
         collapsed_visible: 3,
@@ -140,7 +138,7 @@ pub struct Notification {
     placement: Option<Anchor>,
     delivery: Option<NotificationDelivery>,
     autohide: bool,
-    action_builder: Option<Rc<dyn Fn(&mut Self, &mut Window, &mut Context<Self>) -> Button>>,
+    action_builder: Option<Rc<dyn Fn(&mut Self, &mut Window, &mut Context<Self>) -> AnyElement>>,
     content_builder: Option<Rc<dyn Fn(&mut Self, &mut Window, &mut Context<Self>) -> AnyElement>>,
     on_click: Option<Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>>,
     on_close: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
@@ -359,11 +357,15 @@ impl Notification {
     /// Set the action button of the notification.
     ///
     /// When an action is set, the notification will not autohide.
-    pub fn action<F>(mut self, action: F) -> Self
+    // lata: any element, so callers pass their own button (upstream took a gpui-component `Button`).
+    pub fn action<F, E>(mut self, action: F) -> Self
     where
-        F: Fn(&mut Self, &mut Window, &mut Context<Self>) -> Button + 'static,
+        F: Fn(&mut Self, &mut Window, &mut Context<Self>) -> E + 'static,
+        E: IntoElement,
     {
-        self.action_builder = Some(Rc::new(action));
+        self.action_builder = Some(Rc::new(move |this, window, cx| {
+            action(this, window, cx).into_any_element()
+        }));
         self.autohide = false;
         self
     }
@@ -423,7 +425,7 @@ impl Render for Notification {
         let action = self
             .action_builder
             .clone()
-            .map(|builder| builder(self, window, cx).small().mr_3p5());
+            .map(|builder| builder(self, window, cx));
 
         let transition_status = self.transition_status;
         let closing = transition_status == ToastTransitionStatus::Ending;
@@ -444,47 +446,62 @@ impl Render for Notification {
             .occlude()
             .relative()
             .max_w_full()
-            .min_h(px(40.))
+            // lata: the border is the text color at low alpha, so it shows on both surfaces.
             .border_1()
-            .border_color(cx.theme().border)
+            .border_color(cx.theme().foreground.opacity(0.14))
             .bg(cx.theme().tokens.popover)
+            .items_center()
             .map(|this| {
                 if two_lines {
-                    this.rounded(cx.theme().radius_lg).items_start().py_2p5()
+                    this.rounded(px(14.))
                 } else {
-                    this.rounded_full().items_center().py_2()
+                    this.rounded_full()
                 }
             })
             .shadow(toast_shadow(1.))
-            .pl_3p5()
-            .pr_4()
-            .gap_2p5()
+            .py(px(12.))
+            .px(px(14.))
+            .gap(px(10.))
             .cursor_pointer()
             .refine_style(&self.style)
             .when_some(icon, |this, icon| {
+                // As tall as the title's line, so the icon centers on it even when the text
+                // column is taller (and the action centers against the whole column).
                 this.child(
                     div()
                         .flex_none()
-                        .when(two_lines, |this| this.pt(px(1.)))
+                        .h(px(20.))
+                        .flex()
+                        .items_center()
+                        .when(two_lines, |this| this.self_start())
                         .child(icon.size(px(18.))),
                 )
             })
             .child(
                 v_flex()
                     .min_w_0()
-                    .gap_0p5()
+                    .gap(px(2.))
                     .when_some(self.title.clone(), |this, title| {
-                        this.child(div().text_sm().font_semibold().child(title))
+                        this.child(
+                            div()
+                                .text_size(px(14.))
+                                .line_height(px(20.))
+                                .font_semibold()
+                                .child(title),
+                        )
                     })
                     .when_some(self.message.clone(), |this, message| {
                         this.child(
                             div()
-                                .text_sm()
                                 .map(|this| {
                                     if two_lines {
-                                        this.text_color(cx.theme().muted_foreground)
+                                        this.text_size(px(13.))
+                                            .line_height(px(18.))
+                                            .text_color(cx.theme().muted_foreground)
                                     } else {
-                                        this.font_medium()
+                                        this.text_size(px(14.))
+                                            .line_height(px(20.))
+                                            .font_medium()
                                     }
                                 })
                                 .child(message),
@@ -492,7 +509,10 @@ impl Render for Notification {
                     })
                     .when_some(content, |this, content| this.child(content)),
             )
-            .when_some(action, |this, action| this.child(action))
+            // 10 px gap plus 6 here: 16 px between the text and the action.
+            .when_some(action, |this, action| {
+                this.child(div().flex_none().ml(px(6.)).child(action))
+            })
             .on_click(cx.listener(move |view, event, window, cx| {
                 view.dismiss(window, cx);
                 if let Some(on_click) = &user_click {
@@ -1072,12 +1092,19 @@ impl Render for NotificationList {
                 });
             let stack = &self.stacks[stack_ix].1;
 
-            items
-                .into_iter()
-                .fold(
-                    ToastStack::new(stack_id, stack.state.clone()),
-                    |stack, (id, item)| stack.item(format!("{id:?}"), item),
-                )
+            // lata: the whole pile is ONE stack item, a plain column with 8 px between the
+            // newest three by their real heights. The stack still tracks hover (which pauses
+            // autohide) and springs its height, so the pile reflows smoothly; its own
+            // overlapping layout assumed same-sized toasts.
+            let skip = items.len().saturating_sub(3);
+            let pile = v_flex().w_full().gap(px(8.)).children(
+                items
+                    .into_iter()
+                    .skip(skip)
+                    .map(|(id, item)| div().id(format!("{id:?}")).w_full().child(item)),
+            );
+            ToastStack::new(stack_id, stack.state.clone())
+                .item("pile", pile)
                 .placement(anchor)
                 .motion(lata_motion())
                 .focus_handle(stack.focus_handle.clone())

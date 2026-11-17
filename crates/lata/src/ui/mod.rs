@@ -225,20 +225,34 @@ pub mod toast {
         Notification::error(why.to_string()).title(what)
     }
 
+    /// A toast's action: a compact accent button that runs `on_click` once and dismisses the
+    /// toast, without the click also reaching the toast's own click-to-dismiss.
+    pub fn action(
+        cx: &mut gpui_kit::Context<Notification>,
+        id: &'static str,
+        label: impl Into<SharedString>,
+        on_click: impl Fn(&mut gpui_kit::Window, &mut gpui_kit::App) + 'static,
+    ) -> gpui_kit::AnyElement {
+        use gpui_kit::*;
+        let toast = cx.entity();
+        super::FancyButton::new(id, label)
+            .compact()
+            .on_click(move |_, window, cx| {
+                cx.stop_propagation();
+                on_click(window, cx);
+                toast.update(cx, |toast, cx| toast.dismiss(window, cx));
+            })
+            .into_any_element()
+    }
+
     /// Play was pressed with Steam closed: says so, with a button that opens it.
     pub fn steam_closed() -> Notification {
-        use gpui_kit::component::button::Button;
-        use gpui_kit::*;
         Notification::warning("Wake it up, then hit Play again")
             .title("Oops! Steam is taking a nap")
             .action(|_, _, cx| {
-                Button::new("open-steam")
-                    .cursor_pointer()
-                    .label("Open Steam")
-                    .on_click(cx.listener(|toast, _, window, cx| {
-                        cx.open_url("steam://open/main");
-                        toast.dismiss(window, cx);
-                    }))
+                action(cx, "open-steam", "Open Steam", |_, cx| {
+                    cx.open_url("steam://open/main")
+                })
             })
             // A toast with a button stays by default; this one is only a reminder.
             .autohide(true)
@@ -249,23 +263,16 @@ pub mod toast {
     pub fn update(
         title: String,
         text: &'static str,
-        action: SharedString,
+        label: SharedString,
         shell: gpui_kit::WeakEntity<crate::shell::Shell>,
     ) -> Notification {
-        use gpui_kit::component::button::{Button, ButtonVariants};
-        use gpui_kit::*;
         Notification::info(text)
             .title(title)
             .action(move |_, _, cx| {
                 let shell = shell.clone();
-                Button::new("update")
-                    .ghost()
-                    .cursor_pointer()
-                    .label(action.clone())
-                    .on_click(cx.listener(move |toast, _, window, cx| {
-                        crate::shell::Shell::update_lata(shell.clone(), window, cx);
-                        toast.dismiss(window, cx);
-                    }))
+                action(cx, "update", label.clone(), move |window, cx| {
+                    crate::shell::Shell::update_lata(shell.clone(), window, cx)
+                })
             })
             // The title bar keeps the button; the toast is only the news.
             .autohide(true)

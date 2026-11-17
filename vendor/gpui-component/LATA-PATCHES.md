@@ -30,3 +30,9 @@ changes on a fresh copy when upgrading.
   popover's own, so a `dropdown_menu` trigger can fill its row like a select.
 - `src/root.rs`: the toast layer paints deferred at priority 300, above dialogs (10 and up),
   menus (100) and tooltips (200): a toast is always on top, even one raised from a dialog.
+- `src/notification.rs`: toast layout redone: 18 px icon aligned with the 14/20 title, 13/18 muted
+  detail, 12/14 px padding, a low-alpha foreground border, radius 14 px for two lines. `action`
+  takes any element (upstream: a `Button`), vertically centered and never shrinking. The newest
+  three toasts are one column inside a single `ToastStack` item with 8 px between them by real
+  height (the stack's own layout assumed fixed-height toasts); the stack still springs its
+  height and tracks hover. Width is capped at the window less 32 px.
