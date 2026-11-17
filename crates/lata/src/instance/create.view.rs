@@ -620,7 +620,9 @@ fn option(
                 .bg(theme.background)
                 .border_1()
                 .border_color(theme.border)
-                .child(Glyph::new(icon).size_5()),
+                // Muted like every other icon tile (the rail's, a mod's placeholder): the title
+                // carries the weight, not the glyph.
+                .child(Glyph::new(icon).size_5().text_color(theme.muted_foreground)),
         )
         .child(
             div()
