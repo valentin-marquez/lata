@@ -807,8 +807,12 @@ fn land(instance: &Instance, item: &steam::workshop::Item, staging: &Path) -> io
     // A folder belongs to the item that brought it last. Another item with a folder of the
     // same name just replaced it, so the first one no longer owns what is there: keeping it
     // listed would let, say, an item with a `ZombieBuddy` folder pass for the Java loader.
+    // Compared without case: on Windows and macOS `zombiebuddy` lands on top of `ZombieBuddy`,
+    // and two names that differ only in case must not both count as owners anywhere.
+    let lower: Vec<String> = folders.iter().map(|f| f.to_lowercase()).collect();
     for pin in pins.items.iter_mut().filter(|pin| pin.id != item.id) {
-        pin.folders.retain(|folder| !folders.contains(folder));
+        pin.folders
+            .retain(|folder| !lower.contains(&folder.to_lowercase()));
     }
     // Folders the new version no longer has would stay behind as mods of no item.
     for pin in pins.items.iter().filter(|pin| pin.id == item.id) {
@@ -1527,6 +1531,15 @@ mod tests {
             !super::super::java::on(&instance),
             "a stranger's jar is never hooked"
         );
+
+        // The same with a name that differs only in case, which is the same folder on
+        // Windows and macOS.
+        bring(loader, "the real one");
+        let staging = dir.join(".incoming/998");
+        put(&dir, ".incoming/998/mods/zombiebuddy/42/mod.info", "id=zb");
+        land(&instance, &item(998), &staging).unwrap();
+        assert!(folders(loader).is_empty());
+        assert!(!super::super::java::on(&instance));
 
         // The real item again (an update, or installed again) takes the folder back.
         bring(loader, "the real one");
