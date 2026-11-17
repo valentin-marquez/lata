@@ -89,6 +89,8 @@ pub struct Mods {
     mods: Vec<Mod>,
     /// Names of the mods made for a newer game than the instance runs, read with `mods`.
     too_new: Vec<String>,
+    /// Whether the last update can be undone ([`mods::undo`] has something).
+    undo: bool,
     /// What [`mods::stamp`] said when `mods` was read; the same stamp means nothing new.
     /// `None` until the first read is in.
     stamp: Option<mods::Stamp>,
@@ -132,6 +134,7 @@ impl Mods {
             stale: false,
             mods: Vec::new(),
             too_new: Vec::new(),
+            undo: false,
             instance,
             search,
             sort: Sort::Name,
@@ -187,17 +190,20 @@ impl Mods {
             if let Some(shell) = &first {
                 let _ = shell.update(cx, |shell, cx| shell.set_loading(true, cx));
             }
-            let found =
-                crate::runtime::blocking(move || (mods::list(&instance), mods::too_new(&instance)))
-                    .await;
+            let found = crate::runtime::blocking(move || {
+                let undo = !mods::undo(&instance).is_empty();
+                (mods::list(&instance), mods::too_new(&instance), undo)
+            })
+            .await;
             if let Some(shell) = &first {
                 let _ = shell.update(cx, |shell, cx| shell.set_loading(false, cx));
             }
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;
-                if let Ok((found, too_new)) = found {
+                if let Ok((found, too_new, undo)) = found {
                     this.mods = found;
                     this.too_new = too_new;
+                    this.undo = undo;
                     this.stamp = Some(stamp);
                     // A mod that is gone can't stay checked.
                     this.selected
@@ -212,9 +218,10 @@ impl Mods {
         .detach();
     }
 
-    /// The Workshop item of `item` when it has a newer version than the one installed.
+    /// The Workshop item of `item` when it has a newer version than the one installed. One
+    /// kept at a version on purpose has no update to offer.
     fn update_of(&self, item: &Mod) -> Option<u64> {
-        let id = item.workshop?;
+        let id = item.workshop.filter(|_| !item.held)?;
         let newest = *self.latest.get(&id)?;
         (Some(newest) != item.manifest).then_some(id)
     }
@@ -231,6 +238,18 @@ impl Mods {
             let _ = shell.update(cx, |shell, cx| {
                 shell.update_mods(instance, items, handle, cx)
             });
+        });
+    }
+
+    /// Puts back the versions the last update replaced, through the download manager.
+    fn undo(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let (instance, shell, handle) = (
+            self.instance.clone(),
+            self.shell.clone(),
+            window.window_handle(),
+        );
+        cx.defer(move |cx| {
+            let _ = shell.update(cx, |shell, cx| shell.undo_mods(instance, handle, cx));
         });
     }
 
@@ -409,6 +428,18 @@ impl Mods {
                     .child(div().flex_1())
                     // Always there, saying where the check for updates stands, so its spot
                     // doesn't appear out of nowhere when Steam answers.
+                    .when(self.undo, |this| {
+                        this.child(
+                            Button::new("mods-undo")
+                                .ghost()
+                                .h(CONTROL)
+                                .cursor_pointer()
+                                .icon(Icon::empty().path("icons/undo-2.svg"))
+                                .label("Undo update")
+                                .tooltip("Put back the versions from before the last update")
+                                .on_click(cx.listener(|this, _, window, cx| this.undo(window, cx))),
+                        )
+                    })
                     .child(self.updates(outdated, cx))
                     .child(
                         FancyButton::new("mod-add", "Add mod")
@@ -664,6 +695,24 @@ impl Mods {
         let (id, folder, pick) = (item.id.clone(), item.folder.clone(), item.folder.clone());
         let (dir, mod_id, workshop) = (item.dir.clone(), item.id.clone(), item.workshop);
         let update = self.update_of(item);
+        let (held, installed) = (item.held, item.manifest);
+        let (title, instance, shell) = (
+            SharedString::from(item.name.clone()),
+            self.instance.clone(),
+            self.shell.clone(),
+        );
+        let versions = move |window: &mut Window, cx: &mut App| {
+            if let Some(workshop) = workshop {
+                super::versions::open(
+                    instance.clone(),
+                    (workshop, title.clone(), installed),
+                    shell.clone(),
+                    window,
+                    cx,
+                );
+            }
+        };
+        let held_versions = versions.clone();
         div()
             // A uniform list doesn't stretch its rows like a flex column did.
             .w_full()
@@ -721,6 +770,17 @@ impl Mods {
                                 })),
                         )
                     })
+                    // Kept at an older version on purpose: says so where its update would be.
+                    .when(held, |this| {
+                        this.child(
+                            Button::new(key("held"))
+                                .ghost()
+                                .cursor_pointer()
+                                .icon(Icon::empty().path("icons/history.svg"))
+                                .tooltip("Staying on an older version. Click to change it")
+                                .on_click(move |_, window, cx| held_versions(window, cx)),
+                        )
+                    })
                     .child(
                         Switch::new(key("on"))
                             .cursor_pointer()
@@ -746,6 +806,7 @@ impl Mods {
                             .icon(IconName::EllipsisVertical)
                             .dropdown_menu(move |menu, _, _| {
                                 let (dir, mod_id) = (dir.clone(), mod_id.clone());
+                                let versions = versions.clone();
                                 menu.item(
                                     PopupMenuItem::new("Open folder")
                                         .icon(IconName::FolderOpen)
@@ -753,6 +814,11 @@ impl Mods {
                                 )
                                 .when_some(workshop, |menu, workshop| {
                                     menu.item(
+                                        PopupMenuItem::new("Change version")
+                                            .icon(Icon::empty().path("icons/history.svg"))
+                                            .on_click(move |_, window, cx| versions(window, cx)),
+                                    )
+                                    .item(
                                         PopupMenuItem::new("Workshop page")
                                             .icon(IconName::ExternalLink)
                                             .on_click(move |_, _, cx| {

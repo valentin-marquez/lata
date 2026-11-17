@@ -93,6 +93,45 @@ pub async fn details(client: &mut Client, ids: &[u64]) -> Result<Vec<Item>> {
         .collect())
 }
 
+/// One version an item's author published.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Change {
+    /// When it was published, in seconds since the epoch.
+    pub date: u64,
+    /// The author's note for it; often empty.
+    pub note: String,
+    pub manifest: u64,
+}
+
+/// How many versions to ask for; mods that update weekly pass a hundred in two years.
+const HISTORY: u32 = 100;
+
+/// The versions of item `id`, newest first (the first one is what [`details`] calls its
+/// current manifest). Steam keeps serving the old ones: `manifest` of any of them downloads.
+pub async fn history(client: &mut Client, id: u64) -> Result<Vec<Change>> {
+    let request = crate::proto::CPublishedFileGetChangeHistoryRequest {
+        publishedfileid: Some(id),
+        startindex: None,
+        count: Some(HISTORY),
+    };
+    let reply: crate::proto::CPublishedFileGetChangeHistoryResponse = client
+        .call("PublishedFile.GetChangeHistory", &request)
+        .await?;
+    let mut changes: Vec<Change> = reply
+        .changes
+        .into_iter()
+        // An entry without a manifest is a text-only edit of the page, not a version.
+        .filter(|c| c.manifest_id() != 0)
+        .map(|c| Change {
+            date: u64::from(c.timestamp()),
+            note: c.change_description().trim().to_owned(),
+            manifest: c.manifest_id(),
+        })
+        .collect();
+    changes.sort_by_key(|c| std::cmp::Reverse(c.date));
+    Ok(changes)
+}
+
 /// `EPublishedFileQueryType::RankedByTrend`.
 const BY_TREND: u32 = 3;
 

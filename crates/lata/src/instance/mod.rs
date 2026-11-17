@@ -40,6 +40,8 @@ pub mod picture;
 pub mod settings;
 #[path = "store.model.rs"]
 pub mod store;
+#[path = "versions.view.rs"]
+pub mod versions;
 #[path = "worlds.model.rs"]
 pub mod worlds;
 #[path = "worlds.view.rs"]

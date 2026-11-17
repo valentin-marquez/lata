@@ -194,3 +194,35 @@ async fn reads_the_news_and_the_trending_mods() {
             .all(|m| m.app == PROJECT_ZOMBOID && !m.title.is_empty() && m.manifest != 0)
     );
 }
+
+/// An item's versions come newest first, the first one being its current manifest, and an old
+/// one still downloads (what a rollback relies on). 3833349401 has many versions.
+#[tokio::test]
+#[ignore = "needs network access to Steam"]
+async fn lists_a_mods_versions_and_downloads_an_old_one() {
+    const UPDATED_OFTEN: u64 = 3833349401;
+    let http = steam::http();
+    let mut client = steam::Client::anonymous(&http)
+        .await
+        .expect("anonymous logon");
+    let item = steam::workshop::details(&mut client, &[UPDATED_OFTEN])
+        .await
+        .expect("details")
+        .remove(0);
+    let history = steam::workshop::history(&mut client, UPDATED_OFTEN)
+        .await
+        .expect("history");
+    assert!(history.len() > 1, "{history:?}");
+    assert_eq!(history[0].manifest, item.manifest);
+    assert!(history.windows(2).all(|pair| pair[0].date >= pair[1].date));
+
+    let old = steam::workshop::Item {
+        manifest: history.last().expect("an old version").manifest,
+        ..item
+    };
+    let dir = std::env::temp_dir().join(format!("lata-live-old-{}", std::process::id()));
+    steam::workshop::download(&mut client, &http, &old, &dir, |_| {})
+        .await
+        .expect("the oldest version still downloads");
+    std::fs::remove_dir_all(dir).expect("clean up");
+}

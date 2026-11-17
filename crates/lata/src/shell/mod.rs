@@ -555,7 +555,7 @@ impl Shell {
         window: AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        self.add_mods(instance, vec![item], None, false, None, window, cx);
+        self.add_mods(instance, vec![item], None, Why::Add, None, window, cx);
     }
 
     /// Downloads the current version of Workshop items `items` that `instance` already has.
@@ -566,13 +566,60 @@ impl Shell {
         window: AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        self.add_mods(instance, items, None, true, None, window, cx);
+        // What they are at now is what "Undo" goes back to.
+        let _ = instance::mods::remember(&instance, &items);
+        self.add_mods(instance, items, None, Why::Update, None, window, cx);
+    }
+
+    /// Moves installed Workshop items to the versions in `exact` (item, manifest). `hold`
+    /// keeps them there when updates come; picking the newest version lets them update again.
+    pub fn mod_versions(
+        &mut self,
+        instance: Instance,
+        exact: Vec<(u64, u64)>,
+        hold: bool,
+        window: AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) {
+        let items = exact.iter().map(|(id, _)| *id).collect();
+        let wanted = crate::pack::Wanted {
+            exact,
+            active: None,
+        };
+        self.add_mods(
+            instance,
+            items,
+            None,
+            Why::Version { hold },
+            Some(wanted),
+            window,
+            cx,
+        );
+    }
+
+    /// Puts back the versions the last mod update replaced, all at once.
+    pub fn undo_mods(
+        &mut self,
+        instance: Instance,
+        window: AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) {
+        let exact = instance::mods::undo(&instance);
+        if exact.is_empty() {
+            return;
+        }
+        let items = exact.iter().map(|(id, _)| *id).collect();
+        let wanted = crate::pack::Wanted {
+            exact,
+            active: None,
+        };
+        self.add_mods(instance, items, None, Why::Undo, Some(wanted), window, cx);
     }
 
     /// Downloads Workshop items `items` into `instance` as one entry of the download manager.
-    /// `collection` names where they came from, for the note at the end; `update` says they
-    /// are already installed and this brings their current version. `pack` comes with the
-    /// items of a `.lata`: their versions, and the mods it has on.
+    /// `collection` names where they came from, for the note at the end; `why` says what the
+    /// download is for. `pack` gives the versions to bring (a `.lata`'s, or the ones picked)
+    /// and, for a pack, the mods it has on.
     #[expect(
         clippy::too_many_arguments,
         reason = "one call per kind of mod download"
@@ -582,7 +629,7 @@ impl Shell {
         instance: Instance,
         items: Vec<u64>,
         collection: Option<SharedString>,
-        update: bool,
+        why: Why,
         pack: Option<crate::pack::Wanted>,
         window: AnyWindowHandle,
         cx: &mut Context<Self>,
@@ -601,7 +648,8 @@ impl Shell {
             return;
         }
         let (events_tx, mut events) = tokio::sync::mpsc::unbounded_channel();
-        let (exact, active) = pack.map_or((Vec::new(), None), |p| (p.exact, Some(p.active)));
+        let (exact, active) = pack.map_or((Vec::new(), None), |p| (p.exact, p.active));
+        let picked: Vec<u64> = exact.iter().map(|(id, _)| *id).collect();
         let task = crate::runtime::spawn(async move {
             let added = instance::mods::install(
                 instance.clone(),
@@ -615,12 +663,22 @@ impl Shell {
             if let Some(active) = active {
                 instance::mods::activate(&instance, &active).map_err(|err| err.to_string())?;
             }
+            match why {
+                // Only what really came at the version asked for stays there.
+                Why::Version { hold } if added.newer.is_empty() => {
+                    instance::mods::hold(&instance, &picked, hold).map_err(|e| e.to_string())?
+                }
+                Why::Undo => instance::mods::forget(&instance),
+                _ => {}
+            }
             Ok::<_, String>(added)
         });
-        let name = match (&collection, update) {
+        let name = match (&collection, why) {
             (Some(name), _) => name.clone(),
-            (None, true) => "Mod updates".into(),
-            (None, false) => "Workshop mod".into(),
+            (None, Why::Update) => "Mod updates".into(),
+            (None, Why::Version { .. }) => "Mod version".into(),
+            (None, Why::Undo) => "Undoing the update".into(),
+            (None, Why::Add) => "Workshop mod".into(),
         };
         let download = install::Download::new(name, install::Kind::Mods, Some(task.abort_handle()));
         self.installs.insert(key.clone(), download);
@@ -645,12 +703,29 @@ impl Shell {
                 shell.changed(cx);
             });
             let note = match added {
-                Ok(Ok(added)) if update => crate::ui::toast::done(match added.with.len() {
-                    0 => format!("{} is up to date", added.title),
-                    many => format!("Fresh! {} mods are up to date", many + 1),
-                }),
-                Ok(Err(why)) if update => {
-                    crate::ui::toast::failed_because("That update didn't make it", why)
+                Ok(Ok(added)) if why == Why::Update => {
+                    crate::ui::toast::done(match added.with.len() {
+                        0 => format!("{} is up to date", added.title),
+                        many => format!("Fresh! {} mods are up to date", many + 1),
+                    })
+                }
+                Ok(Err(reason)) if why == Why::Update => {
+                    crate::ui::toast::failed_because("That update didn't make it", reason)
+                }
+                Ok(Ok(added)) if why != Why::Add && !added.newer.is_empty() => {
+                    crate::ui::toast::heads_up(
+                        "Steam no longer has that version",
+                        format!("Still on the newest: {}", added.newer.join(", ")),
+                    )
+                }
+                Ok(Ok(added)) if matches!(why, Why::Version { .. }) => crate::ui::toast::done(
+                    format!("Done! {} is on the version you picked", added.title),
+                ),
+                Ok(Ok(_)) if why == Why::Undo => {
+                    crate::ui::toast::done("Rewound! Your mods are back to before the update")
+                }
+                Ok(Err(reason)) if why != Why::Add => {
+                    crate::ui::toast::failed_because("That version didn't make it", reason)
                 }
                 Ok(Ok(added)) if !added.newer.is_empty() => crate::ui::toast::heads_up(
                     "Some mods came at a newer version",
@@ -669,7 +744,9 @@ impl Shell {
                         format!("{} is in, with the {many} mods it needs", added.title)
                     }
                 }),
-                Ok(Err(why)) => crate::ui::toast::failed_because("That mod didn't make it", why),
+                Ok(Err(reason)) => {
+                    crate::ui::toast::failed_because("That mod didn't make it", reason)
+                }
                 // Cancelled from the download manager: nothing to say.
                 Err(_) => return,
             };
@@ -1319,7 +1396,7 @@ impl Shell {
                             instance.clone(),
                             items,
                             Some(name),
-                            false,
+                            Why::Add,
                             Some(wanted),
                             handle,
                             cx,
@@ -1374,7 +1451,7 @@ impl Shell {
                             created.clone(),
                             items,
                             Some(collection),
-                            false,
+                            Why::Add,
                             None,
                             handle,
                             cx,
@@ -1423,6 +1500,20 @@ fn notify(cx: &mut App, toast: impl FnOnce() -> crate::ui::toast::Notification) 
         use gpui_kit::component::WindowExt;
         window.push_notification(toast(), cx);
     });
+}
+
+/// What a Workshop download is for, which decides what happens around it and the note it ends
+/// with.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Why {
+    /// New items for the instance.
+    Add,
+    /// Installed items, brought to their current version.
+    Update,
+    /// Installed items, moved to a version the user picked; `hold` keeps them there.
+    Version { hold: bool },
+    /// The versions the last update replaced, put back.
+    Undo,
 }
 
 /// The download manager's key for Workshop item `item` going into instance `instance`.

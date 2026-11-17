@@ -152,11 +152,12 @@ pub struct Settings {
     pub memory_gb: Option<u32>,
 }
 
-/// What a pack's Workshop download needs besides the items: the version of each, and the
-/// mods to have on once they are down (an install turns on everything it brings).
+/// What a Workshop download at chosen versions needs besides the items: the version of each,
+/// and for a pack the mods to have on once they are down (an install turns on everything it
+/// brings). Without `active`, what is on stays as it was.
 pub struct Wanted {
     pub exact: Vec<(u64, u64)>,
-    pub active: Active,
+    pub active: Option<Active>,
 }
 
 impl Index {
@@ -169,10 +170,10 @@ impl Index {
                 .iter()
                 .map(|pin| (pin.id, pin.manifest))
                 .collect(),
-            active: Active {
+            active: Some(Active {
                 mods: self.mods.clone(),
                 maps: self.maps.clone(),
-            },
+            }),
         };
         (ids, wanted)
     }

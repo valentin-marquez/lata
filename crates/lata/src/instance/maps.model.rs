@@ -230,6 +230,7 @@ mod tests {
             version: None,
             workshop: None,
             manifest: None,
+            held: false,
             icon: None,
             requires: Vec::new(),
             load_after: Vec::new(),

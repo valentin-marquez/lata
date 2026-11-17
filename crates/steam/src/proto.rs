@@ -245,6 +245,34 @@ pub struct ContentManifestMetadata {
 // Workshop
 
 #[derive(Clone, PartialEq, Message)]
+pub struct CPublishedFileGetChangeHistoryRequest {
+    #[prost(fixed64, optional, tag = "1")]
+    pub publishedfileid: Option<u64>,
+    #[prost(uint32, optional, tag = "3")]
+    pub startindex: Option<u32>,
+    #[prost(uint32, optional, tag = "4")]
+    pub count: Option<u32>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct CPublishedFileGetChangeHistoryResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub changes: Vec<PublishedFileChangeLog>,
+    #[prost(uint32, optional, tag = "2")]
+    pub total: Option<u32>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct PublishedFileChangeLog {
+    #[prost(uint32, optional, tag = "1")]
+    pub timestamp: Option<u32>,
+    #[prost(string, optional, tag = "2")]
+    pub change_description: Option<String>,
+    #[prost(fixed64, optional, tag = "7")]
+    pub manifest_id: Option<u64>,
+}
+
+#[derive(Clone, PartialEq, Message)]
 pub struct CPublishedFileGetDetailsRequest {
     #[prost(fixed64, repeated, packed = "false", tag = "1")]
     pub publishedfileids: Vec<u64>,

@@ -99,6 +99,8 @@ pub struct Mod {
     pub workshop: Option<u64>,
     /// The manifest of that item it was downloaded at.
     pub manifest: Option<u64>,
+    /// Kept at that version on purpose: updates pass it by ([`hold`]).
+    pub held: bool,
     /// `icon=` (or the first `poster=`) of its `mod.info`, when the file exists.
     pub icon: Option<PathBuf>,
     /// Ids of the mods it needs.
@@ -329,6 +331,7 @@ pub fn list(instance: &Instance) -> Vec<Mod> {
                 description: info.description,
                 workshop: pin.map(|pin| pin.id),
                 manifest: pin.map(|pin| pin.manifest),
+                held: pin.is_some_and(|pin| pin.held),
                 dir: entry.path(),
                 version,
                 folder,
@@ -533,6 +536,9 @@ pub struct Pin {
     pub title: String,
     /// The folders under `zomboid/mods/` that came from it.
     pub folders: Vec<String>,
+    /// The user picked this version: updates leave the item alone until they pick the newest.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub held: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -556,6 +562,57 @@ fn read_pins(instance: &Instance) -> Pins {
 fn write_pins(instance: &Instance, pins: &Pins) -> io::Result<()> {
     let text = serde_json::to_string_pretty(pins).map_err(io::Error::other)?;
     std::fs::write(instance.dir.join("mods.json"), text)
+}
+
+/// Keeps Workshop items `ids` at the version they are on (`on`), or lets updates reach them
+/// again. A mod rolled back because its newest version broke would otherwise come right back
+/// with the next "Update all".
+pub fn hold(instance: &Instance, ids: &[u64], on: bool) -> io::Result<()> {
+    let mut pins = read_pins(instance);
+    for pin in pins.items.iter_mut().filter(|pin| ids.contains(&pin.id)) {
+        pin.held = on;
+    }
+    write_pins(instance, &pins)
+}
+
+/// The versions the last update replaced, to go back to all of them at once: breakage
+/// usually comes from what changed together, not from one mod.
+const UNDO: &str = "mods.undo.json";
+
+/// Before updating `ids`: remembers the version each one is at, replacing what an earlier
+/// update left. Only versions are kept, not files; Steam still serves old ones.
+pub fn remember(instance: &Instance, ids: &[u64]) -> io::Result<()> {
+    let before: Vec<(u64, u64)> = read_pins(instance)
+        .items
+        .iter()
+        .filter(|pin| ids.contains(&pin.id))
+        .map(|pin| (pin.id, pin.manifest))
+        .collect();
+    let text = serde_json::to_string(&before).map_err(io::Error::other)?;
+    std::fs::write(instance.dir.join(UNDO), text)
+}
+
+/// What [`remember`] kept that still differs from what is installed: each item with the
+/// version to go back to. Empty when there is nothing to undo.
+pub fn undo(instance: &Instance) -> Vec<(u64, u64)> {
+    let before: Vec<(u64, u64)> = std::fs::read_to_string(instance.dir.join(UNDO))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default();
+    let pins = read_pins(instance);
+    before
+        .into_iter()
+        .filter(|(id, manifest)| {
+            pins.items
+                .iter()
+                .any(|pin| pin.id == *id && pin.manifest != *manifest)
+        })
+        .collect()
+}
+
+/// Drops what [`remember`] kept, once it has been undone.
+pub fn forget(instance: &Instance) {
+    let _ = std::fs::remove_file(instance.dir.join(UNDO));
 }
 
 /// Moves the mod folders of a downloaded Workshop item (`<item>/mods/<folder>`) into the
@@ -747,6 +804,7 @@ fn land(instance: &Instance, item: &steam::workshop::Item, staging: &Path) -> io
         manifest: item.manifest,
         title: item.title.clone(),
         folders: folders.clone(),
+        held: false,
     });
     write_pins(instance, &pins)?;
     // On as soon as it lands, so a cancelled install leaves what it got usable. A mod whose
@@ -1175,6 +1233,7 @@ mod tests {
             version: None,
             workshop: None,
             manifest: None,
+            held: false,
             icon: None,
             requires: list(requires),
             load_after: list(after),
@@ -1393,6 +1452,46 @@ mod tests {
     }
 
     #[test]
+    fn holds_a_version_and_undoes_an_update() {
+        let dir = temp("undo");
+        let instance = instance(&dir);
+        let pin = |id, manifest| Pin {
+            id,
+            manifest,
+            title: format!("mod {id}"),
+            folders: Vec::new(),
+            held: false,
+        };
+        let items = vec![pin(1, 10), pin(2, 20), pin(3, 30)];
+        write_pins(&instance, &Pins { items }).unwrap();
+        assert!(undo(&instance).is_empty(), "nothing was updated yet");
+
+        // An update of 1 and 2 is about to run; then 1 really moves and 2 stays.
+        remember(&instance, &[1, 2]).unwrap();
+        assert!(undo(&instance).is_empty(), "nothing changed yet");
+        let mut pins = read_pins(&instance);
+        pins.items[0].manifest = 11;
+        write_pins(&instance, &pins).unwrap();
+        assert_eq!(undo(&instance), [(1, 10)]);
+        forget(&instance);
+        assert!(undo(&instance).is_empty());
+
+        hold(&instance, &[2], true).unwrap();
+        let held: Vec<bool> = pins_of(&instance).iter().map(|p| p.held).collect();
+        assert_eq!(held, [false, true, false]);
+        // Packs and older latas read the file too: an item that isn't held has no extra key.
+        let text = std::fs::read_to_string(instance.dir.join("mods.json")).unwrap();
+        assert_eq!(text.matches("held").count(), 1);
+        hold(&instance, &[2], false).unwrap();
+        assert!(pins_of(&instance).iter().all(|p| !p.held));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn pins_of(instance: &Instance) -> Vec<Pin> {
+        read_pins(instance).items
+    }
+
+    #[test]
     fn lists_enables_and_removes_mods() {
         let dir = temp("list");
         let instance = instance(&dir);
@@ -1524,6 +1623,71 @@ mod tests {
     }
 
     /// Downloads a real, small Build 42 mod from Steam and finds it listed and on.
+    /// What "Change version" and "Undo update" do end to end: an older version of an item
+    /// replaces the installed one, the mod stays off if it was off, and the update is undone.
+    #[test]
+    #[ignore = "needs network access to Steam"]
+    fn goes_back_to_an_older_version_of_a_mod() {
+        // Updated often, so it has old versions to go back to.
+        const ITEM: u64 = 3833349401;
+        let dir = temp("rollback");
+        let instance = instance(&dir);
+        put(&dir, "zomboid/version.txt", "42.22.2 3d39148846\n");
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let get = |exact: Vec<(u64, u64)>| {
+            runtime
+                .block_on(install(instance.clone(), vec![ITEM], exact, |_, _, _| {}))
+                .expect("the item installs")
+        };
+        let history = runtime
+            .block_on(async {
+                let http = steam::http();
+                let mut client = steam::Client::anonymous(&http).await?;
+                steam::workshop::history(&mut client, ITEM).await
+            })
+            .expect("its versions");
+        let (newest, older) = (history[0].manifest, history[1].manifest);
+        // It may bring items it requires: its own pin, wherever it is in the list.
+        let at = || {
+            let pins = read_pins(&instance).items;
+            pins.iter().find(|pin| pin.id == ITEM).unwrap().manifest
+        };
+
+        get(Vec::new());
+        assert_eq!(at(), newest);
+        // Off before the change: it has to stay off after.
+        let first = list(&instance)
+            .into_iter()
+            .find(|m| m.workshop == Some(ITEM))
+            .unwrap();
+        set_enabled(&instance, &first.id, false).unwrap();
+
+        // The update button would now `remember`; here the version is picked by hand.
+        let back = get(vec![(ITEM, older)]);
+        assert!(back.newer.is_empty(), "Steam still serves it: {back:?}");
+        assert_eq!(at(), older);
+        assert!(
+            !list(&instance)
+                .iter()
+                .any(|m| m.id == first.id && m.enabled)
+        );
+        hold(&instance, &[ITEM], true).unwrap();
+        let mine = |m: &&Mod| m.workshop == Some(ITEM);
+        assert!(list(&instance).iter().filter(mine).all(|m| m.held));
+
+        // Updating again and undoing it lands on `older` once more.
+        remember(&instance, &[ITEM]).unwrap();
+        get(Vec::new());
+        assert_eq!(undo(&instance), [(ITEM, older)]);
+        get(undo(&instance));
+        assert_eq!(at(), older);
+        assert!(undo(&instance).is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     #[ignore = "needs network access to Steam"]
     fn installs_a_workshop_mod_into_an_instance() {
