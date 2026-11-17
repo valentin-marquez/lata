@@ -757,13 +757,17 @@ const BATCH: usize = 50;
 /// is about overlapping the per-item round trips with the downloads, not about bandwidth.
 const PARALLEL_ITEMS: usize = 4;
 
+/// What [`latest`] gives for an item the Workshop no longer has (removed, or hidden).
+pub const GONE: u64 = 0;
+
 /// What a download task ended with.
 fn joined(done: Result<Result<(), String>, tokio::task::JoinError>) -> Result<(), String> {
     done.map_err(|err| err.to_string())?
 }
 
 /// The current manifest of every Workshop item installed in the instance, by item id. A mod is
-/// out of date when its [`Mod::manifest`] isn't this one.
+/// out of date when its [`Mod::manifest`] isn't this one; 0 means the Workshop no longer has
+/// the item ([`GONE`]).
 pub async fn latest(instance: &Instance) -> Result<std::collections::HashMap<u64, u64>, String> {
     let ids: Vec<u64> = read_pins(instance).items.iter().map(|pin| pin.id).collect();
     crate::runtime::spawn(async move {
@@ -772,10 +776,10 @@ pub async fn latest(instance: &Instance) -> Result<std::collections::HashMap<u64
         let mut latest = std::collections::HashMap::new();
         for batch in ids.chunks(BATCH) {
             for item in steam::workshop::details(&mut client, batch).await? {
-                // Gone or private items answer with no manifest: nothing to move to.
-                if item.manifest != 0 {
-                    latest.insert(item.id, item.manifest);
-                }
+                // Gone or private items answer with no manifest: kept as 0, which says Steam
+                // was asked and doesn't have it. An item missing here just wasn't asked about
+                // (installed after this check).
+                latest.insert(item.id, item.manifest);
             }
         }
         Ok::<_, steam::Error>(latest)

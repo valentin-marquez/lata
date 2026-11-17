@@ -223,16 +223,15 @@ impl Mods {
     fn update_of(&self, item: &Mod) -> Option<u64> {
         let id = item.workshop.filter(|_| !item.held)?;
         let newest = *self.latest.get(&id)?;
-        (Some(newest) != item.manifest).then_some(id)
+        (newest != mods::GONE && Some(newest) != item.manifest).then_some(id)
     }
 
-    /// Whether the Workshop no longer has `item`'s source: Steam was asked and didn't know it
+    /// Whether the Workshop no longer has `item`'s source: Steam was asked about it and said so
     /// (removed, or hidden by its author). The copy here is then the only one lata can reach.
+    /// A mod added after the last check isn't in `latest` at all, which says nothing.
     fn gone(&self, item: &Mod) -> bool {
-        self.check == Check::Done
-            && item
-                .workshop
-                .is_some_and(|id| !self.latest.contains_key(&id))
+        item.workshop
+            .is_some_and(|id| self.latest.get(&id) == Some(&mods::GONE))
     }
 
     /// Downloads the current version of `items` through the download manager.
