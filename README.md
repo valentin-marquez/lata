@@ -1,6 +1,6 @@
 ![lata](assets/banner.jpg)
 
-[![Discord](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fdiscord.com%2Fapi%2Fv10%2Finvites%2FjeGPaMkDbU%3Fwith_counts%3Dtrue&query=%24.approximate_member_count&suffix=%20members&label=Discord&color=5865F2&logo=discord&logoColor=white)](https://discord.gg/jeGPaMkDbU)
+[![Discord](https://img.shields.io/badge/Discord-join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/jeGPaMkDbU)
 [![Downloads](https://img.shields.io/github/downloads/valentin-marquez/lata/total?label=downloads)](https://github.com/valentin-marquez/lata/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/valentin-marquez/lata/ci.yml?label=CI)](https://github.com/valentin-marquez/lata/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
@@ -60,16 +60,19 @@ Open the `.dmg` and drag **Lata** into Applications. The first time, macOS block
 System Settings > Privacy & Security and choose **Open Anyway**. lata tells you when there is a new
 version.
 
-## Code signing policy
+## Community
 
-Windows builds will be signed with free code signing provided by [SignPath.io](https://about.signpath.io/),
-certificate by [SignPath Foundation](https://signpath.org/). Only the release workflow
-(`.github/workflows/release.yml`) builds what gets signed, from a tagged commit of this repository.
+[![Join the lata Discord](https://img.shields.io/badge/Join%20the%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/jeGPaMkDbU)
 
-- Committers and reviewers: [Valentin Marquez](https://github.com/valentin-marquez)
-- Approvers: [Valentin Marquez](https://github.com/valentin-marquez)
+lata is young and is being shaped by the people who use it. On Discord you can:
 
-### Privacy
+- get help when something breaks, from the person who wrote it;
+- tell us what's missing: most of each release comes from what people ask for there;
+- hear about new versions first and share your instances and mod lists.
+
+English and Spanish both welcome.
+
+## Privacy
 
 lata only talks to Steam, to download the game and Workshop mods, sign in, and show news and
 mod pictures, and to GitHub, to check for a new version of lata. It sends no telemetry and no data
@@ -81,10 +84,6 @@ The browser extension adds an "Install in lata" button to Workshop pages.
 
 [![Chrome Web Store](https://img.shields.io/chrome-web-store/v/fopkfokkcmmhgjjdlbjjmdgkffddjbpm?label=Chrome&logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/fopkfokkcmmhgjjdlbjjmdgkffddjbpm)
 [![Firefox Add-ons](https://img.shields.io/amo/v/lata-link?label=Firefox&logo=firefoxbrowser&logoColor=white)](https://addons.mozilla.org/firefox/addon/lata-link/)
-
-## Community
-
-Questions, feedback and news are on [Discord](https://discord.gg/jeGPaMkDbU).
 
 ## Build
 
