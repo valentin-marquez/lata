@@ -132,7 +132,8 @@ pub fn open(shell: WeakEntity<crate::shell::Shell>, window: &mut Window, cx: &mu
         protocol: crate::link::protocol::enabled(),
         updates: !load().updates_off,
     };
-    let storage = cx.new(|cx| crate::storage::picker::Picker::new(shell, false, cx));
+    let newer = shell.upgrade().and_then(|shell| shell.read(cx).newer());
+    let storage = cx.new(|cx| crate::storage::picker::Picker::new(shell.clone(), false, cx));
     let view = cx.new(|_| Settings {
         storage: storage.clone(),
         section: Section::Appearance,
@@ -140,6 +141,8 @@ pub fn open(shell: WeakEntity<crate::shell::Shell>, window: &mut Window, cx: &mu
         draft: now,
         was_dirty: false,
         left_at: None,
+        shell,
+        newer,
     });
     // However the dialog closes (X, Escape, outside click), the theme goes back to the saved one.
     cx.observe_release(&view, |settings, cx| {
@@ -185,6 +188,9 @@ struct Settings {
     was_dirty: bool,
     /// When the changes stopped: the bar keeps drawing for a moment while it leaves.
     left_at: Option<Instant>,
+    shell: WeakEntity<crate::shell::Shell>,
+    /// The newer lata found when the dialog opened, and whether a restart installs it.
+    newer: Option<(String, bool)>,
 }
 
 /// The few colors of a theme preview, fixed so each card shows its own theme.
@@ -303,9 +309,12 @@ fn row(title: &'static str, line: &'static str, control: impl IntoElement, cx: &
         .justify_between()
         .gap_6()
         .child(
+            // Takes the room that is left and wraps, so a long line never squeezes the control.
             div()
                 .flex()
                 .flex_col()
+                .flex_1()
+                .min_w_0()
                 .gap_0p5()
                 .child(
                     div()
@@ -320,93 +329,171 @@ fn row(title: &'static str, line: &'static str, control: impl IntoElement, cx: &
                         .child(line),
                 ),
         )
-        .child(control)
-}
-
-/// A label over its value, like the instance settings' About facts.
-fn fact(name: &'static str, value: &'static str, cx: &App) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap_0p5()
-        .min_w_0()
-        .child(
-            div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(name),
-        )
-        .child(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::MEDIUM)
-                .truncate()
-                .child(value),
-        )
-}
-
-/// Which lata this is, so a bug report or a question can say so.
-fn about(cx: &App) -> Div {
-    let theme = cx.theme();
-    // Each link wears the mark of where it goes, so it reads as "this opens GitHub".
-    let link = |id: &'static str, label: &'static str, url: &'static str| {
-        Button::new(id)
-            .ghost()
-            .cursor_pointer()
-            .icon(Icon::empty().path(format!("icons/{id}.svg")))
-            .label(label)
-            .on_click(move |_, _, cx| cx.open_url(url))
-    };
-    div()
-        .flex()
-        .flex_col()
-        .gap_4()
-        .child(heading(
-            "About",
-            "Which lata you're running, and where to find out what's new.",
-            cx,
-        ))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap_4()
-                .p_4()
-                .rounded(theme.radius_lg)
-                .bg(theme.group_box)
-                .border_1()
-                .border_color(theme.border)
-                .child(
-                    div()
-                        .flex()
-                        .gap_8()
-                        .child(fact("App", "lata launcher", cx))
-                        .child(fact("Version", env!("CARGO_PKG_VERSION"), cx)),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .gap_1()
-                        .child(
-                            Button::new("news")
-                                .ghost()
-                                .cursor_pointer()
-                                .icon(IconName::WandSparkles)
-                                .label("What's new")
-                                .on_click(|_, window, cx| crate::news::open(window, cx)),
-                        )
-                        .child(link(
-                            "github",
-                            "Releases",
-                            "https://github.com/valentin-marquez/lata/releases",
-                        ))
-                        .child(link("discord", "Discord", crate::shell::DISCORD_INVITE)),
-                ),
-        )
+        .child(div().flex_none().child(control))
 }
 
 impl Settings {
+    /// Which lata this is and whether a newer one is out, so a bug report or a question can
+    /// say so, and where to get help.
+    fn about(&self, cx: &mut Context<Self>) -> Div {
+        let theme = cx.theme();
+        // Each link wears the mark of where it goes, so it reads as "this opens GitHub".
+        let link =
+            |id: &'static str, icon: &'static str, label: &'static str, url: &'static str| {
+                Button::new(id)
+                    .ghost()
+                    .cursor_pointer()
+                    .icon(Icon::empty().path(format!("icons/{icon}.svg")))
+                    .label(label)
+                    .on_click(move |_, _, cx| cx.open_url(url))
+            };
+        let status = match (&self.newer, self.saved.updates) {
+            (Some((version, installable)), _) => {
+                let shell = self.shell.clone();
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(format!("lata {version} is out")),
+                    )
+                    .child(
+                        FancyButton::new(
+                            "update-lata",
+                            if *installable {
+                                "Restart to update"
+                            } else {
+                                "Get it"
+                            },
+                        )
+                        .on_click(move |_, window, cx| {
+                            crate::shell::Shell::update_lata(shell.clone(), window, cx)
+                        }),
+                    )
+            }
+            (None, true) => div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .text_sm()
+                .text_color(theme.muted_foreground)
+                .child(Icon::new(IconName::CircleCheck).text_color(theme.success))
+                .child("No newer version found"),
+            (None, false) => div()
+                .text_sm()
+                .text_color(theme.muted_foreground)
+                .child("Automatic updates are off"),
+        };
+        let header = div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_4()
+            .p_4()
+            .rounded(theme.radius_lg)
+            .bg(theme.group_box)
+            .border_1()
+            .border_color(theme.border)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(img(crate::assets::LOGO).size(px(40.)))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .text_base()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("lata launcher"),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(theme.muted_foreground)
+                                    .child(concat!("Version ", env!("CARGO_PKG_VERSION"))),
+                            ),
+                    ),
+            )
+            .child(status);
+        let folder = crate::instance::store::data();
+        div()
+            .flex()
+            .flex_col()
+            .gap_5()
+            .child(heading(
+                "About",
+                "Which lata you're running, and where to get help.",
+                cx,
+            ))
+            .child(header)
+            .child(row(
+                "What's new",
+                "The notes of every version, newest first.",
+                Button::new("news")
+                    .ghost()
+                    .cursor_pointer()
+                    .icon(IconName::WandSparkles)
+                    .label("Open")
+                    .on_click(|_, window, cx| crate::news::open(window, cx)),
+                cx,
+            ))
+            .child(row(
+                "Report a problem",
+                "Tell us what broke, or ask for help.",
+                div()
+                    .flex()
+                    .gap_1()
+                    .child(link(
+                        "issues",
+                        "github",
+                        "GitHub",
+                        "https://github.com/valentin-marquez/lata/issues",
+                    ))
+                    .child(link(
+                        "discord",
+                        "discord",
+                        "Discord",
+                        crate::shell::DISCORD_INVITE,
+                    )),
+                cx,
+            ))
+            .child(row(
+                "lata's folder",
+                "Settings, logs and caches. Handy when someone asks for a log.",
+                Button::new("data-folder")
+                    .ghost()
+                    .cursor_pointer()
+                    .icon(IconName::FolderOpen)
+                    .label("Open")
+                    .on_click(move |_, _, cx| cx.open_with_system(&folder)),
+                cx,
+            ))
+            .child(row(
+                "Source code",
+                "lata is free software under the GPL-3.0.",
+                link(
+                    "source",
+                    "github",
+                    "GitHub",
+                    "https://github.com/valentin-marquez/lata",
+                ),
+                cx,
+            ))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child("lata is not affiliated with The Indie Stone or Valve."),
+            )
+    }
+
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         use gpui_kit::component::WindowExt;
         if self.draft.startup != self.saved.startup {
@@ -518,16 +605,6 @@ impl Settings {
             .p_3()
             .border_r_1()
             .border_color(theme.border)
-            .child(
-                div()
-                    .px_3()
-                    .pt_1()
-                    .pb_1()
-                    .text_xs()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.muted_foreground)
-                    .child("DISPLAY"),
-            )
             .children(Section::ALL.map(|section| {
                 crate::ui::nav_item(section.label(), section.icon(), section == self.section, cx)
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -650,7 +727,7 @@ impl Settings {
             .children(links)
             .child(row(
                 "Update lata automatically",
-                "When lata starts it downloads and installs a new version if there is one, and tells you when one comes out later. Off, it never looks.",
+                "Installs a new version when lata starts, and tells you when one comes out while it's open. Off, it never looks.",
                 updates,
                 cx,
             ))
@@ -679,7 +756,7 @@ impl Render for Settings {
                     cx,
                 ))
                 .child(self.storage.clone()),
-            Section::About => about(cx),
+            Section::About => self.about(cx),
         };
         let dirty = self.draft != self.saved;
         if self.was_dirty && !dirty {

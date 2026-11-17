@@ -178,6 +178,12 @@ impl Shell {
         });
     }
 
+    /// The newer lata found, and whether a restart would install it.
+    pub fn newer(&self) -> Option<(String, bool)> {
+        let found = self.update.as_ref()?;
+        Some((found.release.version.to_string(), found.installable))
+    }
+
     /// The label and icon of the update button in the title bar; none while there is
     /// nothing newer.
     fn update_button(&self) -> Option<(SharedString, gpui_kit::assets::IconName)> {
