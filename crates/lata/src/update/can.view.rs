@@ -15,30 +15,40 @@ use super::splash::Step;
 /// The mark's own coordinates: every layer box below is in these units.
 const MARK: (f32, f32) = (502., 512.);
 
-/// A layer of the can: its asset and its box in mark units (x, y, w, h).
+/// A layer of the can: its asset, its one color, and its box in mark units (x, y, w, h).
 struct Layer {
     path: &'static str,
+    color: u32,
     rect: (f32, f32, f32, f32),
 }
 
+/// The logo's two tones: body and face.
+const BLUE: u32 = 0x447189;
+const FACE: u32 = 0xe6edf1;
+
 const FILL: Layer = Layer {
     path: "splash/fill.svg",
+    color: FACE,
     rect: (0.135, 0., 501.729, 512.),
 };
 const BODY: Layer = Layer {
     path: "splash/body.svg",
+    color: BLUE,
     rect: (0.135, 0., 501.729, 512.),
 };
 const EYE: Layer = Layer {
     path: "splash/eye.svg",
+    color: FACE,
     rect: (363.008, 284.128, 110.318, 86.881),
 };
 const RING_OUTER: Layer = Layer {
     path: "splash/ring-outer.svg",
+    color: BLUE,
     rect: (53.366, 34.493, 392.499, 212.766),
 };
 const RING_INNER: Layer = Layer {
     path: "splash/ring-inner.svg",
+    color: BLUE,
     rect: (106.889, 63.506, 285.453, 154.739),
 };
 
@@ -213,7 +223,12 @@ pub fn can(step: &Step, size: f32, window: &mut Window, cx: &mut App) -> Div {
         top = h / 2. + (top - h / 2.) * enter_scale;
         lw *= enter_scale;
         lh *= enter_scale;
-        img(layer.path)
+        // `svg` and not `img`: an image is rasterized once at the file's own 502 px and then
+        // shrunk by the GPU without mipmaps, which leaves jagged edges; an svg is rasterized
+        // at the size it is drawn. Each layer is one color, which is all `svg` can paint.
+        svg()
+            .path(layer.path)
+            .text_color(rgb(layer.color))
             .absolute()
             .left(px(left))
             .top(px(top))
@@ -232,7 +247,10 @@ pub fn can(step: &Step, size: f32, window: &mut Window, cx: &mut App) -> Div {
         .w(px(w))
         .h(px(h))
         .opacity(enter)
-        .child(place(&FILL, 1., 1., 0.))
+        // The fill only has to show through the body's holes (lid, cross), all well inside.
+        // At full size it shares the body's outline, and the two smoothed edges stacked let
+        // a light rim show around the can; a little smaller, it never reaches the edge.
+        .child(place(&FILL, 0.97, 0.97, 0.))
         .child(place(&BODY, 1., 1., 0.))
         .child(place(&EYE, 1., 1. - 0.9 * shut, 0.))
         .child(place(
