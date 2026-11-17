@@ -31,6 +31,10 @@ struct Manifest {
     jvm_args: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     launch_args: String,
+    /// The user turned Java mods on here: the loader is hooked when the game starts
+    /// (`java`). Never set by anything that comes from outside, a pack included.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    java_mods: bool,
 }
 
 /// The app's own files (settings, account, caches): `$LATA_HOME`, else the OS data dir.
@@ -185,6 +189,7 @@ pub fn create(root: &Path, name: &str, branch: &str) -> io::Result<Instance> {
         memory_gb: None,
         jvm_args: String::new(),
         launch_args: String::new(),
+        java_mods: false,
     };
     write(&dir, &manifest)?;
     Ok(instance(id, dir, &manifest))
@@ -231,6 +236,22 @@ pub fn duplicate(
         return Err(err);
     }
     Ok(instance(id, target, &manifest))
+}
+
+/// Whether Java mods are turned on for the instance in `dir`. Read from disk each time: it
+/// decides what runs at launch, so a stale copy in memory must not answer.
+pub fn java_mods(dir: &Path) -> bool {
+    std::fs::read_to_string(dir.join(FILE))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Manifest>(&text).ok())
+        .is_some_and(|manifest| manifest.java_mods)
+}
+
+pub fn set_java_mods(dir: &Path, on: bool) -> io::Result<()> {
+    let path = dir.join(FILE);
+    let mut manifest: Manifest = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+    manifest.java_mods = on;
+    write(dir, &manifest)
 }
 
 /// Records the Steam build the instance now runs.

@@ -7,6 +7,7 @@ use gpui_kit::component::dialog::DialogEntrance;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
+use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{ActiveTheme, WindowExt};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -84,6 +85,11 @@ struct Settings {
     installed: u32,
     jvm_args: Entity<InputState>,
     launch_args: Entity<InputState>,
+    /// Whether the instance has the Java mod loader, which is when its switch shows.
+    java_ready: bool,
+    /// Whether Java mods are on here. Saved as soon as the switch moves, not with Save: it
+    /// decides what runs at launch, and turning it on goes through its own question.
+    java_mods: bool,
     /// The section's scroll position, for the scrollbar that shows when a small window
     /// still cuts the form short.
     scroll: ScrollHandle,
@@ -104,6 +110,9 @@ fn installed_memory() -> u32 {
 fn memory_limit(installed: u32, set: Option<u32>) -> u32 {
     installed.max(set.unwrap_or(0)).max(DEFAULT_MEMORY + 1)
 }
+
+/// What the Java mods row adds to the Game section's height, with its gap.
+const JAVA_ROW: f32 = 88.;
 
 fn title(text: &'static str) -> Div {
     div()
@@ -187,6 +196,8 @@ impl Settings {
             installed,
             jvm_args,
             launch_args,
+            java_ready: super::java::ready(&instance),
+            java_mods: super::java::on(&instance),
             instance,
             shell,
             section,
@@ -230,6 +241,63 @@ impl Settings {
             Err(err) => window
                 .push_notification(ui::toast::failed_because("Hmm, that didn't save", err), cx),
         }
+    }
+
+    /// Saves Java mods on or off and tells the Mods tab behind this dialog.
+    fn set_java(&mut self, on: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let note = match store::set_java_mods(&self.instance.dir, on) {
+            Ok(()) => {
+                self.java_mods = on;
+                ui::toast::done(match on {
+                    true => "Java mods are on! Each one asks you before it loads",
+                    false => "Java mods are off. They stay installed, just asleep",
+                })
+            }
+            Err(err) => ui::toast::failed_because("Hmm, that didn't save", err),
+        };
+        window.push_notification(note, cx);
+        let _ = self.shell.update(cx, |shell, cx| shell.reload(cx));
+        cx.notify();
+    }
+
+    /// The Java mods switch, for an instance that has the loader. On asks first.
+    fn java(&self, cx: &mut Context<Self>) -> Div {
+        let border = cx.theme().border;
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_6()
+            .pt_4()
+            .border_t_1()
+            .border_color(border)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1p5()
+                    .min_w_0()
+                    .child(title("Java mods"))
+                    .child(hint(
+                        "Starts the game with ZombieBuddy hooked in, so this instance's Java \
+                         mods load.",
+                        cx,
+                    )),
+            )
+            .child(
+                Switch::new("java-mods")
+                    .cursor_pointer()
+                    .checked(self.java_mods)
+                    .on_click(cx.listener(|this, on: &bool, window, cx| {
+                        if !*on {
+                            return this.set_java(false, window, cx);
+                        }
+                        let view = cx.entity().downgrade();
+                        super::java_view::confirm(window, cx, move |window, cx| {
+                            let _ = view.update(cx, |this, cx| this.set_java(true, window, cx));
+                        });
+                    })),
+            )
     }
 
     /// Memory as a slider up to what this computer has; untouched, the game keeps its default.
@@ -418,6 +486,7 @@ impl Render for Settings {
                 "How the game starts in this instance.",
                 fields
                     .child(self.memory(cx))
+                    .when(self.java_ready, |this| this.child(self.java(cx)))
                     // The two argument fields are for the few who need them, so they sit
                     // under their own heading and not in a section of one field each.
                     .child(
@@ -491,7 +560,8 @@ impl Render for Settings {
             );
         div()
             .flex()
-            .h(px(HEIGHT))
+            // The dialog is sized so no section scrolls; the Java mods row is one more.
+            .h(px(HEIGHT + if self.java_ready { JAVA_ROW } else { 0. }))
             .border_t_1()
             .border_color(border)
             .child(nav)

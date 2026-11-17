@@ -101,6 +101,8 @@ pub struct Mod {
     pub manifest: Option<u64>,
     /// Kept at that version on purpose: updates pass it by ([`hold`]).
     pub held: bool,
+    /// A Java mod: it ships a jar that a loader runs inside the game (`java`).
+    pub java: bool,
     /// `icon=` (or the first `poster=`) of its `mod.info`, when the file exists.
     pub icon: Option<PathBuf>,
     /// Ids of the mods it needs.
@@ -123,6 +125,8 @@ struct Info {
     requires: Vec<String>,
     load_after: Vec<String>,
     load_before: Vec<String>,
+    /// It names a jar to load (`javaJarFile=`): a Java mod.
+    java: bool,
 }
 
 /// The ids in a comma separated `mod.info` value. Build 42 writes them with a leading backslash.
@@ -152,6 +156,7 @@ fn parse_info(text: &str) -> Option<Info> {
             "require" => info.requires = ids(value),
             "loadmodafter" => info.load_after = ids(value),
             "loadmodbefore" => info.load_before = ids(value),
+            "javajarfile" => info.java = !value.is_empty(),
             _ => {}
         }
     }
@@ -233,7 +238,7 @@ impl Active {
     }
 }
 
-fn mods_dir(instance: &Instance) -> PathBuf {
+pub(super) fn mods_dir(instance: &Instance) -> PathBuf {
     instance.dir.join("zomboid/mods")
 }
 
@@ -332,6 +337,7 @@ pub fn list(instance: &Instance) -> Vec<Mod> {
                 workshop: pin.map(|pin| pin.id),
                 manifest: pin.map(|pin| pin.manifest),
                 held: pin.is_some_and(|pin| pin.held),
+                java: info.java,
                 dir: entry.path(),
                 version,
                 folder,
@@ -450,16 +456,18 @@ pub fn set_order(instance: &Instance, mods: &[String], maps: Option<&[String]>) 
 }
 
 /// When the instance's pins and active list last changed.
-pub type Stamp = (Option<std::time::SystemTime>, Option<std::time::SystemTime>);
+pub type Stamp = [Option<std::time::SystemTime>; 3];
 
-/// The [`Stamp`] of the instance now: two `stat` calls, cheap enough for the UI thread. Every
-/// install, removal and turn on or off rewrites one of the two files.
+/// The [`Stamp`] of the instance now: three `stat` calls, cheap enough for the UI thread.
+/// Every install, removal and turn on or off rewrites one of the first two files; the
+/// instance's own settings (Java mods on or off) are the third.
 pub fn stamp(instance: &Instance) -> Stamp {
     let changed = |path: PathBuf| std::fs::metadata(path).and_then(|m| m.modified()).ok();
-    (
+    [
         changed(instance.dir.join("mods.json")),
         changed(mods_dir(instance).join("default.txt")),
-    )
+        changed(instance.dir.join("instance.json")),
+    ]
 }
 
 /// Turns mod `id` on or off. Turning one on also turns on the installed mods it requires;
@@ -796,6 +804,12 @@ fn land(instance: &Instance, item: &steam::workshop::Item, staging: &Path) -> io
     let folders = adopt(instance, staging)?;
     let _ = std::fs::remove_dir_all(staging);
     let mut pins = read_pins(instance);
+    // A folder belongs to the item that brought it last. Another item with a folder of the
+    // same name just replaced it, so the first one no longer owns what is there: keeping it
+    // listed would let, say, an item with a `ZombieBuddy` folder pass for the Java loader.
+    for pin in pins.items.iter_mut().filter(|pin| pin.id != item.id) {
+        pin.folders.retain(|folder| !folders.contains(folder));
+    }
     // Folders the new version no longer has would stay behind as mods of no item.
     for pin in pins.items.iter().filter(|pin| pin.id == item.id) {
         for old in pin.folders.iter().filter(|old| !folders.contains(old)) {
@@ -1238,6 +1252,7 @@ mod tests {
             workshop: None,
             manifest: None,
             held: false,
+            java: false,
             icon: None,
             requires: list(requires),
             load_after: list(after),
@@ -1452,6 +1467,70 @@ mod tests {
         put(&dir, "zomboid/mods/Old/mod.info", "id=Old");
         put(&dir, "zomboid/mods/NotAMod/readme.txt", "");
         assert_eq!(too_new(&instance), ["Newer", "Shiny Cars"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An item can ship a folder named like another item's. The folder then holds the newcomer's
+    /// files, so the first item must stop owning it: the Java loader is hooked by its folder.
+    #[test]
+    fn a_folder_belongs_to_the_item_that_brought_it_last() {
+        let dir = temp("owner");
+        let instance = instance(&dir);
+        let item = |id: u64| steam::workshop::Item {
+            id,
+            app: APP,
+            title: format!("item {id}"),
+            manifest: id,
+            file_url: None,
+            size: 0,
+            updated: None,
+            tags: Vec::new(),
+            preview: None,
+            requires: Vec::new(),
+            subscriptions: 0,
+            file_type: 0,
+        };
+        let bring = |id: u64, jar: &str| {
+            let staging = dir.join(format!(".incoming/{id}"));
+            put(
+                &dir,
+                &format!(".incoming/{id}/mods/ZombieBuddy/42/mod.info"),
+                "id=ZombieBuddy",
+            );
+            put(
+                &dir,
+                &format!(".incoming/{id}/mods/ZombieBuddy/libs/ZombieBuddy.jar"),
+                jar,
+            );
+            land(&instance, &item(id), &staging).unwrap();
+        };
+        let loader = super::super::java::LOADER;
+        bring(loader, "the real one");
+        std::fs::write(
+            dir.join("instance.json"),
+            r#"{"name":"x","branch":"public","created":0,"java_mods":true}"#,
+        )
+        .unwrap();
+        assert!(super::super::java::on(&instance));
+
+        bring(999, "someone else's");
+        let folders = |id: u64| {
+            let pins = read_pins(&instance).items;
+            pins.into_iter().find(|p| p.id == id).unwrap().folders
+        };
+        assert!(
+            folders(loader).is_empty(),
+            "the loader no longer owns the folder"
+        );
+        assert_eq!(folders(999), ["ZombieBuddy"]);
+        assert!(
+            !super::super::java::on(&instance),
+            "a stranger's jar is never hooked"
+        );
+
+        // The real item again (an update, or installed again) takes the folder back.
+        bring(loader, "the real one");
+        assert!(super::super::java::on(&instance));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

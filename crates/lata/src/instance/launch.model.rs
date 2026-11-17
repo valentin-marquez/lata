@@ -46,6 +46,8 @@ pub fn command(instance: &Instance) -> io::Result<Command> {
         .map(|gb| format!("-Xmx{gb}g"))
         .into_iter()
         .collect();
+    // Java mods, when the user turned them on here: the loader hooks into the VM.
+    jvm.extend(super::java::arg(instance));
     jvm.extend(split_args(&instance.jvm_args));
     if !jvm.is_empty() {
         command.args(jvm).arg("--");
@@ -138,6 +140,7 @@ pub fn start(instance: &Instance) -> io::Result<Child> {
             "Steam isn't open. Open Steam and press Play again",
         ));
     }
+    super::java::prepare(instance)?;
     command(instance)?
         // Lets the Steam API find the app when the game isn't started by Steam itself.
         .env("SteamAppId", APP.to_string())

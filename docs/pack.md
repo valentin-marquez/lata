@@ -66,6 +66,9 @@ Unknown fields are ignored, so a newer lata can add fields without bumping `form
 
 - Java and game arguments: one like `-javaagent` would run whatever the pack bundles as soon
   as someone presses Play.
+- Whether Java mods are turned on. A pack can bring Java mods and their loader (ZombieBuddy)
+  like any other Workshop item, but the instance it makes starts with them off: whoever
+  imports it is asked, on their own computer, before any of that code runs.
 - Logs, `console.txt`, `version.txt` and the game's `Workshop` cache: the game rebuilds them.
 - The folders of Workshop mods, which travel as references.
 - The secrets in any file under `Server/`, whatever its encoding: `Password`, `RCONPassword` and

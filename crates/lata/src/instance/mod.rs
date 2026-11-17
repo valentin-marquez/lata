@@ -18,6 +18,10 @@ pub mod existing_view;
 pub mod import;
 #[path = "install.model.rs"]
 pub mod install;
+#[path = "java.model.rs"]
+pub mod java;
+#[path = "java.view.rs"]
+mod java_view;
 #[path = "launch.model.rs"]
 pub mod launch;
 #[path = "logs.model.rs"]

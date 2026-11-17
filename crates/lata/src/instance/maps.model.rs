@@ -231,6 +231,7 @@ mod tests {
             workshop: None,
             manifest: None,
             held: false,
+            java: false,
             icon: None,
             requires: Vec::new(),
             load_after: Vec::new(),

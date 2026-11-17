@@ -17,6 +17,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::Instance;
+use super::java;
 use super::mods::{self, Mod};
 use crate::shell::Shell;
 use crate::ui::{self, Empty, FancyButton, Loader, toast};
@@ -91,6 +92,8 @@ pub struct Mods {
     too_new: Vec<String>,
     /// Whether the last update can be undone ([`mods::undo`] has something).
     undo: bool,
+    /// Where the instance stands with Java mods.
+    java: java::State,
     /// What [`mods::stamp`] said when `mods` was read; the same stamp means nothing new.
     /// `None` until the first read is in.
     stamp: Option<mods::Stamp>,
@@ -135,6 +138,7 @@ impl Mods {
             mods: Vec::new(),
             too_new: Vec::new(),
             undo: false,
+            java: java::State::None,
             instance,
             search,
             sort: Sort::Name,
@@ -192,7 +196,9 @@ impl Mods {
             }
             let found = crate::runtime::blocking(move || {
                 let undo = !mods::undo(&instance).is_empty();
-                (mods::list(&instance), mods::too_new(&instance), undo)
+                let list = mods::list(&instance);
+                let java = java::state(&instance, &list);
+                (list, mods::too_new(&instance), undo, java)
             })
             .await;
             if let Some(shell) = &first {
@@ -200,10 +206,11 @@ impl Mods {
             }
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;
-                if let Ok((found, too_new, undo)) = found {
+                if let Ok((found, too_new, undo, java)) = found {
                     this.mods = found;
                     this.too_new = too_new;
                     this.undo = undo;
+                    this.java = java;
                     this.stamp = Some(stamp);
                     // A mod that is gone can't stay checked.
                     this.selected
@@ -461,6 +468,90 @@ impl Mods {
     }
 
     /// The mods the game skips for being newer than it, above the table: they don't show in it.
+    /// Turns Java mods on for the instance and reads the tab again. Turning them off is in
+    /// the instance's settings: once on there is nothing left to decide here.
+    fn turn_on_java(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let note = match super::store::set_java_mods(&self.instance.dir, true) {
+            Ok(()) => toast::done("Java mods are on! Each one asks you before it loads"),
+            Err(err) => toast::failed_because("Hmm, that didn't save", err),
+        };
+        window.push_notification(note, cx);
+        self.refresh(cx);
+    }
+
+    /// Asks before turning Java mods on.
+    fn confirm_java(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let view = cx.entity().downgrade();
+        super::java_view::confirm(window, cx, move |window, cx| {
+            let _ = view.update(cx, |this, cx| this.turn_on_java(window, cx));
+        });
+    }
+
+    /// Where the instance stands with Java mods, with the one thing to do about it: add the
+    /// loader they need, or turn them on. Nothing when it has none or they are already on.
+    fn java_note(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let (title, detail, action): (String, String, AnyElement) = match &self.java {
+            java::State::None | java::State::On => return None,
+            java::State::NeedsLoader(names) => {
+                let (instance, shell) = (self.instance.clone(), self.shell.clone());
+                (
+                    match names.len() {
+                        1 => "1 Java mod needs ZombieBuddy to run".to_owned(),
+                        many => format!("{many} Java mods need ZombieBuddy to run"),
+                    },
+                    names.join(", "),
+                    FancyButton::new("java-add-loader", "Add ZombieBuddy")
+                        .small()
+                        .icon(IconName::Plus)
+                        .on_click(move |_, window, cx| {
+                            let (instance, handle) = (instance.clone(), window.window_handle());
+                            let _ = shell.update(cx, |shell, cx| {
+                                shell.add_mod(instance, java::LOADER, handle, cx)
+                            });
+                        })
+                        .into_any_element(),
+                )
+            }
+            java::State::Off => (
+                "Java mods are off in this instance".to_owned(),
+                "ZombieBuddy is here, but it only loads Java mods when the game starts with \
+                 it hooked in."
+                    .to_owned(),
+                FancyButton::new("java-on", "Turn on")
+                    .small()
+                    .on_click(cx.listener(|this, _, window, cx| this.confirm_java(window, cx)))
+                    .into_any_element(),
+            ),
+        };
+        let theme = cx.theme();
+        Some(
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .p_3()
+                .rounded(theme.radius_lg)
+                .bg(theme.primary.opacity(0.1))
+                .text_sm()
+                .child(
+                    Icon::new(IconName::Info)
+                        .size_4()
+                        .flex_none()
+                        .text_color(theme.primary),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+                        .child(div().text_color(theme.muted_foreground).child(detail)),
+                )
+                .child(div().flex_none().child(action)),
+        )
+    }
+
     /// Says which mods the Workshop no longer has, so nobody removes one thinking it can come
     /// back: there is nowhere to download it from again.
     fn gone_note(&self, cx: &App) -> Option<Div> {
@@ -1022,6 +1113,7 @@ impl Render for Mods {
                 .when(adding, |this| this.child(Loader))
                 .children(self.too_new_note(cx))
                 .children(self.gone_note(cx))
+                .children(self.java_note(cx))
                 .child(
                     Empty::new(
                         IconName::Puzzle,
@@ -1107,6 +1199,7 @@ impl Render for Mods {
             .when(adding, |this| this.child(Loader))
             .children(self.too_new_note(cx))
             .children(self.gone_note(cx))
+            .children(self.java_note(cx))
             .when(!self.mods.is_empty(), |this| {
                 // How many show (the search and filter apply), and how many the game loads.
                 let total = self.mods.len();
