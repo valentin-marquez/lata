@@ -465,15 +465,14 @@ impl Render for Notification {
             .cursor_pointer()
             .refine_style(&self.style)
             .when_some(icon, |this, icon| {
-                // As tall as the title's line, so the icon centers on it even when the text
-                // column is taller (and the action centers against the whole column).
+                // Centered on the whole text column, like the action: on two lines it sits
+                // between title and detail instead of up by the title.
                 this.child(
                     div()
                         .flex_none()
                         .h(px(20.))
                         .flex()
                         .items_center()
-                        .when(two_lines, |this| this.self_start())
                         .child(icon.size(px(18.))),
                 )
             })
