@@ -226,6 +226,15 @@ impl Mods {
         (Some(newest) != item.manifest).then_some(id)
     }
 
+    /// Whether the Workshop no longer has `item`'s source: Steam was asked and didn't know it
+    /// (removed, or hidden by its author). The copy here is then the only one lata can reach.
+    fn gone(&self, item: &Mod) -> bool {
+        self.check == Check::Done
+            && item
+                .workshop
+                .is_some_and(|id| !self.latest.contains_key(&id))
+    }
+
     /// Downloads the current version of `items` through the download manager.
     fn update(&self, items: Vec<u64>, window: &mut Window, cx: &mut Context<Self>) {
         let (instance, shell, handle) = (
@@ -453,6 +462,55 @@ impl Mods {
     }
 
     /// The mods the game skips for being newer than it, above the table: they don't show in it.
+    /// Says which mods the Workshop no longer has, so nobody removes one thinking it can come
+    /// back: there is nowhere to download it from again.
+    fn gone_note(&self, cx: &App) -> Option<Div> {
+        let mut gone: Vec<&str> = self
+            .mods
+            .iter()
+            .filter(|item| self.gone(item))
+            .map(|item| item.name.as_str())
+            .collect();
+        gone.dedup();
+        if gone.is_empty() {
+            return None;
+        }
+        let theme = cx.theme();
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .p_3()
+                .rounded(theme.radius_lg)
+                .bg(theme.warning.opacity(0.12))
+                .text_sm()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(ui::warning_text(cx))
+                        .child(Icon::new(IconName::TriangleAlert).size_4().flex_none())
+                        .child(match gone.len() {
+                            1 => "Heads up! 1 mod left the Workshop, your copy is the only one"
+                                .to_owned(),
+                            many => format!(
+                                "Heads up! {many} mods left the Workshop, your copies are the only ones"
+                            ),
+                        }),
+                )
+                .child(div().pl_6().child(gone.join(", ")))
+                .child(
+                    div()
+                        .pl_6()
+                        .text_color(theme.muted_foreground)
+                        .child("They still work, but can't update or change version. Removing one is for good."),
+                ),
+        )
+    }
+
     fn too_new_note(&self, cx: &App) -> Option<Div> {
         if self.too_new.is_empty() {
             return None;
@@ -695,7 +753,7 @@ impl Mods {
         let (id, folder, pick) = (item.id.clone(), item.folder.clone(), item.folder.clone());
         let (dir, mod_id, workshop) = (item.dir.clone(), item.id.clone(), item.workshop);
         let update = self.update_of(item);
-        let (held, installed) = (item.held, item.manifest);
+        let (held, installed, gone) = (item.held, item.manifest, self.gone(item));
         let (title, instance, shell) = (
             SharedString::from(item.name.clone()),
             self.instance.clone(),
@@ -813,11 +871,16 @@ impl Mods {
                                         .on_click(move |_, _, cx| cx.open_with_system(&dir)),
                                 )
                                 .when_some(workshop, |menu, workshop| {
-                                    menu.item(
-                                        PopupMenuItem::new("Change version")
-                                            .icon(Icon::empty().path("icons/history.svg"))
-                                            .on_click(move |_, window, cx| versions(window, cx)),
-                                    )
+                                    // Nothing to change to once the Workshop lost the item.
+                                    menu.when(!gone, |menu| {
+                                        menu.item(
+                                            PopupMenuItem::new("Change version")
+                                                .icon(Icon::empty().path("icons/history.svg"))
+                                                .on_click(move |_, window, cx| {
+                                                    versions(window, cx)
+                                                }),
+                                        )
+                                    })
                                     .item(
                                         PopupMenuItem::new("Workshop page")
                                             .icon(IconName::ExternalLink)
@@ -959,6 +1022,7 @@ impl Render for Mods {
                 .gap_2()
                 .when(adding, |this| this.child(Loader))
                 .children(self.too_new_note(cx))
+                .children(self.gone_note(cx))
                 .child(
                     Empty::new(
                         IconName::Puzzle,
@@ -1043,6 +1107,7 @@ impl Render for Mods {
             .child(self.toolbar(cx))
             .when(adding, |this| this.child(Loader))
             .children(self.too_new_note(cx))
+            .children(self.gone_note(cx))
             .when(!self.mods.is_empty(), |this| {
                 // How many show (the search and filter apply), and how many the game loads.
                 let total = self.mods.len();
