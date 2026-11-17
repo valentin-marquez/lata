@@ -83,7 +83,6 @@ impl RenderOnce for Topbar {
 
 /// Discord's own blue, for its mark only.
 const DISCORD: u32 = 0x5865F2;
-pub const DISCORD_INVITE: &str = "https://discord.gg/jeGPaMkDbU";
 
 /// The way into the community, always in sight: where people ask for help and say what broke.
 fn discord(theme: &gpui_kit::component::Theme) -> impl IntoElement + use<> {
@@ -109,7 +108,7 @@ fn discord(theme: &gpui_kit::component::Theme) -> impl IntoElement + use<> {
                 .text_color(blue),
         )
         .child("Discord")
-        .on_click(|_, _, cx| cx.open_url(DISCORD_INVITE))
+        .on_click(|_, _, cx| cx.open_url(super::DISCORD_INVITE))
 }
 
 impl Topbar {

@@ -1502,6 +1502,9 @@ fn notify(cx: &mut App, toast: impl FnOnce() -> crate::ui::toast::Notification) 
     });
 }
 
+/// The community's server: the title bar and Settings both send people there.
+pub const DISCORD_INVITE: &str = "https://discord.gg/jeGPaMkDbU";
+
 /// What a Workshop download is for, which decides what happens around it and the note it ends
 /// with.
 #[derive(Clone, Copy, PartialEq)]

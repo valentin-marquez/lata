@@ -6,12 +6,14 @@
       "Duplicate an instance from its menu, mods and settings included.",
       "Change a mod's version: go back to an older one when the newest breaks your save.",
       "Undo a mod update with one click.",
-      "Java mods (ZombieBuddy) can be turned on for an instance in its settings.",
+      "Java mods work: add ZombieBuddy to an instance and turn them on from its Mods tab.",
       "A heads up when a mod you use has left the Workshop.",
-      "An About section in Settings, with the lata you're running."
+      "An About section in Settings, with the lata you're running.",
+      "This very list, after each update and in Settings whenever you want it.",
+      "A Discord button up top, to ask for help or say what broke."
     ],
     "changed": [
-      "Game versions read like the game shows them (42.13.1) instead of Steam's build numbers, with the channel next to them: Stable or Pre-release.",
+      "Game versions read like the game shows them (42.22.2) instead of Steam's build numbers, with the channel next to them: Stable or Pre-release.",
       "Toasts got a new look, and some come with a button to act right there."
     ],
     "fixed": [

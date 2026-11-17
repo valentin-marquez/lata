@@ -11,7 +11,7 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::dialog::DialogEntrance;
 use gpui_kit::component::switch::Switch;
-use gpui_kit::component::{ActiveTheme, Disableable};
+use gpui_kit::component::{ActiveTheme, Disableable, Icon};
 use gpui_kit::*;
 use serde::{Deserialize, Serialize};
 
@@ -348,11 +348,12 @@ fn fact(name: &'static str, value: &'static str, cx: &App) -> Div {
 /// Which lata this is, so a bug report or a question can say so.
 fn about(cx: &App) -> Div {
     let theme = cx.theme();
+    // Each link wears the mark of where it goes, so it reads as "this opens GitHub".
     let link = |id: &'static str, label: &'static str, url: &'static str| {
         Button::new(id)
             .ghost()
             .cursor_pointer()
-            .icon(IconName::ExternalLink)
+            .icon(Icon::empty().path(format!("icons/{id}.svg")))
             .label(label)
             .on_click(move |_, _, cx| cx.open_url(url))
     };
@@ -396,11 +397,11 @@ fn about(cx: &App) -> Div {
                                 .on_click(|_, window, cx| crate::news::open(window, cx)),
                         )
                         .child(link(
-                            "releases",
+                            "github",
                             "Releases",
                             "https://github.com/valentin-marquez/lata/releases",
                         ))
-                        .child(link("discord", "Discord", "https://discord.gg/jeGPaMkDbU")),
+                        .child(link("discord", "Discord", crate::shell::DISCORD_INVITE)),
                 ),
         )
 }
