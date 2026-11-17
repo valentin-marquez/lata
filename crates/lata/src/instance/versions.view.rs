@@ -1,14 +1,20 @@
 //! "Change version" dialog: every version the author published for a Workshop item, as Steam
 //! lists them, to go back to one when the newest breaks a save or another mod (or forward
-//! again). Steam keeps serving old versions, so nothing is kept on disk for this.
+//! again). Steam keeps serving old versions, so nothing is kept on disk for this. Versions made
+//! for another game than the instance runs are put aside as they are found out ([`fit`]).
+
+use std::collections::HashMap;
 
 use gpui_kit::assets::IconName;
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::dialog::DialogEntrance;
 use gpui_kit::component::{ActiveTheme, Icon, Sizable, WindowExt};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::{Instance, branches};
+use super::fit::{self, Fit};
+use super::mods::Version;
+use super::{APP, Instance};
 use crate::shell::Shell;
 use crate::ui::{Empty, Loader};
 use steam::workshop::Change;
@@ -45,6 +51,24 @@ struct Versions {
     current: Option<u64>,
     shell: WeakEntity<Shell>,
     history: History,
+    /// The instance's game version, when known; without it nothing is put aside.
+    game: Option<Version>,
+    /// What is found out about each version, by manifest.
+    fits: HashMap<u64, Fit>,
+    /// Still asking Steam about the versions.
+    checking: bool,
+    /// The versions for other games are shown too, greyed out.
+    show_all: bool,
+    /// The background work asking about the versions, stopped when the dialog closes.
+    check: Option<tokio::task::AbortHandle>,
+}
+
+impl Drop for Versions {
+    fn drop(&mut self) {
+        if let Some(check) = &self.check {
+            check.abort();
+        }
+    }
 }
 
 impl Versions {
@@ -66,18 +90,82 @@ impl Versions {
                 _ => History::Failed,
             };
             let _ = this.update(cx, |this, cx| {
+                if let History::Ready(changes) = &history {
+                    this.check(changes.iter().map(|c| c.manifest).collect(), cx);
+                }
                 this.history = history;
                 cx.notify();
             });
         })
         .detach();
+        let game = instance.version().as_deref().and_then(Version::parse);
         Self {
             instance,
             item,
             current,
             shell,
             history: History::Loading,
+            game,
+            fits: HashMap::new(),
+            checking: false,
+            show_all: false,
+            check: None,
         }
+    }
+
+    /// Finds out, newest first, which of the versions `manifests` run on the instance's game.
+    /// Each answer shows as it comes; one Steam won't give doesn't stop the rest.
+    fn check(&mut self, manifests: Vec<u64>, cx: &mut Context<Self>) {
+        let Some(game) = self.game else {
+            return;
+        };
+        let item = self.item;
+        let (found, mut answers) = tokio::sync::mpsc::unbounded_channel();
+        let work = crate::runtime::spawn(async move {
+            let http = steam::http();
+            let mut client = steam::Client::anonymous(&http).await?;
+            let Some(details) = steam::workshop::details(&mut client, &[item])
+                .await?
+                .into_iter()
+                .next()
+            else {
+                return Ok(());
+            };
+            let source = steam::workshop::source(&mut client, APP).await?;
+            for manifest in manifests {
+                if let Ok(infos) = fit::infos(&mut client, &http, &source, &details, manifest).await
+                    && found.send((manifest, infos)).is_err()
+                {
+                    break;
+                }
+            }
+            Ok::<_, steam::Error>(())
+        });
+        self.check = Some(work.abort_handle());
+        self.checking = true;
+        cx.spawn(async move |this, cx| {
+            // Ends when the work does: it holds the only sender.
+            while let Some((manifest, infos)) = answers.recv().await {
+                let verdict = fit::fit(&infos, game);
+                let alive = this.update(cx, |this, cx| {
+                    this.fits.insert(manifest, verdict);
+                    cx.notify();
+                });
+                if alive.is_err() {
+                    return;
+                }
+            }
+            let _ = this.update(cx, |this, cx| {
+                this.checking = false;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// What `manifest` is made for when it isn't this game: the tag that says so.
+    fn other_game(&self, manifest: u64) -> Option<String> {
+        self.fits.get(&manifest).and_then(Fit::label)
     }
 
     /// Downloads `manifest` in place of the installed version. Anything but the newest stays
@@ -102,9 +190,12 @@ impl Versions {
         let theme = cx.theme();
         let installed = self.current == Some(change.manifest);
         let (manifest, newest) = (change.manifest, ix == 0);
+        // Made for another game: shown only when asked, greyed out and not picked.
+        let other = self.other_game(manifest).filter(|_| !installed);
+        let (day, hour) = when(change.date, &chrono::Local);
         // The author's note, when they left one: its first line says what changed.
         let note = change.note.lines().next().unwrap_or_default().to_owned();
-        let tag = |text: &'static str, strong: bool| {
+        let tag = |text: SharedString, strong: bool| {
             div()
                 .flex_none()
                 .px_2()
@@ -129,7 +220,8 @@ impl Versions {
             .px_3()
             .py_2()
             .when(ix > 0, |this| this.border_t_1().border_color(theme.border))
-            .when(!installed, |this| {
+            .when(other.is_some(), |this| this.opacity(0.5))
+            .when(!installed && other.is_none(), |this| {
                 this.cursor_pointer()
                     .hover(|style| style.bg(theme.muted))
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -147,18 +239,13 @@ impl Versions {
                             .flex()
                             .items_baseline()
                             .gap_2()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child(branches::date(change.date)),
-                            )
+                            .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(day))
                             // Authors often publish several in a day: the hour tells them apart.
                             .child(
                                 div()
                                     .text_xs()
                                     .text_color(theme.muted_foreground)
-                                    .child(clock(change.date)),
+                                    .child(hour),
                             ),
                     )
                     .when(!note.is_empty(), |this| {
@@ -171,9 +258,12 @@ impl Versions {
                         )
                     }),
             )
-            .when(newest, |this| this.child(tag("Newest", false)))
-            .when(installed, |this| this.child(tag("Installed", true)))
-            .when(!installed, |this| {
+            .when(newest, |this| this.child(tag("Newest".into(), false)))
+            .when(installed, |this| this.child(tag("Installed".into(), true)))
+            .when_some(other.clone(), |this, other| {
+                this.child(tag(other.into(), false))
+            })
+            .when(!installed && other.is_none(), |this| {
                 this.child(
                     Icon::new(IconName::Download)
                         .small()
@@ -184,22 +274,72 @@ impl Versions {
     }
 }
 
-/// "14:05 UTC" for a Unix time.
-fn clock(unix: u64) -> String {
-    format!("{:02}:{:02} UTC", unix / 3600 % 24, unix / 60 % 60)
+/// The day and the hour of a Unix time in `zone` ("Nov 9, 2026", "11:04"): the computer's own,
+/// so a version reads like the clock on the wall. Both from the same zone, so near midnight
+/// the day matches the hour.
+fn when<Tz: chrono::TimeZone>(unix: u64, zone: &Tz) -> (String, String)
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let at = chrono::DateTime::from_timestamp(unix as i64, 0)
+        .unwrap_or_default()
+        .with_timezone(zone);
+    (
+        at.format("%b %-d, %Y").to_string(),
+        at.format("%H:%M").to_string(),
+    )
 }
 
 impl Render for Versions {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Rows first: they borrow `cx` for their listeners, the theme only reads it.
-        let rows: Vec<AnyElement> = match &self.history {
-            History::Ready(changes) => changes
-                .iter()
-                .enumerate()
-                .map(|(ix, change)| self.row(ix, change, cx))
-                .collect(),
-            _ => Vec::new(),
+        // Put aside: made for another game, unless it is the one installed.
+        let aside = |this: &Self, change: &Change| {
+            this.current != Some(change.manifest) && this.other_game(change.manifest).is_some()
         };
+        let (rows, hidden): (Vec<AnyElement>, usize) = match &self.history {
+            History::Ready(changes) => (
+                changes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, change)| self.show_all || !aside(self, change))
+                    .map(|(ix, change)| self.row(ix, change, cx))
+                    .collect(),
+                changes.iter().filter(|change| aside(self, change)).count(),
+            ),
+            _ => (Vec::new(), 0),
+        };
+        // Always there once the list is, so the dialog doesn't jump when the check ends: what
+        // it is doing, then what it found.
+        let total = match &self.history {
+            History::Ready(changes) => changes.len(),
+            _ => 0,
+        };
+        let status = self.game.filter(|_| total > 0).map(|v| {
+            let game = format!("{}.{}", v.build, v.major);
+            match (self.checking, total - hidden) {
+                (true, _) => format!("Checking which versions run on {game}"),
+                (false, fit) if fit == total && total == 1 => format!("It runs on {game}"),
+                (false, fit) if fit == total => format!("All of them run on {game}"),
+                (false, fit) => format!("{fit} of {total} run on {game}"),
+            }
+        });
+        let toggle = (hidden > 0).then(|| {
+            let label = match (self.show_all, hidden) {
+                (true, _) => "Hide versions for other games".to_owned(),
+                (false, 1) => "Show 1 for another game version".to_owned(),
+                (false, n) => format!("Show {n} for other game versions"),
+            };
+            Button::new("other-versions")
+                .ghost()
+                .small()
+                .cursor_pointer()
+                .label(label)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.show_all = !this.show_all;
+                    cx.notify();
+                }))
+        });
         let theme = cx.theme();
         let body = match &self.history {
             History::Loading => div().py_6().child(Loader).into_any_element(),
@@ -237,13 +377,42 @@ impl Render for Versions {
                  until you pick the newest again.",
             ))
             .child(body)
+            .when_some(status, |this, status| {
+                this.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_3()
+                        .h(px(28.))
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(status)
+                        .children(toggle),
+                )
+            })
     }
 }
 
 #[cfg(test)]
 mod tests {
     #[test]
-    fn tells_the_hour_in_utc() {
-        assert_eq!(super::clock(1_794_233_055), "14:04 UTC");
+    fn tells_the_day_and_hour_where_the_player_is() {
+        let zone = |hours: i32| chrono::FixedOffset::east_opt(hours * 3600).unwrap();
+        // 2026-11-09 14:04 UTC.
+        let at = 1_794_233_055;
+        assert_eq!(
+            super::when(at, &zone(0)),
+            ("Nov 9, 2026".into(), "14:04".into())
+        );
+        assert_eq!(
+            super::when(at, &zone(-3)),
+            ("Nov 9, 2026".into(), "11:04".into())
+        );
+        // Past midnight there, the day moves with the hour.
+        assert_eq!(
+            super::when(at, &zone(11)),
+            ("Nov 10, 2026".into(), "01:04".into())
+        );
     }
 }

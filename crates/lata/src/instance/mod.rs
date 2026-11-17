@@ -14,6 +14,8 @@ pub mod detail;
 pub mod existing;
 #[path = "existing.view.rs"]
 pub mod existing_view;
+#[path = "fit.model.rs"]
+pub mod fit;
 #[path = "import.model.rs"]
 pub mod import;
 #[path = "install.model.rs"]
