@@ -139,9 +139,31 @@ pub struct Index {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Build {
     pub branch: String,
-    /// The build it was made on; Steam only serves each branch's current one.
+    /// The build it was made on.
     #[serde(default)]
     pub id: Option<u32>,
+    /// That build's manifest for every OS depot, when the pack keeps the game at that build.
+    /// Left out, the pack follows its branch: an import installs the branch's current build.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub depots: Vec<Depot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Depot {
+    pub id: u32,
+    pub manifest: u64,
+}
+
+/// The depots that keep a pack of `instance` at its build: empty when its manifests aren't
+/// known (installed before lata recorded them, and missing from the catalog).
+pub fn depots(instance: &Instance) -> Vec<Depot> {
+    let Some(build) = instance.build else {
+        return Vec::new();
+    };
+    crate::instance::build::manifests(build, instance.game().as_deref())
+        .into_iter()
+        .map(|(id, manifest)| Depot { id, manifest })
+        .collect()
 }
 
 /// The instance settings a pack carries. Java and game arguments stay out: one like
@@ -184,6 +206,8 @@ pub struct About {
     pub name: String,
     pub version: String,
     pub summary: String,
+    /// Keep the game at the instance's build, rather than the branch's newest.
+    pub exact: bool,
 }
 
 /// A file or folder of the instance's `zomboid/`, as the export dialog lists it.
@@ -319,6 +343,10 @@ pub fn export(
         build: Build {
             branch: instance.branch.to_string(),
             id: instance.build,
+            depots: match about.exact {
+                true => depots(instance),
+                false => Vec::new(),
+            },
         },
         workshop: mods::pins(instance),
         mods: active.mods,
@@ -445,6 +473,16 @@ pub fn import(root: &Path, path: &Path) -> io::Result<(Instance, Index)> {
             other => other.clone(),
         };
         store::set_icon(&instance.dir, icon)?;
+        if let Some(build) = index.build.id.filter(|_| !index.build.depots.is_empty()) {
+            let depots = index.build.depots.iter().map(|d| (d.id, d.manifest));
+            store::set_target(
+                &instance.dir,
+                Some(store::Target {
+                    build,
+                    depots: depots.collect(),
+                }),
+            )?;
+        }
         mods::activate(
             &instance,
             &Active {
@@ -529,6 +567,14 @@ mod tests {
             },
         )
         .unwrap();
+        // Runs build 7, whose record keeps every OS's manifest.
+        store::set_build(&made.dir, 7).unwrap();
+        let game = store::builds(root).join("7");
+        put(
+            &game,
+            "build.json",
+            r#"{"build":7,"version":null,"branches":["unstable"],"seen":1,"manifests":{"108603":31,"108604":41}}"#,
+        );
         store::list(root).into_iter().next().unwrap()
     }
 
@@ -559,6 +605,7 @@ mod tests {
             name: " Server with friends ".into(),
             version: "1.0.0".into(),
             summary: String::new(),
+            exact: true,
         };
         let picked: Vec<PathBuf> = PICKED.iter().map(PathBuf::from).collect();
         export(&instance, &about, &picked, &out).unwrap();
@@ -567,6 +614,20 @@ mod tests {
         let index = read(&out).unwrap();
         assert_eq!(index.name, "Server with friends");
         assert_eq!(index.build.branch, "unstable");
+        assert_eq!(index.build.id, Some(7));
+        assert_eq!(
+            index.build.depots,
+            [
+                Depot {
+                    id: 108603,
+                    manifest: 31
+                },
+                Depot {
+                    id: 108604,
+                    manifest: 41
+                }
+            ]
+        );
         assert_eq!(index.workshop[0].manifest, 4123456789012);
         assert_eq!(index.mods, ["Brita", "Local"]);
         assert_eq!(index.maps, ["Muldraugh, KY"]);
@@ -597,6 +658,26 @@ mod tests {
         assert!(!z.join("options.ini").exists());
         assert!(!z.join("mods/Brita").exists());
         assert_eq!(mods::active(&made).mods, ["Brita", "Local"]);
+        // Its first install asks for build 7, not the branch's current one.
+        assert_eq!(
+            store::target(&made.dir),
+            Some(store::Target {
+                build: 7,
+                depots: [(108603, 31), (108604, 41)].into(),
+            })
+        );
+        store::set_build(&made.dir, 7).unwrap();
+        assert_eq!(store::target(&made.dir), None, "settled once installed");
+
+        // Following the branch: no depots, nothing asked for.
+        let follow = About {
+            exact: false,
+            ..about
+        };
+        export(&instance, &follow, &picked, &out).unwrap();
+        assert!(read(&out).unwrap().build.depots.is_empty());
+        let (made, _) = import(&other, &out).unwrap();
+        assert_eq!(store::target(&made.dir), None);
         std::fs::remove_dir_all(&root).unwrap();
         std::fs::remove_dir_all(&other).unwrap();
     }
@@ -630,6 +711,7 @@ mod tests {
             build: Build {
                 branch: "public".into(),
                 id: None,
+                depots: Vec::new(),
             },
             workshop: Vec::new(),
             mods: Vec::new(),

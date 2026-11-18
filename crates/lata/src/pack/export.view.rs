@@ -72,6 +72,10 @@ struct Export {
     scroll: UniformListScrollHandle,
     /// Writing the pack.
     busy: bool,
+    /// The game version the pack can keep, when the instance's build manifests are known.
+    keeps: Option<String>,
+    /// Keep the game at that version rather than follow the branch.
+    exact: bool,
 }
 
 impl Export {
@@ -103,7 +107,6 @@ impl Export {
         })
         .detach();
         Self {
-            instance,
             name,
             version,
             summary,
@@ -115,6 +118,11 @@ impl Export {
             rows: Vec::new(),
             scroll: UniformListScrollHandle::new(),
             busy: false,
+            keeps: (!super::depots(&instance).is_empty())
+                .then(|| instance.build_name())
+                .flatten(),
+            exact: true,
+            instance,
         }
     }
 
@@ -224,6 +232,7 @@ impl Export {
             name: self.name.read(cx).value().to_string(),
             version: self.version.read(cx).value().to_string(),
             summary: self.summary.read(cx).value().to_string(),
+            exact: self.exact && self.keeps.is_some(),
         };
         let shown = match about.name.trim() {
             "" => self.instance.name.to_string(),
@@ -535,6 +544,27 @@ impl Render for Export {
                     .child(label("Description"))
                     .child(Textarea::new(&self.summary)),
             )
+            .when_some(self.keeps.clone(), |this, version| {
+                this.child(
+                    div().flex().flex_col().gap_1p5().child(
+                    Checkbox::new("export-exact")
+                        .cursor_pointer()
+                        .checked(self.exact)
+                        .label(format!("Keep the game at {version}"))
+                        .on_click(cx.listener(|this, on: &bool, _, cx| {
+                            this.exact = *on;
+                            cx.notify();
+                        })),
+                ).child(
+                    div()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(match self.exact {
+                            true => "Whoever imports it plays this exact version, even after the game updates.",
+                            false => "Whoever imports it gets the newest version of the branch.",
+                        }),
+                ))
+            })
             .child(
                 div()
                     .flex()

@@ -35,6 +35,18 @@ struct Manifest {
     /// (`java`). Never set by anything that comes from outside, a pack included.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     java_mods: bool,
+    /// The build the first install should bring instead of the branch's current one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    target: Option<Target>,
+}
+
+/// A build asked for by its manifests (a pack made on it), since Steam only names the current
+/// build of each branch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Target {
+    pub build: u32,
+    /// The manifest of each depot, every OS's.
+    pub depots: std::collections::BTreeMap<u32, u64>,
 }
 
 /// The app's own files (settings, account, caches): `$LATA_HOME`, else the OS data dir.
@@ -190,6 +202,7 @@ pub fn create(root: &Path, name: &str, branch: &str) -> io::Result<Instance> {
         jvm_args: String::new(),
         launch_args: String::new(),
         java_mods: false,
+        target: None,
     };
     write(&dir, &manifest)?;
     Ok(instance(id, dir, &manifest))
@@ -254,11 +267,25 @@ pub fn set_java_mods(dir: &Path, on: bool) -> io::Result<()> {
     write(dir, &manifest)
 }
 
-/// Records the Steam build the instance now runs.
+/// Records the Steam build the instance now runs. Whatever build it asked for is settled.
 pub fn set_build(dir: &Path, build: u32) -> io::Result<()> {
     let path = dir.join(FILE);
     let mut manifest: Manifest = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
     manifest.build = Some(build);
+    manifest.target = None;
+    write(dir, &manifest)
+}
+
+/// The build the instance in `dir` asked for, until it is installed.
+pub fn target(dir: &Path) -> Option<Target> {
+    let text = std::fs::read_to_string(dir.join(FILE)).ok()?;
+    serde_json::from_str::<Manifest>(&text).ok()?.target
+}
+
+pub fn set_target(dir: &Path, target: Option<Target>) -> io::Result<()> {
+    let path = dir.join(FILE);
+    let mut manifest: Manifest = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+    manifest.target = target;
     write(dir, &manifest)
 }
 

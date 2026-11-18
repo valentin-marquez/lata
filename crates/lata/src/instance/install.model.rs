@@ -16,8 +16,11 @@ pub enum Event {
         done: u64,
         total: u64,
     },
-    /// The build is recorded in the instance; reload it from disk.
-    Done,
+    /// The build is recorded in the instance; reload it from disk. `fell_back` when the build
+    /// the instance asked for (a pack's) wouldn't come and the branch's current one did.
+    Done {
+        fell_back: bool,
+    },
     Failed(String),
 }
 
@@ -149,13 +152,13 @@ pub fn start(
 ) -> tokio::task::AbortHandle {
     runtime::spawn(async move {
         let event = match install(&account, &instance, &events).await {
-            Ok(build) => match store::set_build(&instance.dir, build) {
+            Ok((build, fell_back)) => match store::set_build(&instance.dir, build) {
                 Ok(()) => {
                     // The build this instance ran before may now be unused.
                     if let Some(root) = instance.dir.parent() {
                         let _ = store::prune(root);
                     }
-                    Event::Done
+                    Event::Done { fell_back }
                 }
                 Err(err) => Event::Failed(format!("installed, but couldn't record it: {err}")),
             },
@@ -176,22 +179,100 @@ fn lock(game: &std::path::Path) -> std::sync::Arc<tokio::sync::Mutex<()>> {
     locks.entry(game.to_owned()).or_default().clone()
 }
 
+type Plan = Vec<(u32, content::Key, content::Manifest)>;
+
+/// The key and manifest of each depot in `depots` (id, manifest), asked for on `branch`.
+async fn plan(
+    client: &mut steam::Client,
+    http: &steam::reqwest::Client,
+    host: &str,
+    depots: &[(u32, u64)],
+    branch: &str,
+) -> Result<Plan, steam::Error> {
+    let mut plan = Vec::new();
+    for &(depot, id) in depots {
+        let key = content::depot_key(client, APP, depot).await?;
+        let manifest =
+            content::manifest(client, http, host, (APP, depot, id), branch, &key).await?;
+        plan.push((depot, key, manifest));
+    }
+    Ok(plan)
+}
+
+fn said(err: steam::Error) -> String {
+    match err {
+        steam::Error::Steam { code: 15, .. } => {
+            "This Steam account doesn't own Project Zomboid".to_owned()
+        }
+        other => other.to_string(),
+    }
+}
+
+/// Installs the instance's build: the one it asked for (`store::target`, from a pack) on its
+/// first install, else its branch's current one. Returns the build and whether the asked-for
+/// one wouldn't come.
 async fn install(
     account: &Account,
     instance: &Instance,
     events: &UnboundedSender<Event>,
-) -> Result<u32, String> {
+) -> Result<(u32, bool), String> {
     let http = steam::http();
     let mut client = account.client(&http).await.map_err(|e| e.to_string())?;
     let info = pics::app_info(&mut client, &http, APP)
         .await
         .map_err(|e| e.to_string())?;
     let branch = instance.branch.as_ref();
-    let build = pics::branches(&info)
+    let current = pics::branches(&info)
         .into_iter()
         .find(|b| b.name == branch)
-        .ok_or_else(|| format!("Steam no longer has the branch {branch}"))?
-        .build_id;
+        .map(|b| b.build_id);
+    let depots = pics::depots(&info, branch, os());
+    let target = store::target(&instance.dir)
+        .filter(|t| instance.build.is_none() && Some(t.build) != current);
+    let mut build = current;
+    let mut hosts = None;
+    let mut exact = None;
+    let mut fell_back = false;
+    if let Some(target) = &target {
+        let shared = instance
+            .dir
+            .parent()
+            .map(|root| store::builds(root).join(target.build.to_string()));
+        if shared.as_deref().is_some_and(store::complete) {
+            build = Some(target.build);
+        } else {
+            let found = content::cdn_hosts(&mut client)
+                .await
+                .map_err(|e| e.to_string())?;
+            // The same depots as this OS has now, at the target's manifests.
+            let wanted: Option<Vec<(u32, u64)>> = depots
+                .iter()
+                .map(|d| Some((d.id, *target.depots.get(&d.id)?)))
+                .collect();
+            if let Some(wanted) = wanted.filter(|w| !w.is_empty()) {
+                // Steam serves a build that has left `public` only when asked on `public`; one
+                // still current on its own branch, on that branch.
+                let mut got = plan(&mut client, &http, &found[0], &wanted, branch).await;
+                if got.is_err() && branch != "public" {
+                    got = plan(&mut client, &http, &found[0], &wanted, "public").await;
+                }
+                match got {
+                    Ok(got) => {
+                        build = Some(target.build);
+                        exact = Some(got);
+                    }
+                    // Refused by Steam (or a depot it doesn't know): the current build instead.
+                    // Anything else (no network) is an error, not a reason to change builds.
+                    Err(steam::Error::Steam { .. }) => fell_back = true,
+                    Err(err) => return Err(err.to_string()),
+                }
+            } else {
+                fell_back = true;
+            }
+            hosts = Some(found);
+        }
+    }
+    let build = build.ok_or_else(|| format!("Steam no longer has the branch {branch}"))?;
     let own = instance.dir.join("game");
     // An own `game/` with no recorded build is a download from before builds were shared, cut
     // short: it seeds the shared build and then goes away.
@@ -208,44 +289,33 @@ async fn install(
         if partial {
             let _ = std::fs::remove_dir_all(&own);
         }
-        return Ok(build);
+        return Ok((build, fell_back));
     }
     // Files that didn't change since the build the instance runs now are copied, not downloaded.
     let seed = match partial {
         true => Some(own.clone()),
         false => instance.game().filter(|old| *old != game && old.is_dir()),
     };
-    let depots = pics::depots(&info, branch, os());
     if depots.is_empty() {
         return Err(format!("The {branch} branch has no files for {}", os()));
     }
 
     // Keys and manifests need the CM session; the files themselves come from the CDN.
-    let hosts = content::cdn_hosts(&mut client)
-        .await
-        .map_err(|e| e.to_string())?;
-    let mut plan = Vec::new();
-    for depot in depots {
-        let key = content::depot_key(&mut client, APP, depot.id)
+    let hosts = match hosts {
+        Some(hosts) => hosts,
+        None => content::cdn_hosts(&mut client)
             .await
-            .map_err(|err| match err {
-                steam::Error::Steam { code: 15, .. } => {
-                    "This Steam account doesn't own Project Zomboid".to_owned()
-                }
-                other => other.to_string(),
-            })?;
-        let manifest = content::manifest(
-            &mut client,
-            &http,
-            &hosts[0],
-            (APP, depot.id, depot.manifest),
-            branch,
-            &key,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-        plan.push((depot.id, key, manifest));
-    }
+            .map_err(|e| e.to_string())?,
+    };
+    let plan = match exact {
+        Some(plan) => plan,
+        None => {
+            let wanted: Vec<_> = depots.iter().map(|d| (d.id, d.manifest)).collect();
+            plan(&mut client, &http, &hosts[0], &wanted, branch)
+                .await
+                .map_err(said)?
+        }
+    };
     drop(client);
 
     let need = plan.iter().map(|(_, _, m)| content::need(m, &game)).sum();
@@ -289,11 +359,14 @@ async fn install(
         .filter(|f| zomboid::version::is_source(&f.path))
         .find_map(|f| zomboid::version::read(&game.join(&f.path)))
         .map(|v| v.to_string());
-    let manifests = ["linux", "windows", "macos"]
-        .into_iter()
-        .flat_map(|os| pics::depots(&info, branch, os))
-        .map(|d| (d.id, d.manifest))
-        .collect();
+    let manifests = match &target {
+        Some(target) if target.build == build => target.depots.clone(),
+        _ => ["linux", "windows", "macos"]
+            .into_iter()
+            .flat_map(|os| pics::depots(&info, branch, os))
+            .map(|d| (d.id, d.manifest))
+            .collect(),
+    };
     let _ = super::build::record(
         &game,
         &zomboid::catalog::Build {
@@ -307,7 +380,7 @@ async fn install(
     if partial {
         let _ = std::fs::remove_dir_all(&own);
     }
-    Ok(build)
+    Ok((build, fell_back))
 }
 
 #[cfg(test)]

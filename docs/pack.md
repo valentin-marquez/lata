@@ -27,7 +27,14 @@ pack.lata               (zip)
   "name": "Server with friends",
   "version": "1.0.0",
   "summary": "",
-  "build": { "branch": "unstable", "id": 19876543 },
+  "build": {
+    "branch": "unstable",
+    "id": 19876543,
+    "depots": [
+      { "id": 108603, "manifest": 1234567890123456789 },
+      { "id": 108604, "manifest": 2345678901234567890 }
+    ]
+  },
   "workshop": [
     { "id": 2392709985, "manifest": 4123456789012, "title": "Brita's Weapon Pack", "folders": ["Brita"] }
   ],
@@ -43,7 +50,7 @@ pack.lata               (zip)
 | `format` | Version of this format. A lata refuses a pack with a higher number than it knows. |
 | `game` | Always `projectzomboid`. |
 | `name`, `version`, `summary` | As typed when exporting. |
-| `build` | Steam branch, and the build the pack was made on. |
+| `build` | Steam branch, the build the pack was made on, and that build's manifest for every OS depot (`depots`). With `depots` the pack keeps the game at that build; without them (the exporter unchecked "Keep the game at", or lata didn't know the manifests) it follows the branch. |
 | `workshop` | Workshop items with the manifest each was downloaded at: an exact version, like the hashes and CDN URLs of `.mrpack`. `folders` are the folders the item puts under `mods/`. |
 | `mods`, `maps` | The active mod ids and maps, in load order. |
 | `settings` | Memory for the game, in GB, or `null` for the game's default. |
@@ -57,8 +64,11 @@ Unknown fields are ignored, so a newer lata can add fields without bumping `form
    that climbs out, and only `overrides/` and the icon are extracted.
 2. A new instance is made on `build.branch` with the pack's name, memory and icon, the
    overrides go into its `zomboid/`, and `mods`/`maps` become its active list.
-3. The game installs. Steam only serves each branch's current build, so an older pack gets
-   that one, and lata says so.
+3. The game installs. With `depots`, the first install asks Steam for that build's manifests
+   (on the pack's branch, then on `public`, where Steam still serves builds that have left it).
+   When Steam refuses (a build that only ever lived on a beta branch), the branch's current
+   build comes instead, and lata says so. Without `depots`, the branch's current build comes,
+   and lata says so when the pack was made on an older one.
 4. The Workshop items download at their manifest. When Steam no longer serves that version,
    the current one comes instead, and lata says so.
 

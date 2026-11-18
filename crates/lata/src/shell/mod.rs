@@ -503,7 +503,7 @@ impl Shell {
         }
         let id = instance.id.clone();
         let (events_tx, mut events) = tokio::sync::mpsc::unbounded_channel();
-        let name = instance.name.clone();
+        let (name, branch) = (instance.name.clone(), instance.branch.clone());
         let cancel = install::start(account, instance, events_tx);
         self.installs.insert(
             id.clone(),
@@ -521,9 +521,25 @@ impl Shell {
                             shell.changed(cx);
                         }
                     }
-                    install::Event::Done => {
+                    install::Event::Done { fell_back } => {
                         shell.installs.remove(&id);
                         shell.reload(cx);
+                        if fell_back {
+                            let branch = branch.clone();
+                            let _ = window.update(cx, |_, window, cx| {
+                                use gpui_kit::component::WindowExt;
+                                window.push_notification(
+                                    crate::ui::toast::heads_up(
+                                        "Steam won't hand out the pack's version",
+                                        format!(
+                                            "So the newest one of {} came instead",
+                                            instance::build::channel(&branch)
+                                        ),
+                                    ),
+                                    cx,
+                                );
+                            });
+                        }
                     }
                     install::Event::Failed(err) => {
                         if shell.installs.remove(&id).is_none() {
@@ -1383,8 +1399,12 @@ impl Shell {
                 }
                 Err(_) => return,
             };
-            // Steam only serves each branch's current build; an older pack gets that one.
-            let current = branches_build(&index.build.branch).await;
+            // A pack that follows its branch gets the branch's current build. One that keeps its
+            // build asks the install for it, which says so if Steam won't serve it.
+            let current = match index.build.depots.is_empty() {
+                true => branches_build(&index.build.branch).await,
+                false => None,
+            };
             let older = index
                 .build
                 .id
@@ -1413,10 +1433,10 @@ impl Shell {
                 if older {
                     window.push_notification(
                         toast::heads_up(
-                            "This pack was made on an older build",
+                            "This pack follows its branch",
                             format!(
-                                "Steam only has the current one of {}, so that's the one coming",
-                                index.build.branch
+                                "It was made on an older version, so the newest one of {} is coming",
+                                instance::build::channel(&index.build.branch)
                             ),
                         ),
                         cx,

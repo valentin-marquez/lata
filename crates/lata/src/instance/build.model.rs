@@ -98,6 +98,16 @@ pub fn version(build: u32, game: Option<&Path>) -> Option<String> {
     CATALOG.get(build)?.version.clone()
 }
 
+/// The manifest of every OS depot of `build`: its record, else the catalog. Empty when neither
+/// knows it (installed before records, and never seen by the catalog).
+pub fn manifests(build: u32, game: Option<&Path>) -> BTreeMap<u32, u64> {
+    game.and_then(read)
+        .map(|b| b.manifests)
+        .filter(|m| !m.is_empty())
+        .or_else(|| Some(CATALOG.get(build)?.manifests.clone()))
+        .unwrap_or_default()
+}
+
 /// "Build 42.19.2" in a branch description is the version; other descriptions aren't.
 pub fn described(description: &str) -> Option<String> {
     let text = description.trim().strip_prefix("Build ")?;
