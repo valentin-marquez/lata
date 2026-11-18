@@ -108,6 +108,23 @@ pub fn manifests(build: u32, game: Option<&Path>) -> BTreeMap<u32, u64> {
         .unwrap_or_default()
 }
 
+/// Whether the catalog pairs `build` with these manifests: a pack names its build, and the
+/// shared build folder is keyed by that id, so an id that came with another build's manifests
+/// must not fill it.
+pub fn pairs(build: u32, depots: &BTreeMap<u32, u64>) -> bool {
+    pairs_in(&CATALOG, build, depots)
+}
+
+fn pairs_in(catalog: &Catalog, build: u32, depots: &BTreeMap<u32, u64>) -> bool {
+    let Some(known) = catalog.get(build) else {
+        return false;
+    };
+    !depots.is_empty()
+        && depots
+            .iter()
+            .all(|(id, m)| known.manifests.get(id) == Some(m))
+}
+
 /// "Build 42.19.2" in a branch description is the version; other descriptions aren't.
 pub fn described(description: &str) -> Option<String> {
     let text = description.trim().strip_prefix("Build ")?;
@@ -210,6 +227,37 @@ mod tests {
         assert_eq!(name(6, None, None), "Build 6");
         remember(8, Some("42.1.0".into()));
         assert_eq!(name(8, None, Some(&now)), "42.1.0");
+    }
+
+    #[test]
+    fn pairs_a_build_only_with_its_own_manifests() {
+        let catalog = Catalog {
+            builds: vec![Build {
+                build: Some(7),
+                version: None,
+                branches: Vec::new(),
+                seen: 1,
+                manifests: BTreeMap::from([(108603, 31), (108604, 41)]),
+            }],
+        };
+        assert!(pairs_in(
+            &catalog,
+            7,
+            &BTreeMap::from([(108603, 31), (108604, 41)])
+        ));
+        assert!(
+            !pairs_in(&catalog, 7, &BTreeMap::from([(108603, 99)])),
+            "another build's"
+        );
+        assert!(
+            !pairs_in(&catalog, 7, &BTreeMap::from([(108602, 5)])),
+            "a depot it lacks"
+        );
+        assert!(
+            !pairs_in(&catalog, 8, &BTreeMap::from([(108603, 31)])),
+            "unknown id"
+        );
+        assert!(!pairs_in(&catalog, 7, &BTreeMap::new()));
     }
 
     #[test]

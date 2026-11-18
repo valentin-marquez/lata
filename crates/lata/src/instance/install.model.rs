@@ -229,10 +229,16 @@ async fn install(
     let depots = pics::depots(&info, branch, os());
     let target = store::target(&instance.dir)
         .filter(|t| instance.build.is_none() && Some(t.build) != current);
+    let mut fell_back = false;
+    // Only a build the catalog knows by these manifests: the shared folder is named by the id.
+    let target = target.filter(|t| {
+        let known = super::build::pairs(t.build, &t.depots);
+        fell_back = !known;
+        known
+    });
     let mut build = current;
     let mut hosts = None;
     let mut exact = None;
-    let mut fell_back = false;
     if let Some(target) = &target {
         let shared = instance
             .dir
