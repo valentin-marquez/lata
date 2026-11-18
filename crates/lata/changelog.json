@@ -1,5 +1,19 @@
 [
   {
+    "version": "0.9.0",
+    "date": "November 18, 2026",
+    "added": [
+      "Pick any game version when you create an instance: choose a channel, then a version, the newest marked Latest. Older Build 42 releases like 42.20.4 are there too, for when an update breaks your save or your mods.",
+      "Packs keep the game at the version they were made on, so a friend gets the same game you played. Uncheck Keep the game at when exporting to follow the newest instead."
+    ],
+    "changed": [
+      "The Discord button moved left, next to the library, giving the logo some room."
+    ],
+    "fixed": [
+      "A pack can only ask for a game version lata knows, so it can't fill a shared game folder with the wrong files."
+    ]
+  },
+  {
     "version": "0.8.0",
     "date": "November 17, 2026",
     "added": [
