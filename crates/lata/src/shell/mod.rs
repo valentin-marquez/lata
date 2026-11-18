@@ -530,7 +530,7 @@ impl Shell {
                                 use gpui_kit::component::WindowExt;
                                 window.push_notification(
                                     crate::ui::toast::heads_up(
-                                        "Steam won't hand out the pack's version",
+                                        "Steam won't hand out that version",
                                         format!(
                                             "So the newest one of {} came instead",
                                             instance::build::channel(&branch)

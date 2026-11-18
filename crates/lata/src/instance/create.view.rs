@@ -2,9 +2,12 @@
 //! game version.
 
 use gpui_kit::assets::IconName;
+use gpui_kit::component::IndexPath;
 use gpui_kit::component::dialog::DialogEntrance;
 use gpui_kit::component::hover_card::HoverCard;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::searchable_list::SearchableListItem;
+use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::{ActiveTheme, Icon as Glyph, WindowExt};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -12,7 +15,7 @@ use gpui_kit::*;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use super::branches::{self, Branch};
+use super::branches::{self, Branch, Choice};
 use super::existing::{self, Existing};
 use super::install::size;
 use super::mods::{self, Bundle};
@@ -62,7 +65,7 @@ pub fn open(
         let mut create = Create::new(root, created, window, cx);
         create.bring = Some(Rc::new(bring));
         create.import = Some(Rc::new(import));
-        create.load(cx);
+        create.load(window, cx);
         if let Some(found) = collection {
             create.start_from(found, window, cx);
         }
@@ -91,7 +94,14 @@ struct Create {
     forward: bool,
     /// `None` while loading from Steam.
     branches: Option<Result<Vec<Branch>, String>>,
-    branch: usize,
+    /// Every version on offer, by channel; filled once the branches are in.
+    choices: Vec<Choice>,
+    /// The channel picked, and the version picked (an index into `choices`).
+    channel: String,
+    chosen: usize,
+    /// The version dropdown, for the channel picked.
+    select: Option<Entity<SelectState<Vec<Row>>>>,
+    _select: Option<Subscription>,
     /// The picture so far, beside the name field.
     picture: Entity<Picker>,
     name: Entity<InputState>,
@@ -124,7 +134,11 @@ impl Create {
             step: Step::Choose,
             forward: true,
             branches: None,
-            branch: 0,
+            choices: Vec::new(),
+            channel: String::new(),
+            chosen: 0,
+            select: None,
+            _select: None,
             picture: cx.new(|_| Picker::new(None, false).with_name(name.clone())),
             name,
             suggested,
@@ -208,12 +222,43 @@ impl Create {
 
     /// Whether the chosen game version is Build 42 or newer.
     fn modern(&self) -> bool {
-        match &self.branches {
-            Some(Ok(list)) => list
-                .get(self.branch)
-                .is_none_or(|b| mods::branch_is_modern(&b.name)),
-            _ => true,
-        }
+        self.choices.get(self.chosen).is_none_or(branches::modern)
+    }
+
+    /// Picks `channel` and its newest version.
+    fn pick_channel(&mut self, channel: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.chosen = self
+            .choices
+            .iter()
+            .position(|c| c.channel == channel)
+            .unwrap_or(0);
+        self.channel = channel;
+        let rows: Vec<Row> = self
+            .choices
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.channel == self.channel)
+            .map(|(ix, c)| Row {
+                ix,
+                name: c.name.clone().into(),
+                latest: c.latest,
+                date: c.date.map(|at| branches::date(at).into()),
+                accent: cx.theme().primary,
+            })
+            .collect();
+        let state = cx.new(|cx| SelectState::new(rows, Some(IndexPath::new(0)), window, cx));
+        self._select = Some(cx.subscribe_in(
+            &state,
+            window,
+            |this, _, event: &SelectEvent<Vec<Row>>, _, cx| {
+                if let SelectEvent::Confirm(Some(ix)) = event {
+                    this.chosen = *ix;
+                    cx.notify();
+                }
+            },
+        ));
+        self.select = Some(state);
+        cx.notify();
     }
 
     /// The collection's name and the items that fit the chosen version, once it is found
@@ -237,14 +282,22 @@ impl Create {
         cx.notify();
     }
 
-    fn load(&mut self, cx: &mut Context<Self>) {
+    fn load(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.branches = None;
         cx.notify();
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let result = branches::fetch().await;
-            let _ = this.update(cx, |this, cx| {
-                this.branch = 0;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.choices = match &result {
+                    Ok(list) => branches::choices(list),
+                    Err(_) => Vec::new(),
+                };
                 this.branches = Some(result);
+                // Stable first: the newest stable version is where most people start.
+                let first = this.choices.first().map(|c| c.channel.clone());
+                if let Some(channel) = first {
+                    this.pick_channel(channel, window, cx);
+                }
                 cx.notify();
             });
         })
@@ -262,11 +315,14 @@ impl Create {
             (true, Some((collection, _))) => collection.to_string(),
             (true, None) => self.suggested.to_owned(),
         };
-        let Some(Ok(list)) = &self.branches else {
+        let Some(choice) = self.choices.get(self.chosen) else {
             return;
         };
-        let branch = list[self.branch].name.clone();
-        let made = store::create(&self.root, &name, &branch).and_then(|mut instance| {
+        let made = store::create(&self.root, &name, &choice.branch).and_then(|mut instance| {
+            // An older version installs by its manifests; the branch stays its update channel.
+            if let Some(target) = &choice.target {
+                store::set_target(&instance.dir, Some(target.clone()))?;
+            }
             let icon = picture::keep(&self.picture.read(cx).icon, &instance.dir)?;
             store::set_icon(&instance.dir, Some(icon.clone()))?;
             instance.icon = Some(icon);
@@ -378,36 +434,51 @@ impl Create {
         let theme = cx.theme().clone();
         let list = match &self.branches {
             None => {
-                return div().flex().flex_col().gap_2().child(Loader).child(
-                    div()
-                        .text_sm()
-                        .text_color(theme.muted_foreground)
-                        .child("Loading versions from Steam"),
-                );
-            }
-            Some(Err(err)) => {
                 return div()
                     .flex()
-                    .items_center()
-                    .gap_3()
-                    .text_sm()
+                    .flex_col()
+                    .gap_2()
+                    .child(label("Game version"))
+                    .child(Loader)
                     .child(
                         div()
-                            .flex_1()
+                            .text_sm()
                             .text_color(theme.muted_foreground)
-                            .child(format!("Couldn't reach Steam: {err}")),
-                    )
-                    .child(
-                        ui::secondary("retry", "Retry")
-                            .on_click(cx.listener(|this, _, _, cx| this.load(cx))),
+                            .child("Loading versions from Steam"),
                     );
+            }
+            Some(Err(err)) => {
+                return titled(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_3()
+                        .text_sm()
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_color(theme.muted_foreground)
+                                .child(format!("Couldn't reach Steam: {err}")),
+                        )
+                        .child(
+                            ui::secondary("retry", "Retry")
+                                .on_click(cx.listener(|this, _, window, cx| this.load(window, cx))),
+                        ),
+                );
             }
             Some(Ok(list)) => list,
         };
-        let chips = list.iter().enumerate().map(|(ix, branch)| {
-            let selected = ix == self.branch;
+        let mut channels: Vec<&str> = Vec::new();
+        for choice in &self.choices {
+            if !channels.contains(&choice.channel.as_str()) {
+                channels.push(&choice.channel);
+            }
+        }
+        let chips = channels.into_iter().map(|channel| {
+            let selected = channel == self.channel;
+            let pick = channel.to_owned();
             div()
-                .id(ix)
+                .id(SharedString::from(format!("channel-{channel}")))
                 .flex()
                 .items_center()
                 .gap_1p5()
@@ -431,37 +502,75 @@ impl Create {
                 .when(selected, |this| {
                     this.child(Glyph::new(IconName::Check).size_4())
                 })
-                .child(branches::channel(&branch.name))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.branch = ix;
-                    cx.notify();
+                .child(channel.to_owned())
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    if this.channel != pick {
+                        this.pick_channel(pick.clone(), window, cx);
+                    }
                 }))
         });
-        let chosen = &list[self.branch.min(list.len().saturating_sub(1))];
-        // A description that only says the version is shown as the version itself.
-        let about = match (&chosen.description, chosen.name.as_str()) {
-            (Some(text), _) if branches::described(text).is_none() => text.clone(),
-            (None, "public") => "Current release".into(),
-            _ => String::new(),
+        let Some(chosen) = self.choices.get(self.chosen) else {
+            return titled(
+                div()
+                    .text_sm()
+                    .text_color(theme.muted_foreground)
+                    .child("Steam has no versions to offer right now"),
+            );
         };
+        let live = list.iter().find(|b| b.name == chosen.branch);
+        // What the pick means for updates, in a line under the dropdown.
+        let about = match (&chosen.target, live) {
+            (Some(_), _) => "An older version. lata lets you know when a newer one is out, updating is up to you.".to_owned(),
+            (None, Some(b)) if branches::fallback(&b.name) => {
+                "Steam keeps this one on its own branch, so it won't get updates.".to_owned()
+            }
+            (None, Some(b)) => match &b.description {
+                Some(text) if branches::described(text).is_none() => text.clone(),
+                _ if b.name == "public" => "Current release".to_owned(),
+                _ => String::new(),
+            },
+            (None, None) => String::new(),
+        };
+        // Swaps in place when the pick changes: a short fade and a few px of travel. Its line
+        // is always there, so the footer never moves.
+        let from = 4.;
+        // A slot two lines tall, the text at its top: one line or two, the note starts in the
+        // same place and nothing under it moves.
+        let note = div().h(px(32.)).child(
+            div()
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .child(about)
+                .with_animation(
+                    ElementId::Name(format!("version-about-{}", self.chosen).into()),
+                    Animation::new(crate::ui::ENTER).with_easing(crate::ui::ease_out_quint),
+                    move |this, t| this.relative().top(px(from * (1. - t))).opacity(t),
+                ),
+        );
         div()
             .flex()
             .flex_col()
-            .gap_2()
-            .child(div().flex().flex_wrap().gap_2().children(chips))
+            .gap_6()
             .child(
                 div()
                     .flex()
-                    .gap_4()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .when(!about.is_empty(), |this| this.child(about))
-                    .child(branches::build_name(chosen))
-                    .children(
-                        chosen
-                            .updated
-                            .map(|at| format!("Updated {}", branches::date(at))),
-                    ),
+                    .flex_col()
+                    .gap_2()
+                    .child(label("Channel"))
+                    .child(div().flex().flex_wrap().gap_2().children(chips)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(label("Game version"))
+                    .children(self.select.as_ref().map(|state| {
+                        Select::new(state)
+                            .menu_max_h(px(280.))
+                            .accessibility_label("Game version")
+                    }))
+                    .child(note),
             )
     }
 
@@ -720,6 +829,16 @@ fn left_out(other: &[&steam::workshop::Item], build: &'static str, cx: &App) -> 
         })
 }
 
+/// A field's label over its content.
+fn titled(content: Div) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(label("Game version"))
+        .child(content)
+}
+
 fn label(text: &'static str) -> Div {
     div()
         .text_sm()
@@ -737,12 +856,7 @@ impl Render for Create {
             Step::Custom | Step::Collection => {
                 let ready = matches!(self.branches, Some(Ok(_)))
                     && (self.step != Step::Collection || self.mods().is_some());
-                let versions = div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(label("Game version"))
-                    .child(self.versions(cx));
+                let versions = self.versions(cx);
                 // From a collection the link comes first: it fills in the picture and the
                 // name, and the version sits under its summary, whose warning depends on it.
                 let body = div().flex().flex_col().gap_6();
@@ -769,5 +883,74 @@ impl Render for Create {
             Animation::new(crate::ui::ENTER).with_easing(crate::ui::ease_out_quint),
             move |body, t| body.relative().left(px(from * (1. - t))).opacity(t),
         )
+    }
+}
+
+/// A version in the dropdown.
+#[derive(Clone)]
+struct Row {
+    /// Its index in the dialog's `choices`.
+    ix: usize,
+    name: SharedString,
+    latest: bool,
+    date: Option<SharedString>,
+    /// The theme's accent, for the "Latest" tag (the trigger draws it without a context).
+    accent: Hsla,
+}
+
+impl Row {
+    fn tag(&self) -> Div {
+        div()
+            .px_1p5()
+            .rounded(px(4.))
+            .text_xs()
+            .font_weight(FontWeight::MEDIUM)
+            .bg(self.accent.opacity(0.15))
+            .text_color(self.accent)
+            .child("Latest")
+    }
+}
+
+impl SearchableListItem for Row {
+    type Value = usize;
+
+    fn title(&self) -> SharedString {
+        match self.latest {
+            true => format!("{} (latest)", self.name).into(),
+            false => self.name.clone(),
+        }
+    }
+
+    fn display_title(&self) -> Option<AnyElement> {
+        Some(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(self.name.clone())
+                .when(self.latest, |this| this.child(self.tag()))
+                .into_any_element(),
+        )
+    }
+
+    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let muted = cx.theme().muted_foreground;
+        div()
+            .flex()
+            .flex_1()
+            .items_center()
+            .gap_2()
+            .child(self.name.clone())
+            .when(self.latest, |this| this.child(self.tag()))
+            .child(div().flex_1())
+            .children(
+                self.date
+                    .clone()
+                    .map(|date| div().text_xs().text_color(muted).child(date)),
+            )
+    }
+
+    fn value(&self) -> &usize {
+        &self.ix
     }
 }

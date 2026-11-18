@@ -18,6 +18,34 @@ static CATALOG: LazyLock<Catalog> = LazyLock::new(catalog::embedded);
 /// may be installed later.
 static NAMES: Mutex<Option<HashMap<u32, Option<String>>>> = Mutex::new(None);
 
+pub fn catalog() -> &'static Catalog {
+    &CATALOG
+}
+
+/// The id lata files a build under: Steam's, or for a build the catalog only knows by its
+/// manifests (Steam tells the id of current builds only), one made from its Linux manifest with
+/// the top bit set, which Steam's ids (about 2^25 now) won't reach.
+pub fn key(build: &Build) -> Option<u32> {
+    build.build.or_else(|| made(build))
+}
+
+/// The id made from the manifest. Kept findable after the catalog learns the Steam id, since
+/// instances and targets already filed under it.
+fn made(build: &Build) -> Option<u32> {
+    let manifest = build
+        .manifests
+        .get(&108603)
+        .or_else(|| build.manifests.values().min())?;
+    Some(0x8000_0000 | (*manifest as u32 & 0x7fff_ffff))
+}
+
+fn lookup(catalog: &Catalog, build: u32) -> Option<&Build> {
+    catalog
+        .builds
+        .iter()
+        .find(|b| b.build == Some(build) || made(b) == Some(build))
+}
+
 pub fn read(game: &Path) -> Option<Build> {
     serde_json::from_slice(&std::fs::read(game.join(FILE)).ok()?).ok()
 }
@@ -70,7 +98,7 @@ pub fn version(build: u32, game: Option<&Path>) -> Option<String> {
     if let Some(known) = cached.as_ref().and_then(|n| n.get(&build)) {
         return known
             .clone()
-            .or_else(|| CATALOG.get(build)?.version.clone());
+            .or_else(|| lookup(&CATALOG, build)?.version.clone());
     }
     drop(cached);
     if let Some(game) = game.filter(|g| g.is_dir()) {
@@ -95,7 +123,7 @@ pub fn version(build: u32, game: Option<&Path>) -> Option<String> {
             return version;
         }
     }
-    CATALOG.get(build)?.version.clone()
+    lookup(&CATALOG, build)?.version.clone()
 }
 
 /// The manifest of every OS depot of `build`: its record, else the catalog. Empty when neither
@@ -104,7 +132,7 @@ pub fn manifests(build: u32, game: Option<&Path>) -> BTreeMap<u32, u64> {
     game.and_then(read)
         .map(|b| b.manifests)
         .filter(|m| !m.is_empty())
-        .or_else(|| Some(CATALOG.get(build)?.manifests.clone()))
+        .or_else(|| Some(lookup(&CATALOG, build)?.manifests.clone()))
         .unwrap_or_default()
 }
 
@@ -116,7 +144,7 @@ pub fn pairs(build: u32, depots: &BTreeMap<u32, u64>) -> bool {
 }
 
 fn pairs_in(catalog: &Catalog, build: u32, depots: &BTreeMap<u32, u64>) -> bool {
-    let Some(known) = catalog.get(build) else {
+    let Some(known) = lookup(catalog, build) else {
         return false;
     };
     !depots.is_empty()
@@ -147,6 +175,7 @@ pub fn channel(branch: &str) -> String {
     match branch {
         "public" => "Stable".into(),
         "pre-release" => "Pre-release".into(),
+        "unstable" => "Unstable".into(),
         other => other.to_owned(),
     }
 }
