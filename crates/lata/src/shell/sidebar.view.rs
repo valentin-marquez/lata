@@ -11,7 +11,7 @@ use super::{Page, Shell};
 use crate::account::Account;
 use crate::instance::Status;
 
-const WIDTH: Pixels = px(248.);
+pub const WIDTH: Pixels = px(248.);
 /// An instance row's height, fixed so the highlight can slide to any row by its index.
 const ROW: f32 = 60.;
 /// Space between instance rows (`gap_1`).

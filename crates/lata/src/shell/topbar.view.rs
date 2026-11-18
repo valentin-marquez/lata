@@ -1,5 +1,5 @@
-//! Title bar: logo, an update when there is one, the download manager, and which instance is
-//! running.
+//! Title bar: logo, the way into Discord, an update when there is one, the download manager,
+//! and which instance is running.
 
 use gpui_kit::component::{ActiveTheme, Icon, TitleBar};
 use gpui_kit::*;
@@ -8,8 +8,10 @@ use crate::assets::LOGO;
 
 /// Taller than gpui-component's 34px default so the header carries the window.
 pub const HEIGHT: Pixels = px(48.);
-/// Height of the two pills on the right: a small button's, so they read as controls.
+/// Height of the pills: a small button's, so they read as controls.
 pub const PILL: Pixels = px(36.);
+/// gpui-component's TitleBar inset before its content (room for macOS's window buttons).
+const INSET: Pixels = px(if cfg!(target_os = "macos") { 80. } else { 12. });
 
 #[derive(IntoElement)]
 pub struct Topbar {
@@ -46,6 +48,9 @@ impl RenderOnce for Topbar {
                         .flex()
                         .items_center()
                         .gap_2()
+                        // The brand fills the sidebar's width, so the next thing in the bar
+                        // starts over the content panel's rounded corner and the logo breathes.
+                        .min_w(super::sidebar::WIDTH - INSET)
                         // The brand takes the bar's height, as Modrinth's does: mark and name
                         // read at a glance instead of sitting there as a small label.
                         .child(img(LOGO).size(px(32.)))
@@ -67,13 +72,13 @@ impl RenderOnce for Topbar {
                                 .child("launcher"),
                         ),
                 )
+                .child(div().flex().flex_1().child(discord(cx.theme())))
                 .child(
                     div()
                         .flex()
                         .items_center()
                         .gap_2()
                         .children(update)
-                        .child(discord(cx.theme()))
                         .child(self.downloads)
                         .child(status),
                 ),
