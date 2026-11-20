@@ -9,3 +9,6 @@ changes on a fresh copy when upgrading.
 - `src/linux/wayland/client.rs`, `src/linux/wayland/clipboard.rs`: a copied image is offered
   under its own MIME type and its bytes are sent when that type is asked for; upstream offered
   and sent only text.
+- `src/linux/wayland/window.rs`: a window that isn't resizable and has a min size gets that
+  size as its max size too, instead of the GPU's texture size. Tiling compositors float a
+  fixed-size toplevel, so the update splash shows as a centered card instead of being tiled.

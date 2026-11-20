@@ -602,9 +602,18 @@ impl WaylandWindowState {
             // Set max window size based on the GPU's maximum texture dimension.
             // This prevents the window from being resized larger than what the GPU can render.
             let max_texture_size = renderer.max_texture_size() as i32;
-            xdg_state
-                .toplevel
-                .set_max_size(max_texture_size, max_texture_size);
+            // lata: a window that can't be resized says so with a max size equal to its min
+            // size. Tiling compositors (Hyprland, Sway) float a fixed-size toplevel; with the
+            // texture size as max they tiled a small card window across half the screen.
+            match options.window_min_size.filter(|_| !options.is_resizable) {
+                Some(size) => xdg_state.toplevel.set_max_size(
+                    f32::from(size.width) as i32,
+                    f32::from(size.height) as i32,
+                ),
+                None => xdg_state
+                    .toplevel
+                    .set_max_size(max_texture_size, max_texture_size),
+            }
         }
 
         Ok(Self {
