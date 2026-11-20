@@ -1394,6 +1394,22 @@ impl Shell {
         .detach();
     }
 
+    /// Goes to the Workshop, on Workshop item `id`'s page.
+    pub fn view_mod(shell: WeakEntity<Shell>, id: u64, window: &mut Window, cx: &mut App) {
+        let view = shell.clone().update(cx, |this, cx| {
+            this.go(Page::Workshop, cx);
+            this.workshop
+                .get_or_insert_with(|| {
+                    cx.new(|cx| crate::workshop::Workshop::new(shell, window, cx))
+                })
+                .clone()
+        });
+        // Outside the shell's update: the page reads the shell (the account) as it opens.
+        if let Ok(view) = view {
+            view.update(cx, |view, cx| view.visit(id, None, cx));
+        }
+    }
+
     /// Opens the create dialog; a created instance is listed, selected and installed.
     pub fn create(shell: WeakEntity<Shell>, window: &mut Window, cx: &mut App) {
         Self::create_from(shell, None, window, cx);

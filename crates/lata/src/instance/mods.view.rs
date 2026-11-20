@@ -868,6 +868,7 @@ impl Mods {
             self.instance.clone(),
             self.shell.clone(),
         );
+        let view_shell = shell.clone();
         let versions = move |window: &mut Window, cx: &mut App| {
             if let Some(workshop) = workshop {
                 super::versions::open(
@@ -973,33 +974,34 @@ impl Mods {
                             .icon(IconName::EllipsisVertical)
                             .dropdown_menu(move |menu, _, _| {
                                 let (dir, mod_id) = (dir.clone(), mod_id.clone());
-                                let versions = versions.clone();
-                                menu.item(
+                                let (versions, view_shell) = (versions.clone(), view_shell.clone());
+                                // Grouped like the instance menus: the mod on the Workshop,
+                                // then its files here, then Steam outside lata.
+                                menu.when_some(workshop.filter(|_| !gone), |menu, workshop| {
+                                    menu.item(
+                                        PopupMenuItem::new("View in Workshop")
+                                            .icon(IconName::Compass)
+                                            .on_click(move |_, window, cx| {
+                                                Shell::view_mod(
+                                                    view_shell.clone(),
+                                                    workshop,
+                                                    window,
+                                                    cx,
+                                                )
+                                            }),
+                                    )
+                                    .item(
+                                        PopupMenuItem::new("Change version")
+                                            .icon(Icon::empty().path("icons/history.svg"))
+                                            .on_click(move |_, window, cx| versions(window, cx)),
+                                    )
+                                    .separator()
+                                })
+                                .item(
                                     PopupMenuItem::new("Open folder")
                                         .icon(IconName::FolderOpen)
                                         .on_click(move |_, _, cx| cx.open_with_system(&dir)),
                                 )
-                                .when_some(workshop, |menu, workshop| {
-                                    // Nothing to change to once the Workshop lost the item.
-                                    menu.when(!gone, |menu| {
-                                        menu.item(
-                                            PopupMenuItem::new("Change version")
-                                                .icon(Icon::empty().path("icons/history.svg"))
-                                                .on_click(move |_, window, cx| {
-                                                    versions(window, cx)
-                                                }),
-                                        )
-                                    })
-                                    .item(
-                                        PopupMenuItem::new("Workshop page")
-                                            .icon(IconName::ExternalLink)
-                                            .on_click(move |_, _, cx| {
-                                                cx.open_url(&format!(
-                                                    "https://steamcommunity.com/sharedfiles/filedetails/?id={workshop}"
-                                                ))
-                                            }),
-                                    )
-                                })
                                 .item(
                                     PopupMenuItem::new("Copy mod id")
                                         .icon(IconName::Copy)
@@ -1013,6 +1015,17 @@ impl Mods {
                                             );
                                         }),
                                 )
+                                .when_some(workshop, |menu, workshop| {
+                                    menu.separator().item(
+                                        PopupMenuItem::new("Open on Steam")
+                                            .icon(IconName::ExternalLink)
+                                            .on_click(move |_, _, cx| {
+                                                cx.open_url(&format!(
+                                                    "https://steamcommunity.com/sharedfiles/filedetails/?id={workshop}"
+                                                ))
+                                            }),
+                                    )
+                                })
                             }),
                     ),
             )
