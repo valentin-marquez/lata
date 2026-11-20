@@ -308,6 +308,14 @@ impl Shell {
             }
             self.check_builds(cx);
         }
+        // The Workshop opens on its results, not on the mod page it was left at; clicking it
+        // while on a mod page goes back to them too. A page that was still loading leaves the
+        // loader behind, so it goes with it.
+        if let (Page::Workshop, Some(view)) = (page, &self.workshop)
+            && view.update(cx, |view, cx| view.close(cx))
+        {
+            self.loading = false;
+        }
         // New screenshots land while the game runs: look again on every visit.
         if let (Page::Screenshots, Some(view)) = (page, &self.screenshots) {
             let instances = self.instances.clone();
