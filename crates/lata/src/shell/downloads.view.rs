@@ -8,12 +8,16 @@ use gpui_kit::base::Selectable;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::popover::Popover;
 use gpui_kit::component::progress::Progress;
+use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{ActiveTheme, Icon, Sizable};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::Shell;
 use crate::instance::install::{self, Download};
+
+/// The progress, 0 to 1, over which the pill's fill fades in from nothing.
+const FADE_IN: f32 = 0.06;
 
 /// What the pill shows; `None` when nothing is downloading.
 #[derive(IntoElement)]
@@ -119,7 +123,10 @@ impl RenderOnce for Trigger {
         };
         pill
             // The fill behind the content is the progress bar. GPUI clips to the pill's box,
-            // not its rounded outline, so the fill rounds its own ends to stay inside it.
+            // not its rounded outline, so the fill rounds its own ends to stay inside it. A fill
+            // narrower than the pill's end cap can't follow the curve (its own corners would
+            // stick out), so it is never narrower than the cap, and fades in over the first
+            // few percent instead of popping in at that width.
             .child(
                 div()
                     .absolute()
@@ -127,9 +134,10 @@ impl RenderOnce for Trigger {
                     .left_0()
                     .h_full()
                     .w(relative(s.fraction))
+                    .min_w(super::topbar::PILL * 0.5)
                     .rounded_l_full()
                     .when(s.fraction > 0.95, |this| this.rounded_r_full())
-                    .bg(theme.primary.opacity(0.18)),
+                    .bg(theme.primary.opacity(0.18 * (s.fraction / FADE_IN).min(1.))),
             )
             .child(
                 Icon::new(IconName::Download)
@@ -157,11 +165,22 @@ impl RenderOnce for Trigger {
             .child(
                 div()
                     .flex_none()
-                    .w(px(78.))
+                    .w(px(68.))
                     .flex()
-                    .justify_end()
+                    .items_center()
+                    // From the left, so the speed or the spinner sits right after the
+                    // percentage whatever its width.
+                    .justify_start()
                     .text_color(theme.muted_foreground)
-                    .children((s.speed > 0).then(|| format!("{}/s", install::size(s.speed)))),
+                    // Until the speed is measured (the first moments, or a task that has none,
+                    // like a deletion) a spinner says it is working and not stuck.
+                    .map(|this| match s.speed {
+                        // Centered where the speed will go, not at its left edge.
+                        0 => this
+                            .justify_center()
+                            .child(Spinner::new().small().color(theme.muted_foreground)),
+                        speed => this.child(format!("{}/s", install::size(speed))),
+                    }),
             )
     }
 }
