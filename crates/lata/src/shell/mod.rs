@@ -929,8 +929,19 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         use gpui_kit::component::WindowExt;
-        if self.running.contains_key(id) || self.installs.contains_key(id) || self.adding_mods(id) {
-            return Err("Whoa! Stop the game before deleting it".into());
+        // Each reason says what to do about it: the game, the download and the mods being
+        // added all stop in different places.
+        let busy = if self.running.contains_key(id) {
+            Some("Whoa! Stop the game before deleting it")
+        } else if self.installs.contains_key(id) {
+            Some("Whoa! Cancel the download before deleting it")
+        } else if self.adding_mods(id) {
+            Some("Whoa! Let its mods finish, or cancel them, before deleting it")
+        } else {
+            None
+        };
+        if let Some(why) = busy {
+            return Err(why.into());
         }
         let Some(ix) = self.instances.iter().position(|i| i.id == *id) else {
             return Ok(());
