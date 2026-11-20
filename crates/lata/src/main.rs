@@ -19,6 +19,7 @@ mod storage;
 mod theme;
 mod ui;
 mod update;
+mod workshop;
 
 use std::sync::Arc;
 

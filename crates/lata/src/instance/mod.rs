@@ -276,7 +276,7 @@ pub fn bar(id: &SharedString, status: Status, cx: &App) -> Option<impl IntoEleme
 }
 
 /// "just now", "5 minutes ago", "yesterday", "3 weeks ago"...
-fn ago(secs: u64) -> String {
+pub(crate) fn ago(secs: u64) -> String {
     const UNITS: [(u64, &str); 5] = [
         (60, "minute"),
         (3600, "hour"),

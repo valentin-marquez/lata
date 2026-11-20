@@ -3,7 +3,7 @@
 #[path = "downloads.view.rs"]
 mod downloads;
 #[path = "sidebar.view.rs"]
-mod sidebar;
+pub(crate) mod sidebar;
 #[path = "topbar.view.rs"]
 mod topbar;
 
@@ -26,6 +26,7 @@ use topbar::Topbar;
 pub enum Page {
     Library,
     Screenshots,
+    Workshop,
     Instance(usize),
 }
 
@@ -37,6 +38,8 @@ pub struct Shell {
     /// Made on first view; it needs a window for its search field.
     library: Option<Entity<Library>>,
     screenshots: Option<Entity<screenshots::Screenshots>>,
+    /// Made on first view, like the Library.
+    workshop: Option<Entity<crate::workshop::Workshop>>,
     account: Option<Account>,
     /// Newest Steam build id per branch name; empty until the first check succeeds.
     latest: HashMap<SharedString, instance::branches::Branch>,
@@ -105,6 +108,7 @@ impl Shell {
             detail: None,
             library: None,
             screenshots: None,
+            workshop: None,
             link_open: None,
             link_queue: VecDeque::new(),
             link_resolving: 0,
@@ -567,6 +571,11 @@ impl Shell {
 
     /// Installs in progress, by name so the order holds still between frames.
     /// Whether a mod is being downloaded into instance `id`.
+    /// Whether Workshop item `item` is downloading into instance `id` right now.
+    pub fn adding_mod(&self, id: &SharedString, item: u64) -> bool {
+        self.installs.contains_key(&mod_key(id, &item.to_string()))
+    }
+
     pub fn adding_mods(&self, id: &SharedString) -> bool {
         let prefix = mod_key(id, "");
         self.installs.keys().any(|key| key.starts_with(&*prefix))
@@ -679,6 +688,8 @@ impl Shell {
             return;
         }
         let (events_tx, mut events) = tokio::sync::mpsc::unbounded_channel();
+        // The toast says where the mod went: the Workshop page adds without opening the instance.
+        let target = instance.name.clone();
         let (exact, active) = pack.map_or((Vec::new(), None), |p| (p.exact, p.active));
         let picked: Vec<u64> = exact.iter().map(|(id, _)| *id).collect();
         let task = crate::runtime::spawn(async move {
@@ -769,10 +780,13 @@ impl Shell {
                     (Some(name), many) => {
                         format!("{name} is in! All {} mods are ready to go", many + 1)
                     }
-                    (None, 0) => format!("{} is in! Ready for your next run", added.title),
-                    (None, 1) => format!("{} is in, with the mod it needs", added.title),
+                    (None, 0) => format!("{} is in {target}! Ready for your next run", added.title),
+                    (None, 1) => format!("{} is in {target}, with the mod it needs", added.title),
                     (None, many) => {
-                        format!("{} is in, with the {many} mods it needs", added.title)
+                        format!(
+                            "{} is in {target}, with the {many} mods it needs",
+                            added.title
+                        )
                     }
                 }),
                 Ok(Err(reason)) => {
@@ -1609,6 +1623,15 @@ impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let page = match (self.page, &self.detail) {
             (Page::Instance(_), Some(detail)) => detail.clone().into_any_element(),
+            (Page::Workshop, _) => {
+                let shell = cx.entity().downgrade();
+                self.workshop
+                    .get_or_insert_with(|| {
+                        cx.new(|cx| crate::workshop::Workshop::new(shell, window, cx))
+                    })
+                    .clone()
+                    .into_any_element()
+            }
             (Page::Screenshots, _) => {
                 let instances = self.instances.clone();
                 self.screenshots

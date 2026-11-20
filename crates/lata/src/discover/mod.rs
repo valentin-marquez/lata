@@ -14,6 +14,7 @@ use steam::workshop::Item;
 
 use crate::instance::{APP, branches, mods};
 use crate::shell::Shell;
+use crate::ui::FancyButton;
 
 pub const WIDTH: Pixels = px(320.);
 /// Below this window width the panel is left out: the page in the middle needs the room.
@@ -139,7 +140,7 @@ pub async fn load() -> Feed {
 }
 
 /// `27557` as `27.5K`: how many people use a mod, at a glance.
-fn compact(n: u32) -> String {
+pub(crate) fn compact(n: u32) -> String {
     match n {
         0..1_000 => n.to_string(),
         1_000..1_000_000 => format!("{}.{}K", n / 1_000, n % 1_000 / 100),
@@ -355,7 +356,8 @@ fn trending(
     };
     // A row out of sight has no button: nothing unseen can be clicked.
     let any = shown && !shell.instances().is_empty();
-    let (item_for_pick, handle) = (item.clone(), handle.clone());
+    let (item_for_pick, picture_for_pick, handle) =
+        (item.clone(), found.picture.clone(), handle.clone());
     div()
         .flex()
         .items_center()
@@ -394,17 +396,41 @@ fn trending(
                     .ghost()
                     .cursor_pointer()
                     .icon(IconName::Download)
-                    .tooltip("Add to an instance")
+                    .tooltip("Install to an instance")
                     .on_click(move |_, window, cx| {
-                        pick(item_for_pick.clone(), handle.clone(), window, cx)
+                        pick(
+                            item_for_pick.clone(),
+                            picture_for_pick.clone(),
+                            None,
+                            handle.clone(),
+                            window,
+                            cx,
+                        )
                     }),
             )
         })
 }
 
+/// Where an instance stands with the mod being added.
+#[derive(Clone, Copy, PartialEq)]
+enum Target {
+    Ready,
+    Adding,
+    Installed,
+}
+
 /// Asks which instance gets `item`, offering only the ones it is made for: a Build 42 mod
-/// in a Build 41 instance would just not show up in the game.
-fn pick(item: Item, shell: WeakEntity<Shell>, window: &mut Window, cx: &mut App) {
+/// in a Build 41 instance would just not show up in the game. Each instance has its own Add,
+/// and the dialog stays open, so a mod can go into several; rows say when it is downloading
+/// there or already in. `picture` and `author` show which mod this is, when known.
+pub(crate) fn pick(
+    item: Item,
+    picture: Option<PathBuf>,
+    author: Option<String>,
+    shell: WeakEntity<Shell>,
+    window: &mut Window,
+    cx: &mut App,
+) {
     use gpui_kit::component::WindowExt;
     use gpui_kit::component::dialog::DialogEntrance;
     let Ok(instances) = shell.read_with(cx, |shell, _| shell.instances().to_vec()) else {
@@ -413,24 +439,56 @@ fn pick(item: Item, shell: WeakEntity<Shell>, window: &mut Window, cx: &mut App)
     let (fitting, other): (Vec<_>, Vec<_>) = instances
         .into_iter()
         .partition(|instance| mods::fits(instance, &item.tags));
+    let build = ["Build 42", "Build 41"]
+        .into_iter()
+        .find(|build| item.tags.iter().any(|tag| tag == build));
     window.open_dialog(cx, move |dialog, _, cx| {
         let theme = cx.theme().clone();
         let rows = fitting.iter().map(|instance| {
+            // Read on every frame of the dialog, so a row turns Installed when its download
+            // lands. ponytail: one small `mods.json` per instance a frame; cache it if a
+            // library of hundreds makes the dialog stutter.
+            let state = if shell
+                .read_with(cx, |shell, _| shell.adding_mod(&instance.id, item.id))
+                .unwrap_or(false)
+            {
+                Target::Adding
+            } else if mods::pins(instance).iter().any(|pin| pin.id == item.id) {
+                Target::Installed
+            } else {
+                Target::Ready
+            };
             let (shell, instance_for_add, id) = (shell.clone(), instance.clone(), item.id);
+            let state_view = match state {
+                Target::Ready => FancyButton::new(
+                    SharedString::from(format!("pick-add-{}", instance.id)),
+                    "Install",
+                )
+                .small()
+                .icon(IconName::Download)
+                .on_click(move |_, window, cx| {
+                    let (instance, handle) = (instance_for_add.clone(), window.window_handle());
+                    let _ = shell.update(cx, |shell, cx| shell.add_mod(instance, id, handle, cx));
+                })
+                .into_any_element(),
+                Target::Adding => status(IconName::LoaderCircle, "Installing", &theme),
+                Target::Installed => status(IconName::Check, "Installed", &theme),
+            };
             div()
-                .id(SharedString::from(format!("pick-{}", instance.id)))
                 .flex()
                 .items_center()
                 .gap_3()
-                .p_2()
-                .rounded(theme.radius)
-                .cursor_pointer()
-                .hover(|row| row.bg(theme.muted))
+                .min_h(px(64.))
+                .px_3()
+                .py_2()
+                .rounded(theme.radius_lg)
+                .bg(theme.muted.opacity(0.5))
                 .child(crate::instance::art::art(instance, 40., px(8.), cx))
                 .child(
                     div()
                         .flex()
                         .flex_col()
+                        .flex_1()
                         .min_w_0()
                         .child(
                             div()
@@ -446,51 +504,127 @@ fn pick(item: Item, shell: WeakEntity<Shell>, window: &mut Window, cx: &mut App)
                                 .child(instance.version().unwrap_or_else(|| instance.channel())),
                         ),
                 )
-                .on_click(move |_, window, cx| {
-                    window.close_dialog(cx);
-                    let (instance, handle) = (instance_for_add.clone(), window.window_handle());
-                    let _ = shell.update(cx, |shell, cx| shell.add_mod(instance, id, handle, cx));
-                })
+                .child(div().flex_none().child(state_view))
         });
-        let hidden = match other.len() {
-            0 => None,
-            1 => Some("1 instance runs another build, so it isn't offered".to_owned()),
-            many => Some(format!(
+        let hidden = match (other.len(), build) {
+            (0, _) => None,
+            (1, Some(build)) => Some(format!(
+                "1 instance doesn't run {build}, so it isn't offered"
+            )),
+            (many, Some(build)) => Some(format!(
+                "{many} instances don't run {build}, so they aren't offered"
+            )),
+            (1, None) => Some("1 instance runs another build, so it isn't offered".to_owned()),
+            (many, None) => Some(format!(
                 "{many} instances run another build, so they aren't offered"
             )),
         };
+        let none = match build {
+            Some(build) => {
+                format!("This mod is for {build}, and none of your instances runs it yet.")
+            }
+            None => "None of your instances can run this mod yet.".to_owned(),
+        };
+        let picture = match &picture {
+            Some(path) => div().flex_none().size(px(48.)).child(
+                img(path.clone())
+                    .size_full()
+                    .rounded(px(8.))
+                    .object_fit(ObjectFit::Cover),
+            ),
+            None => div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .size(px(48.))
+                .rounded(px(8.))
+                .bg(theme.muted)
+                .text_color(theme.muted_foreground)
+                .child(Icon::new(IconName::Puzzle).size_5()),
+        };
+        let (create, wanted) = (shell.clone(), item.clone());
         dialog
             .entrance(DialogEntrance::FadeSlide)
-            .title("Add to an instance")
+            .title("Install to an instance")
             .centered()
-            .w(px(420.))
+            .w(px(480.))
             .child(
                 div()
                     .flex()
                     .flex_col()
-                    .gap_3()
+                    .gap_4()
+                    .child(
+                        div().flex().items_center().gap_3().child(picture).child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .min_w_0()
+                                .child(
+                                    div()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .line_clamp(2)
+                                        .child(item.title.clone()),
+                                )
+                                .children(author.clone().map(|name| {
+                                    div()
+                                        .text_sm()
+                                        .text_color(theme.muted_foreground)
+                                        .child(format!("by {name}"))
+                                })),
+                        ),
+                    )
                     .child(
                         div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child(item.title.clone()),
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(theme.muted_foreground)
+                                    .child("Choose an instance"),
+                            )
+                            .when(fitting.is_empty(), |this| {
+                                this.child(div().text_sm().child(none.clone()))
+                            })
+                            .children(rows),
                     )
-                    .when(fitting.is_empty(), |this| {
-                        this.child(
-                            div()
-                                .text_sm()
-                                .child("None of your instances runs the build this mod is for."),
-                        )
-                    })
-                    .child(div().flex().flex_col().gap_1().children(rows))
                     .children(hidden.map(|text| {
                         div()
                             .text_xs()
                             .text_color(theme.muted_foreground)
                             .child(text)
-                    })),
+                    }))
+                    .child(
+                        div().flex().justify_end().child(
+                            crate::ui::secondary("pick-new", "New instance")
+                                .icon(IconName::Plus)
+                                .on_click(move |_, window, cx| {
+                                    window.close_dialog(cx);
+                                    Shell::create_for(create.clone(), wanted.clone(), window, cx);
+                                }),
+                        ),
+                    ),
             )
     });
+}
+
+/// What an instance row says instead of Add: the mod is downloading there, or already in.
+fn status(icon: IconName, label: &'static str, theme: &gpui_kit::component::Theme) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap_1p5()
+        .h(px(32.))
+        .px_2()
+        .text_sm()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(theme.muted_foreground)
+        .child(Icon::new(icon).size_4())
+        .child(label)
+        .into_any_element()
 }
 
 /// The panel. `feed` is `None` while Steam is being asked.

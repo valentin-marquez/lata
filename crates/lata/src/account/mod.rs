@@ -329,4 +329,27 @@ mod file_tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "b");
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
+
+    /// The saved account can read the names of Workshop authors (anonymous sessions can't).
+    #[test]
+    #[ignore = "talks to Steam with the saved account"]
+    fn the_account_reads_author_names() {
+        let wait = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("a runtime to wait on");
+        let names = wait
+            .block_on(async {
+                let account = super::load().await.expect("a saved account");
+                crate::runtime::spawn(async move {
+                    let http = steam::http();
+                    let mut client = account.client(&http).await.expect("logon");
+                    steam::workshop::authors(&mut client, &[76561199090288742]).await
+                })
+                .await
+                .expect("the task ends")
+            })
+            .expect("names come back");
+        eprintln!("{names:?}");
+        assert!(names.contains_key(&76561199090288742));
+    }
 }
