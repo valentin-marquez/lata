@@ -3537,7 +3537,7 @@ dependencies = [
 
 [[package]]
 name = "lata"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "auto-launch",
  "chrono",
@@ -6568,7 +6568,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "steam"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "aes",
  "base64 0.22.1",
@@ -9255,7 +9255,7 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 
 [[package]]
 name = "zomboid"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "flate2",
  "reqwest",
