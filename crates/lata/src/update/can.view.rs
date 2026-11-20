@@ -1,7 +1,7 @@
 //! The splash's can, alive: it settles in when the window opens, its lid rings beat while lata
-//! looks for an update, the lid lifts while one comes in and lands with a bounce when it is
-//! installed, and the eye blinks now and then. Designed in Figma's Motion mode (frame
-//! "Updater / splash"); the timings and curves come from there.
+//! looks for an update and while one downloads, the lid lifts while one comes in and lands with
+//! a bounce when it is installed, and the eye blinks now and then. Designed in Figma's Motion
+//! mode (frame "Updater / splash"); the timings and curves come from there.
 //!
 //! GPUI can scale and move images but not boxes, and doesn't play SVG animation, so the logo is
 //! five SVG layers (`assets/icons/splash/`) placed and sized here every frame from the clock.
@@ -159,8 +159,10 @@ pub fn can(step: &Step, size: f32, window: &mut Window, cx: &mut App) -> Div {
     let age = secs(shown, now);
     let enter = if reduce { 1. } else { quint(unit(age, ENTER)) };
 
-    // The rings beat while lata waits on GitHub.
-    let (beat_inner, beat_outer) = if *step == Step::Checking && !reduce {
+    // The rings beat while lata waits: on GitHub, then on the download (only the blink moved
+    // then, so a long download looked frozen).
+    let waiting = matches!(step, Step::Checking | Step::Downloading { .. });
+    let (beat_inner, beat_outer) = if waiting && !reduce {
         let t = (age % BEAT) / BEAT;
         (
             1. + 0.10 * bump(t, 0., 0.5),
