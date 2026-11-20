@@ -619,14 +619,19 @@ impl Shell {
         );
     }
 
-    /// Puts back the versions the last mod update replaced, all at once.
+    /// Puts back the versions the last mod update replaced: all of them, or only those of
+    /// Workshop items `only`.
     pub fn undo_mods(
         &mut self,
         instance: Instance,
+        only: Option<Vec<u64>>,
         window: AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        let exact = instance::mods::undo(&instance);
+        let mut exact = instance::mods::undo(&instance);
+        if let Some(only) = only {
+            exact.retain(|(id, _)| only.contains(id));
+        }
         if exact.is_empty() {
             return;
         }

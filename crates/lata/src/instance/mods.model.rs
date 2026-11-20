@@ -10,6 +10,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -112,6 +113,11 @@ pub struct Mod {
     /// Ids of mods it wants to load before (`loadModBefore=`).
     pub load_before: Vec<String>,
     pub enabled: bool,
+    /// When it came into the instance, and when its files last changed there (an update or a
+    /// version change). From `mods.json`; the folder's date for mods lata didn't install or
+    /// installed before it kept dates.
+    pub added: Option<SystemTime>,
+    pub updated: Option<SystemTime>,
 }
 
 /// What a `mod.info` says, with only the keys lata uses.
@@ -328,7 +334,11 @@ pub fn list(instance: &Instance) -> Vec<Mod> {
                 .map(|name| name.to_string_lossy().into_owned())
                 .filter(|name| Version::parse(name).is_some());
             let pin = pins.items.iter().find(|pin| pin.folders.contains(&folder));
+            let at = |secs: Option<u64>| secs.map(|secs| UNIX_EPOCH + Duration::from_secs(secs));
+            let touched = entry.metadata().and_then(|m| m.modified()).ok();
             Some(Mod {
+                added: at(pin.and_then(|pin| pin.added)).or(touched),
+                updated: at(pin.and_then(|pin| pin.updated)).or(touched),
                 enabled: active.mods.contains(&info.id),
                 id: info.id,
                 name: info.name,
@@ -547,6 +557,11 @@ pub struct Pin {
     /// The user picked this version: updates leave the item alone until they pick the newest.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub held: bool,
+    /// Unix seconds of its first install here and of the last time its files changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub added: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated: Option<u64>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -618,9 +633,12 @@ pub fn undo(instance: &Instance) -> Vec<(u64, u64)> {
         .collect()
 }
 
-/// Drops what [`remember`] kept, once it has been undone.
+/// Drops what [`remember`] kept once all of it has been undone. Undoing only some items
+/// keeps the file: the ones put back already match it, so [`undo`] stops offering them.
 pub fn forget(instance: &Instance) {
-    let _ = std::fs::remove_file(instance.dir.join(UNDO));
+    if undo(instance).is_empty() {
+        let _ = std::fs::remove_file(instance.dir.join(UNDO));
+    }
 }
 
 /// Moves the mod folders of a downloaded Workshop item (`<item>/mods/<folder>`) into the
@@ -800,10 +818,25 @@ pub async fn latest(instance: &Instance) -> Result<std::collections::HashMap<u64
 /// Moves a downloaded item from `staging` into the instance, pins it and turns on the mods it
 /// brought that weren't there before; an update leaves each mod on or off as it was.
 fn land(instance: &Instance, item: &steam::workshop::Item, staging: &Path) -> io::Result<()> {
-    let before: Vec<String> = list(instance).into_iter().map(|m| m.id).collect();
+    let installed = list(instance);
+    let before: Vec<&str> = installed.iter().map(|m| m.id.as_str()).collect();
+    let mut pins = read_pins(instance);
+    let secs = |at: SystemTime| at.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs());
+    // An item already here keeps the day it came; one pinned before dates were kept takes its
+    // folder's, read before the new files replace it.
+    let added = pins
+        .items
+        .iter()
+        .find(|pin| pin.id == item.id)
+        .and_then(|pin| {
+            pin.added.or_else(|| {
+                let old = installed.iter().find(|m| pin.folders.contains(&m.folder))?;
+                secs(old.added?)
+            })
+        });
+    let now = secs(SystemTime::now());
     let folders = adopt(instance, staging)?;
     let _ = std::fs::remove_dir_all(staging);
-    let mut pins = read_pins(instance);
     // A folder belongs to the item that brought it last. Another item with a folder of the
     // same name just replaced it, so the first one no longer owns what is there: keeping it
     // listed would let, say, an item with a `ZombieBuddy` folder pass for the Java loader.
@@ -827,6 +860,8 @@ fn land(instance: &Instance, item: &steam::workshop::Item, staging: &Path) -> io
         title: item.title.clone(),
         folders: folders.clone(),
         held: false,
+        added: added.or(now),
+        updated: now,
     });
     write_pins(instance, &pins)?;
     // On as soon as it lands, so a cancelled install leaves what it got usable. A mod whose
@@ -835,7 +870,7 @@ fn land(instance: &Instance, item: &steam::workshop::Item, staging: &Path) -> io
     // about 100k small reads); keep the list in memory if it shows.
     for found in list(instance)
         .iter()
-        .filter(|m| folders.contains(&m.folder) && !before.contains(&m.id))
+        .filter(|m| folders.contains(&m.folder) && !before.contains(&m.id.as_str()))
     {
         set_enabled(instance, &found.id, true)?;
     }
@@ -1158,6 +1193,8 @@ mod tests {
             id,
             app: APP,
             title: id.to_string(),
+            author: 0,
+            summary: String::new(),
             manifest,
             file_url: None,
             size: 1,
@@ -1262,6 +1299,8 @@ mod tests {
             load_after: list(after),
             load_before: list(before),
             enabled: true,
+            added: None,
+            updated: None,
         }
     }
 
@@ -1474,6 +1513,58 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    #[test]
+    fn keeps_when_a_mod_came_and_when_it_last_changed() {
+        let dir = temp("dates");
+        let instance = instance(&dir);
+        put(&dir, "zomboid/version.txt", "42.19.2 99198cd6ef\n");
+        let item = steam::workshop::Item {
+            id: 7,
+            app: APP,
+            title: "seven".into(),
+            author: 0,
+            summary: String::new(),
+            manifest: 70,
+            file_url: None,
+            size: 0,
+            updated: None,
+            tags: Vec::new(),
+            preview: None,
+            requires: Vec::new(),
+            subscriptions: 0,
+            file_type: 0,
+        };
+        let bring = || {
+            put(&dir, ".incoming/7/mods/Seven/42/mod.info", "id=Seven");
+            land(&instance, &item, &dir.join(".incoming/7")).unwrap();
+            read_pins(&instance).items.remove(0)
+        };
+        let first = bring();
+        assert!(first.added.is_some());
+        assert_eq!(first.added, first.updated);
+        // Updated later: the day it came stays.
+        let mut pins = read_pins(&instance);
+        pins.items[0].added = Some(5);
+        pins.items[0].updated = Some(5);
+        write_pins(&instance, &pins).unwrap();
+        let again = bring();
+        assert_eq!(again.added, Some(5));
+        assert!(again.updated > Some(5));
+        // A mod lata didn't install goes by its folder's date.
+        put(&dir, "zomboid/mods/Loose/42/mod.info", "id=Loose");
+        let loose = list(&instance)
+            .into_iter()
+            .find(|m| m.id == "Loose")
+            .unwrap();
+        assert!(loose.added.is_some() && loose.added == loose.updated);
+        let seven = list(&instance)
+            .into_iter()
+            .find(|m| m.id == "Seven")
+            .unwrap();
+        assert_eq!(seven.added, Some(UNIX_EPOCH + Duration::from_secs(5)));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// An item can ship a folder named like another item's. The folder then holds the newcomer's
     /// files, so the first item must stop owning it: the Java loader is hooked by its folder.
     #[test]
@@ -1484,6 +1575,8 @@ mod tests {
             id,
             app: APP,
             title: format!("item {id}"),
+            author: 0,
+            summary: String::new(),
             manifest: id,
             file_url: None,
             size: 0,
@@ -1557,6 +1650,8 @@ mod tests {
             title: format!("mod {id}"),
             folders: Vec::new(),
             held: false,
+            added: None,
+            updated: None,
         };
         let items = vec![pin(1, 10), pin(2, 20), pin(3, 30)];
         write_pins(&instance, &Pins { items }).unwrap();
@@ -1569,8 +1664,17 @@ mod tests {
         pins.items[0].manifest = 11;
         write_pins(&instance, &pins).unwrap();
         assert_eq!(undo(&instance), [(1, 10)]);
+        // Only some of it undone: the rest stays to undo later.
+        pins.items[1].manifest = 21;
+        write_pins(&instance, &pins).unwrap();
+        pins.items[0].manifest = 10;
+        write_pins(&instance, &pins).unwrap();
         forget(&instance);
-        assert!(undo(&instance).is_empty());
+        assert_eq!(undo(&instance), [(2, 20)]);
+        pins.items[1].manifest = 20;
+        write_pins(&instance, &pins).unwrap();
+        forget(&instance);
+        assert!(!instance.dir.join(UNDO).exists());
 
         hold(&instance, &[2], true).unwrap();
         let held: Vec<bool> = pins_of(&instance).iter().map(|p| p.held).collect();
@@ -1686,6 +1790,8 @@ mod tests {
             id: 7,
             app: APP,
             title: "Seven".into(),
+            author: 0,
+            summary: String::new(),
             manifest,
             file_url: None,
             size: 1,

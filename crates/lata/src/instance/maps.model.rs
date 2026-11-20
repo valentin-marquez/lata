@@ -237,6 +237,8 @@ mod tests {
             load_after: Vec::new(),
             load_before: Vec::new(),
             enabled: true,
+            added: None,
+            updated: None,
         }
     }
 

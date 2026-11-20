@@ -12,6 +12,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::switch::Switch;
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme, Disableable, Icon, WindowExt};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -38,14 +39,19 @@ const ACTIONS_ROW: f32 = 392.;
 #[derive(Clone, Copy, PartialEq)]
 enum Sort {
     Name,
-    OnFirst,
+    EnabledFirst,
+    Added,
+    Updated,
 }
 
 impl Sort {
     fn label(self) -> &'static str {
         match self {
             Sort::Name => "Name",
-            Sort::OnFirst => "On first",
+            // "On first" was read as install order.
+            Sort::EnabledFirst => "Enabled first",
+            Sort::Added => "Recently installed",
+            Sort::Updated => "Recently updated",
         }
     }
 }
@@ -55,6 +61,8 @@ enum Filter {
     All,
     On,
     Off,
+    /// A newer Workshop version is out: found without scrolling the whole list.
+    Updates,
 }
 
 impl Filter {
@@ -63,14 +71,7 @@ impl Filter {
             Filter::All => "All mods",
             Filter::On => "On",
             Filter::Off => "Off",
-        }
-    }
-
-    fn keeps(self, item: &Mod) -> bool {
-        match self {
-            Filter::All => true,
-            Filter::On => item.enabled,
-            Filter::Off => !item.enabled,
+            Filter::Updates => "Updates available",
         }
     }
 }
@@ -90,8 +91,8 @@ pub struct Mods {
     mods: Vec<Mod>,
     /// Names of the mods made for a newer game than the instance runs, read with `mods`.
     too_new: Vec<String>,
-    /// Whether the last update can be undone ([`mods::undo`] has something).
-    undo: bool,
+    /// What undoing the last update would put back ([`mods::undo`]): item and version.
+    undo: Vec<(u64, u64)>,
     /// Where the instance stands with Java mods.
     java: java::State,
     /// What [`mods::stamp`] said when `mods` was read; the same stamp means nothing new.
@@ -111,6 +112,8 @@ pub struct Mods {
     shell: WeakEntity<Shell>,
     /// The table's scroll position, eased by `ui::smooth_scroll`.
     scroll: UniformListScrollHandle,
+    /// The tab's width at the last frame: the selection bar drops its labels when narrow.
+    width: Pixels,
     _search: Subscription,
 }
 
@@ -137,7 +140,7 @@ impl Mods {
             stale: false,
             mods: Vec::new(),
             too_new: Vec::new(),
-            undo: false,
+            undo: Vec::new(),
             java: java::State::None,
             instance,
             search,
@@ -146,6 +149,7 @@ impl Mods {
             selected: HashSet::new(),
             shell,
             scroll: UniformListScrollHandle::new(),
+            width: px(f32::MAX),
             _search: on_search,
         };
         mods.check_updates(cx);
@@ -195,7 +199,7 @@ impl Mods {
                 let _ = shell.update(cx, |shell, cx| shell.set_loading(true, cx));
             }
             let found = crate::runtime::blocking(move || {
-                let undo = !mods::undo(&instance).is_empty();
+                let undo = mods::undo(&instance);
                 let list = mods::list(&instance);
                 let java = java::state(&instance, &list);
                 (list, mods::too_new(&instance), undo, java)
@@ -256,15 +260,16 @@ impl Mods {
         });
     }
 
-    /// Puts back the versions the last update replaced, through the download manager.
-    fn undo(&self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Puts back the versions the last update replaced (all, or only those of `only`), through
+    /// the download manager.
+    fn undo(&self, only: Option<Vec<u64>>, window: &mut Window, cx: &mut Context<Self>) {
         let (instance, shell, handle) = (
             self.instance.clone(),
             self.shell.clone(),
             window.window_handle(),
         );
         cx.defer(move |cx| {
-            let _ = shell.update(cx, |shell, cx| shell.undo_mods(instance, handle, cx));
+            let _ = shell.update(cx, |shell, cx| shell.undo_mods(instance, only, handle, cx));
         });
     }
 
@@ -273,7 +278,12 @@ impl Mods {
         let mut shown: Vec<&Mod> = self
             .mods
             .iter()
-            .filter(|item| self.filter.keeps(item))
+            .filter(|item| match self.filter {
+                Filter::All => true,
+                Filter::On => item.enabled,
+                Filter::Off => !item.enabled,
+                Filter::Updates => self.update_of(item).is_some(),
+            })
             .filter(|item| {
                 query.is_empty()
                     || [&item.name, &item.id, &item.author]
@@ -281,9 +291,12 @@ impl Mods {
                         .any(|text| text.to_lowercase().contains(&query))
             })
             .collect();
-        // `mods` is already by name; the sort is stable, so names stay in order within each half.
-        if self.sort == Sort::OnFirst {
-            shown.sort_by_key(|item| !item.enabled);
+        // `mods` is already by name; the sort is stable, so names break ties.
+        match self.sort {
+            Sort::Name => {}
+            Sort::EnabledFirst => shown.sort_by_key(|item| !item.enabled),
+            Sort::Added => shown.sort_by_key(|item| std::cmp::Reverse(item.added)),
+            Sort::Updated => shown.sort_by_key(|item| std::cmp::Reverse(item.updated)),
         }
         shown
     }
@@ -374,7 +387,9 @@ impl Mods {
                             .dropdown_menu({
                                 let this = this.clone();
                                 move |mut menu, _, _| {
-                                    for option in [Sort::Name, Sort::OnFirst] {
+                                    for option in
+                                        [Sort::Name, Sort::EnabledFirst, Sort::Added, Sort::Updated]
+                                    {
                                         let this = this.clone();
                                         menu = menu.item(
                                             PopupMenuItem::new(option.label())
@@ -394,7 +409,9 @@ impl Mods {
                     .child(
                         pick("mods-filter", IconName::Layers, filter.label()).dropdown_menu(
                             move |mut menu, _, _| {
-                                for option in [Filter::All, Filter::On, Filter::Off] {
+                                for option in
+                                    [Filter::All, Filter::On, Filter::Off, Filter::Updates]
+                                {
                                     let this = this.clone();
                                     menu = menu.item(
                                         PopupMenuItem::new(option.label())
@@ -443,7 +460,7 @@ impl Mods {
                     .child(div().flex_1())
                     // Always there, saying where the check for updates stands, so its spot
                     // doesn't appear out of nowhere when Steam answers.
-                    .when(self.undo, |this| {
+                    .when(!self.undo.is_empty(), |this| {
                         this.child(
                             Button::new("mods-undo")
                                 .ghost()
@@ -452,7 +469,9 @@ impl Mods {
                                 .icon(Icon::empty().path("icons/undo-2.svg"))
                                 .label("Undo update")
                                 .tooltip("Put back the versions from before the last update")
-                                .on_click(cx.listener(|this, _, window, cx| this.undo(window, cx))),
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.undo(None, window, cx)),
+                                ),
                         )
                     })
                     .child(self.updates(outdated, cx))
@@ -1000,31 +1019,62 @@ impl Mods {
             .into_any_element()
     }
 
-    /// What to do with the checked rows; floats over the bottom of the table while any is.
-    fn selection(&self, cx: &mut Context<Self>) -> Div {
+    /// What to do with the checked rows, floating under the table while any is. Where the
+    /// labels don't fit in `room`, only the icons show, each with its name as a tooltip.
+    fn selection(&self, room: Pixels, cx: &mut Context<Self>) -> Div {
         let theme = cx.theme();
         let chosen = self.chosen();
         let (any_off, any_on) = (
             chosen.iter().any(|m| !m.enabled),
             chosen.iter().any(|m| m.enabled),
         );
-        let count = match chosen.len() {
-            1 => "1 mod selected".to_owned(),
-            many => format!("{many} mods selected"),
+        // Each item once: an item can hold several mods. Held mods stay out, like in
+        // "Update all".
+        let mut outdated: Vec<u64> = chosen.iter().filter_map(|m| self.update_of(m)).collect();
+        outdated.sort_unstable();
+        outdated.dedup();
+        let mut undoable: Vec<u64> = chosen
+            .iter()
+            .filter_map(|m| m.workshop)
+            .filter(|id| self.undo.iter().any(|(undo, _)| undo == id))
+            .collect();
+        undoable.sort_unstable();
+        undoable.dedup();
+        // ponytail: label widths measured by eye at Inter 14 px; a translation would need them
+        // measured for real.
+        let needed = 600.
+            + if outdated.is_empty() { 0. } else { 100. }
+            + if undoable.is_empty() { 0. } else { 140. };
+        let compact = room < px(needed);
+        let count = match (chosen.len(), compact) {
+            (1, false) => "1 mod selected".to_owned(),
+            (many, false) => format!("{many} mods selected"),
+            (many, true) => format!("{many} selected"),
         };
-        let act = |id: &'static str, label: &'static str, icon: IconName, enabled: bool| {
+        let act = |id: &'static str, label: &'static str, icon: Icon, enabled: bool| {
             div()
                 .id(id)
                 .flex()
+                .flex_none()
                 .items_center()
-                .gap_1p5()
-                .h(px(32.))
-                .px_2p5()
+                .justify_center()
+                .gap_2()
+                .h(px(36.))
+                .map(|this| {
+                    if compact {
+                        this.w(px(36.))
+                    } else {
+                        this.px_3()
+                    }
+                })
                 .rounded(theme.radius)
                 .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(Icon::new(icon).size_4())
-                .child(label)
+                .font_weight(FontWeight::MEDIUM)
+                .child(icon.size_4())
+                .when(!compact, |this| this.child(label))
+                .when(compact, |this| {
+                    this.tooltip(move |window, cx| Tooltip::new(label).build(window, cx))
+                })
                 .map(|this| {
                     if enabled {
                         this.cursor_pointer().hover(|style| style.bg(theme.muted))
@@ -1033,55 +1083,111 @@ impl Mods {
                     }
                 })
         };
-        let rule = || div().w(px(1.)).h(px(20.)).bg(theme.border);
+        let rule = || {
+            div()
+                .flex_none()
+                .w(px(1.))
+                .h(px(24.))
+                .mx_1()
+                .bg(theme.border)
+        };
         div()
             .occlude()
             .flex()
             .items_center()
-            .gap_2()
-            .h(px(48.))
-            .pl_4()
+            .gap_1()
+            .max_w_full()
+            .h(px(56.))
+            .pl_5()
             .pr_2()
-            .rounded(theme.radius_lg)
+            .rounded(theme.radius_lg * 1.5)
             .bg(theme.tokens.popover)
             .border_1()
             .border_color(theme.border)
             .shadow_lg()
             .child(
                 div()
+                    .flex_none()
+                    .pr_2()
                     .text_sm()
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(count),
             )
-            .child(rule())
             .child(
-                act("selection-clear", "Clear", IconName::Close, true).on_click(cx.listener(
-                    |this, _, _, cx| {
+                act("selection-clear", "Clear", Icon::new(IconName::Close), true).on_click(
+                    cx.listener(|this, _, _, cx| {
                         this.selected.clear();
                         cx.notify();
-                    },
-                )),
+                    }),
+                ),
             )
-            .child(div().w_6())
+            .child(rule())
             .child(
-                act("selection-on", "Turn on", IconName::Check, any_off).when(any_off, |this| {
+                act(
+                    "selection-on",
+                    "Turn on",
+                    Icon::new(IconName::Check),
+                    any_off,
+                )
+                .when(any_off, |this| {
                     this.on_click(
                         cx.listener(|this, _, window, cx| this.toggle_chosen(true, window, cx)),
                     )
                 }),
             )
             .child(
-                act("selection-off", "Turn off", IconName::Minus, any_on).when(any_on, |this| {
+                act(
+                    "selection-off",
+                    "Turn off",
+                    Icon::new(IconName::Minus),
+                    any_on,
+                )
+                .when(any_on, |this| {
                     this.on_click(
                         cx.listener(|this, _, window, cx| this.toggle_chosen(false, window, cx)),
                     )
                 }),
             )
+            .when(!outdated.is_empty() || !undoable.is_empty(), |this| {
+                this.child(rule())
+            })
+            .when(!outdated.is_empty(), |this| {
+                this.child(
+                    act(
+                        "selection-update",
+                        "Update",
+                        Icon::new(IconName::Download),
+                        true,
+                    )
+                    .text_color(theme.primary)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.update(outdated.clone(), window, cx)
+                    })),
+                )
+            })
+            .when(!undoable.is_empty(), |this| {
+                this.child(
+                    act(
+                        "selection-undo",
+                        "Undo update",
+                        Icon::empty().path("icons/undo-2.svg"),
+                        true,
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.undo(Some(undoable.clone()), window, cx)
+                    })),
+                )
+            })
             .child(rule())
             .child(
-                act("selection-remove", "Remove", IconName::Trash, true)
-                    .text_color(theme.danger)
-                    .on_click(cx.listener(|this, _, window, cx| this.remove_chosen(window, cx))),
+                act(
+                    "selection-remove",
+                    "Remove",
+                    Icon::new(IconName::Trash),
+                    true,
+                )
+                .text_color(theme.danger)
+                .on_click(cx.listener(|this, _, window, cx| this.remove_chosen(window, cx))),
             )
     }
 }
@@ -1166,23 +1272,41 @@ impl Render for Mods {
                     // list and scrolls a long one. The default sizing gives it no height at all.
                     .with_sizing_behavior(ListSizingBehavior::Infer)
                     .track_scroll(&self.scroll)
+                    // Scroll room past the last row while the selection bar floats over the
+                    // table, so that row can still come out from under it.
+                    .when(!self.selected.is_empty(), |list| list.pb(px(80.)))
                     .min_h_0(),
                 )
                 .into_any_element()
         };
         let on = self.mods.iter().filter(|m| m.enabled).count();
-        // Floats over the bottom of the table; the bar inside is what rises in.
+        // Floats over the bottom of the table without taking room from it.
         let bar = (!self.selected.is_empty()).then(|| {
             div()
                 .absolute()
-                // Above where toasts come up, so what an action says doesn't cover the bar.
-                .bottom(px(88.))
+                .bottom(px(16.))
                 .left_0()
                 .right_0()
                 .flex()
                 .justify_center()
-                .child(ui::enter(self.selection(cx), "mods-selection"))
+                .child(ui::enter(self.selection(self.width, cx), "mods-selection"))
         });
+        // The tab's own width, for `compact`; read after layout, so a resize shows one frame
+        // late. A notify while painting is dropped, hence the next frame.
+        let this = cx.entity().downgrade();
+        let measure = canvas(
+            move |bounds, window, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    if this.width != bounds.size.width {
+                        this.width = bounds.size.width;
+                        cx.on_next_frame(window, |_, _, cx| cx.notify());
+                    }
+                });
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .size_full();
         div()
             .relative()
             .flex()
@@ -1213,6 +1337,7 @@ impl Render for Mods {
                         .child(format!("{on} enabled")),
                 )
             })
+            .child(measure)
             .child(list)
             .children(bar)
             .into_any_element()
