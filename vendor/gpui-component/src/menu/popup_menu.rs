@@ -467,6 +467,14 @@ impl PopupMenu {
         self
     }
 
+    /// Whether a scrollable menu opens with its checked item first in view (the default, like a
+    /// native picker). A menu of several groups, each with its own heading, turns it off so it
+    /// opens at the top and the headings above the checked item aren't scrolled out of sight.
+    pub fn scroll_to_checked(mut self, on: bool) -> Self {
+        self.scroll_to_checked_frames = if on { SCROLL_TO_CHECKED_FRAMES } else { 0 };
+        self
+    }
+
     /// Set the side to show check icon, default is `Side::Left`.
     pub fn check_side(mut self, side: Side) -> Self {
         self.check_side = side;

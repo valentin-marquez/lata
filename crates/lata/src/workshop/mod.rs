@@ -429,6 +429,8 @@ impl Workshop {
             .dropdown_menu(move |mut menu, window, _| {
                 menu = menu
                     .scrollable(true)
+                    // Groups with headings: it opens at the top, not on the checked version.
+                    .scroll_to_checked(false)
                     .max_h(window.viewport_size().height - px(160.))
                     .label("Game version");
                 for option in [None, Some(BUILDS[0]), Some(BUILDS[1])] {

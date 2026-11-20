@@ -24,6 +24,9 @@ changes on a fresh copy when upgrading.
 - `src/menu/popup_menu.rs`: menu rows are 34 px tall with 0.75rem side padding and the menu is
   at least 12rem wide (upstream: 26 px, 0.5rem, 8rem).
 - `src/menu/popup_menu.rs`: menu items show the pointer cursor.
+- `src/menu/popup_menu.rs`: `PopupMenu::scroll_to_checked(bool)`. A scrollable menu opens with
+  its checked item first in view (kept as the default); a menu of several groups with headings
+  (the Workshop's filters) turns it off so it opens at the top and its headings stay visible.
 - `src/tab/tab.rs`, `src/tab/tab_bar.rs`: pill tabs and their sliding fill use the theme radius
   less 4 px (they sit in a tray with the inputs' radius) instead of being fully round.
 - `src/menu/dropdown_menu.rs`: `DropdownMenuPopover::trigger_style`, forwarded to the
