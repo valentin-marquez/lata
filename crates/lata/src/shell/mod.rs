@@ -61,6 +61,9 @@ pub struct Shell {
     link_resolving: usize,
     /// A linked mod that found no instance to go into: it is offered again once one is created.
     link_waiting: Option<crate::instance::mods::Listing>,
+    /// A mod Install was pressed for before its instance existed: it goes into the next
+    /// instance created, when that one can run it.
+    install_waiting: Option<steam::workshop::Item>,
     /// Shows the loader under the title bar while the page's data loads.
     loading: bool,
     /// A newer lata, once a check finds one.
@@ -106,6 +109,7 @@ impl Shell {
             link_queue: VecDeque::new(),
             link_resolving: 0,
             link_waiting: None,
+            install_waiting: None,
             loading: false,
             update: None,
         };
@@ -1381,6 +1385,30 @@ impl Shell {
         Self::create_from(shell, None, window, cx);
     }
 
+    /// Opens the new instance dialog with `collection` looked up.
+    pub fn create_from(
+        shell: WeakEntity<Shell>,
+        collection: Option<instance::mods::Bundle>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let start = collection.map(instance::create::Start::Collection);
+        Self::create_with(shell, start, window, cx);
+    }
+
+    /// Opens the new instance dialog for `item`: the instance made there installs it.
+    pub fn create_for(
+        shell: WeakEntity<Shell>,
+        item: steam::workshop::Item,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let start = instance::mods::only_build(&item.tags)
+            .map(|modern| instance::create::Start::Mod(item.title.clone(), modern));
+        Self::create_with(shell.clone(), start, window, cx);
+        let _ = shell.update(cx, |shell, _| shell.install_waiting = Some(item));
+    }
+
     /// Makes an instance from the `.lata` at `path`, then installs its game and its mods.
     pub fn import_pack(shell: WeakEntity<Shell>, path: PathBuf, window: &mut Window, cx: &mut App) {
         use crate::ui::toast;
@@ -1452,30 +1480,42 @@ impl Shell {
         .detach();
     }
 
-    /// The create dialog, already on `collection` when a link brought one.
-    pub fn create_from(
+    /// The create dialog, starting from a collection or a mod when there is one.
+    fn create_with(
         shell: WeakEntity<Shell>,
-        collection: Option<instance::mods::Bundle>,
+        start: Option<instance::create::Start>,
         window: &mut Window,
         cx: &mut App,
     ) {
-        let Ok(root) = shell.read_with(cx, |shell, _| shell.root.clone()) else {
+        // Whatever waited for an earlier dialog doesn't carry over to this one.
+        let Ok(root) = shell.update(cx, |shell, _| {
+            shell.install_waiting = None;
+            shell.root.clone()
+        }) else {
             return;
         };
         let (existing, pack) = (shell.clone(), shell.clone());
         instance::create::open(
             root,
-            collection,
+            start,
             move |game, window, cx| {
                 instance::existing_view::open(game, existing.clone(), window, cx)
             },
             move |path, window, cx| Shell::import_pack(pack.clone(), path, window, cx),
             move |created, mods, window, cx| {
                 let handle = window.window_handle();
+                let mut left_out = None;
                 let _ = shell.update(cx, |shell, cx| {
                     shell.instances = store::list(&shell.root);
                     let ix = shell.instances.iter().position(|i| i.id == created.id);
                     shell.go(ix.map_or(Page::Library, Page::Instance), cx);
+                    // The mod Install was pressed for, if this instance can run it.
+                    if let Some(item) = shell.install_waiting.take() {
+                        match instance::mods::fits(&created, &item.tags) {
+                            true => shell.add_mod(created.clone(), item.id, handle, cx),
+                            false => left_out = Some(item.title),
+                        }
+                    }
                     // Mods download anonymously, alongside the game.
                     if let Some((collection, items)) = mods {
                         shell.add_mods(
@@ -1489,6 +1529,16 @@ impl Shell {
                         );
                     }
                 });
+                if let Some(title) = left_out {
+                    use gpui_kit::component::WindowExt;
+                    window.push_notification(
+                        crate::ui::toast::failed(format!(
+                            "{title} doesn't run on {}'s build, so it stayed out",
+                            created.name
+                        )),
+                        cx,
+                    );
+                }
                 // A new instance has nothing to run yet: start its install right away, as its
                 // main button would (it asks to sign in to Steam first when nobody is).
                 Shell::play(shell.clone(), created.id.clone(), window, cx);

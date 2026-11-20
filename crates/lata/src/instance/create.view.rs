@@ -51,9 +51,18 @@ enum Lookup {
 /// mods to install into it when it started from a collection. With `collection` (a link
 /// brought it) the dialog opens on that collection, already found. `bring` takes over when
 /// the game someone already plays is chosen as the start, and `import` when a `.lata` is.
+/// What the dialog starts from, besides a blank instance.
+pub enum Start {
+    /// A collection's link, looked up already.
+    Collection(Bundle),
+    /// A mod: its title, and whether it runs on Build 42 only (`true`) or Build 41 only
+    /// (`false`). Only versions of that build are offered.
+    Mod(String, bool),
+}
+
 pub fn open(
     root: PathBuf,
-    collection: Option<Bundle>,
+    start: Option<Start>,
     bring: impl Fn(Existing, &mut Window, &mut App) + 'static,
     import: impl Fn(PathBuf, &mut Window, &mut App) + 'static,
     created: impl Fn(Instance, Mods, &mut Window, &mut App) + 'static,
@@ -66,8 +75,14 @@ pub fn open(
         create.bring = Some(Rc::new(bring));
         create.import = Some(Rc::new(import));
         create.load(window, cx);
-        if let Some(found) = collection {
-            create.start_from(found, window, cx);
+        match start {
+            Some(Start::Collection(found)) => create.start_from(found, window, cx),
+            // Made for a mod: straight to picking its version, among the ones it runs on.
+            Some(Start::Mod(title, modern)) => {
+                create.step = Step::Custom;
+                create.made_for = Some((title, modern));
+            }
+            None => {}
         }
         create
     });
@@ -109,6 +124,8 @@ struct Create {
     suggested: &'static str,
     link: Entity<InputState>,
     collection: Lookup,
+    /// The mod it is made for, and whether that one runs on Build 42 only.
+    made_for: Option<(String, bool)>,
     _link: Subscription,
 }
 
@@ -144,6 +161,7 @@ impl Create {
             suggested,
             link,
             collection: Lookup::Empty,
+            made_for: None,
             _link: on_link,
         }
     }
@@ -292,6 +310,10 @@ impl Create {
                     Ok(list) => branches::choices(list),
                     Err(_) => Vec::new(),
                 };
+                if let Some((_, modern)) = &this.made_for {
+                    this.choices
+                        .retain(|choice| branches::modern(choice) == *modern);
+                }
                 this.branches = Some(result);
                 // Stable first: the newest stable version is where most people start.
                 let first = this.choices.first().map(|c| c.channel.clone());
@@ -557,7 +579,16 @@ impl Create {
                     .flex_col()
                     .gap_2()
                     .child(label("Channel"))
-                    .child(div().flex().flex_wrap().gap_2().children(chips)),
+                    .child(div().flex().flex_wrap().gap_2().children(chips))
+                    .children(self.made_for.as_ref().map(|(title, modern)| {
+                        let build = if *modern { "Build 42" } else { "Build 41" };
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(format!(
+                                "Only {build} versions here: {title} runs on that one."
+                            ))
+                    })),
             )
             .child(
                 div()

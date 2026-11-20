@@ -76,6 +76,17 @@ pub fn fits(instance: &Instance, tags: &[String]) -> bool {
 
 /// Whether a Workshop item with these tags is made for a game of this build line. Items are
 /// tagged `Build 41`, `Build 42` or both; one with neither says nothing and passes.
+/// The one build a mod's tags tie it to: `Some(true)` for Build 42 only, `Some(false)` for
+/// Build 41 only, `None` when it is marked for both or neither.
+pub fn only_build(tags: &[String]) -> Option<bool> {
+    let has = |tag: &str| tags.iter().any(|t| t == tag);
+    match (has("Build 41"), has("Build 42")) {
+        (true, false) => Some(false),
+        (false, true) => Some(true),
+        _ => None,
+    }
+}
+
 fn for_build(tags: &[String], modern: bool) -> bool {
     let has = |tag: &str| tags.iter().any(|t| t == tag);
     match (has("Build 41"), has("Build 42")) {
