@@ -9,7 +9,10 @@ name: Game versions
 # (Settings > Actions > General).
 on:
   schedule:
-    - cron: "0 */6 * * *"
+    # Off the top of the hour, when GitHub delays or drops scheduled runs (every 6 hours on the
+    # hour ran twice a day), and often enough that a dropped run leaves no gap. A run takes about
+    # 30 seconds and only opens a pull request when Steam has a build the catalog lacks.
+    - cron: "23 */3 * * *"
   workflow_dispatch:
 
 permissions:
