@@ -486,7 +486,7 @@ fn card(
         )
         // Right click: what the card and the instance page offer, without opening it.
         .context_menu({
-            let dir = instance.dir.clone();
+            let (dir, pack) = (instance.dir.clone(), instance.clone());
             move |menu, _, _| {
                 let item = |label: &str, icon: IconName| {
                     PopupMenuItem::new(SharedString::from(label.to_owned())).icon(icon)
@@ -507,15 +507,21 @@ fn card(
                         .child(label.clone())
                 })
                 .icon(Icon::new(icon).text_color(accent));
+                let pack = pack.clone();
+                // Grouped by what they act on: the instance itself, its files, copies of it,
+                // and last the one that can't be undone.
                 menu.item(play.on_click(on(Shell::play)))
                     .separator()
                     .item(item("View instance", IconName::Eye).on_click(on(Shell::view)))
+                    .item(item("Settings", IconName::Settings).on_click(on(Shell::settings)))
+                    .item(item("Edit icon", IconName::Palette).on_click(on(Shell::customize)))
+                    .separator()
                     .item(
                         item("Open folder", IconName::FolderOpen)
                             .on_click(move |_, _, cx| cx.open_with_system(&folder)),
                     )
                     .item(
-                        item("Copy path", IconName::Copy).on_click(move |_, window, cx| {
+                        item("Copy path", IconName::Link).on_click(move |_, window, cx| {
                             use gpui_kit::component::WindowExt;
                             cx.write_to_clipboard(ClipboardItem::new_string(path.clone()));
                             window.push_notification(
@@ -524,9 +530,13 @@ fn card(
                             );
                         }),
                     )
-                    .item(item("Edit icon", IconName::Palette).on_click(on(Shell::customize)))
-                    .item(item("Settings", IconName::Settings).on_click(on(Shell::settings)))
+                    .separator()
                     .item(item("Duplicate", IconName::Copy).on_click(on(Shell::duplicate)))
+                    .item(
+                        item("Export as .lata", IconName::Box).on_click(move |_, window, cx| {
+                            crate::pack::export::open(pack.clone(), window, cx)
+                        }),
+                    )
                     .separator()
                     .item(item("Delete", IconName::Trash).on_click(on(Shell::confirm_delete)))
             }

@@ -196,17 +196,26 @@ impl Detail {
                         .icon(IconName::Palette)
                         .on_click(on(Shell::customize)),
                 )
+                // Same groups as the Library card's menu: the instance, its files, copies of
+                // it, and last the one that can't be undone.
+                .separator()
+                .item(
+                    PopupMenuItem::new("Open folder")
+                        .icon(IconName::FolderOpen)
+                        .on_click(move |_, _, cx| cx.open_with_system(&folder)),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new("Duplicate")
+                        .icon(IconName::Copy)
+                        .on_click(on(Shell::duplicate)),
+                )
                 .item(
                     PopupMenuItem::new("Export as .lata")
                         .icon(IconName::Box)
                         .on_click(move |_, window, cx| {
                             crate::pack::export::open(pack.clone(), window, cx)
                         }),
-                )
-                .item(
-                    PopupMenuItem::new("Open folder")
-                        .icon(IconName::FolderOpen)
-                        .on_click(move |_, _, cx| cx.open_with_system(&folder)),
                 )
                 .separator()
                 .item(
