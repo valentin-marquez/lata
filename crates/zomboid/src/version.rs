@@ -75,6 +75,120 @@ pub fn from_jar(bytes: &[u8]) -> Option<Version> {
     from_class(&class)
 }
 
+/// A range of a jar that isn't held yet and has to be fetched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Missing {
+    pub start: u64,
+    pub len: u64,
+}
+
+impl fmt::Display for Missing {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "bytes {}..{} aren't held",
+            self.start,
+            self.start + self.len
+        )
+    }
+}
+
+impl std::error::Error for Missing {}
+
+/// A jar of which only some ranges are held. The zip reader asks for what it needs (the end of
+/// the file, the directory, the one class); a range that isn't held fails with [`Missing`], the
+/// caller fetches it and tries again. A build's version is read this way without downloading
+/// its jar whole.
+pub struct Sparse {
+    size: u64,
+    at: u64,
+    /// Held ranges by where they start; they never overlap.
+    held: std::collections::BTreeMap<u64, Vec<u8>>,
+}
+
+impl Sparse {
+    /// A jar of `size` bytes with nothing held.
+    pub fn new(size: u64) -> Self {
+        Sparse {
+            size,
+            at: 0,
+            held: Default::default(),
+        }
+    }
+
+    /// Keeps `bytes`, which start at `start` in the jar.
+    pub fn hold(&mut self, start: u64, bytes: Vec<u8>) {
+        self.held.insert(start, bytes);
+    }
+
+    /// How many bytes are held.
+    pub fn held(&self) -> u64 {
+        self.held.values().map(|b| b.len() as u64).sum()
+    }
+}
+
+impl Read for Sparse {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if buf.is_empty() || self.at >= self.size {
+            return Ok(0);
+        }
+        match self.held.range(..=self.at).next_back() {
+            Some((start, bytes)) if self.at < start + bytes.len() as u64 => {
+                let from = (self.at - start) as usize;
+                let n = buf.len().min(bytes.len() - from);
+                buf[..n].copy_from_slice(&bytes[from..from + n]);
+                self.at += n as u64;
+                Ok(n)
+            }
+            _ => Err(std::io::Error::other(Missing {
+                start: self.at,
+                len: (buf.len() as u64).min(self.size - self.at),
+            })),
+        }
+    }
+}
+
+impl std::io::Seek for Sparse {
+    fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
+        use std::io::SeekFrom::*;
+        let next = match to {
+            Start(n) => Some(n),
+            End(n) => self.size.checked_add_signed(n),
+            Current(n) => self.at.checked_add_signed(n),
+        };
+        self.at = next.ok_or_else(|| std::io::Error::other("seek before the start of the jar"))?;
+        Ok(self.at)
+    }
+}
+
+/// What is missing, if `error` is the reader saying so.
+fn missing(error: &std::io::Error) -> Option<Missing> {
+    error.get_ref()?.downcast_ref::<Missing>().copied()
+}
+
+/// The version in a jar read through [`Sparse`]: `Ok(None)` when the jar has no readable
+/// `Core.class`, `Err` with the range to fetch when the reader needs bytes that aren't held.
+/// Call again after holding them; each try reads only what it needs.
+pub fn from_sparse(jar: &mut Sparse) -> Result<Option<Version>, Missing> {
+    use zip::result::ZipError;
+    jar.at = 0;
+    let mut archive = match zip::ZipArchive::new(&mut *jar) {
+        Ok(archive) => archive,
+        Err(ZipError::Io(e)) => return missing(&e).map_or(Ok(None), Err),
+        Err(_) => return Ok(None),
+    };
+    let entry = match archive.by_name("zombie/core/Core.class") {
+        Ok(entry) => entry,
+        Err(ZipError::Io(e)) => return missing(&e).map_or(Ok(None), Err),
+        Err(_) => return Ok(None),
+    };
+    let mut class = Vec::new();
+    match entry.take(CLASS_CAP).read_to_end(&mut class) {
+        Ok(_) => Ok(from_class(&class)),
+        Err(e) => missing(&e).map_or(Ok(None), Err),
+    }
+}
+
 /// One constant pool entry, as far as this needs.
 enum Constant {
     Utf8(String),
@@ -301,6 +415,85 @@ mod tests {
         jar.write_all(B42).unwrap();
         let bytes = jar.finish().unwrap().into_inner();
         assert_eq!(from_jar(&bytes).unwrap().to_string(), "42.22.2");
+    }
+
+    /// A jar of about 8 MB with the class in the middle, between entries it doesn't care about.
+    fn big_jar() -> Vec<u8> {
+        use std::io::Write;
+        let stored = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        let mut jar = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut filler = |jar: &mut zip::ZipWriter<_>, name: &str, len: usize| {
+            let bytes: Vec<u8> = (0..len)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    state as u8
+                })
+                .collect();
+            jar.start_file(name, stored).unwrap();
+            jar.write_all(&bytes).unwrap();
+        };
+        filler(&mut jar, "a/First.class", 3 << 20);
+        for n in 0..300 {
+            filler(&mut jar, &format!("b/Small{n}.class"), 64);
+        }
+        jar.start_file::<_, ()>("zombie/core/Core.class", Default::default())
+            .unwrap();
+        jar.write_all(B42).unwrap();
+        filler(&mut jar, "c/Last.class", 5 << 20);
+        jar.finish().unwrap().into_inner()
+    }
+
+    /// Reads the version of `bytes` as a build is read from Steam: `fetch` hands out whole
+    /// blocks of `block` bytes, which is how a chunk covers a range. Returns it with how many
+    /// bytes were held and how many tries it took.
+    fn read_in_blocks(bytes: &[u8], block: u64) -> (Option<Version>, u64, u32) {
+        let size = bytes.len() as u64;
+        let mut sparse = Sparse::new(size);
+        for tries in 1..60 {
+            match from_sparse(&mut sparse) {
+                Ok(found) => return (found, sparse.held(), tries),
+                Err(need) => {
+                    let last = (need.start + need.len - 1) / block;
+                    for b in need.start / block..=last {
+                        let (from, to) = (b * block, ((b + 1) * block).min(size));
+                        sparse.hold(from, bytes[from as usize..to as usize].to_vec());
+                    }
+                }
+            }
+        }
+        panic!("it kept asking for more");
+    }
+
+    #[test]
+    fn reads_the_version_holding_a_small_part_of_the_jar() {
+        let jar = big_jar();
+        let (found, held, tries) = read_in_blocks(&jar, 256 << 10);
+        assert_eq!(found.unwrap().to_string(), "42.22.2");
+        // The end with the directory and the class, not the 8 MB around them.
+        assert!(held < jar.len() as u64 / 3, "held {held} of {}", jar.len());
+        assert!(tries < 20, "{tries} tries");
+        // Whatever the block size, the answer is the same.
+        for block in [4 << 10, 1 << 20] {
+            let (found, ..) = read_in_blocks(&jar, block);
+            assert_eq!(found.unwrap().to_string(), "42.22.2", "block {block}");
+        }
+    }
+
+    #[test]
+    fn a_jar_without_the_class_answers_none_not_missing() {
+        use std::io::Write;
+        let mut jar = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        jar.start_file::<_, ()>("zombie/Other.class", Default::default())
+            .unwrap();
+        jar.write_all(b"nothing").unwrap();
+        let bytes = jar.finish().unwrap().into_inner();
+        assert_eq!(read_in_blocks(&bytes, 64).0, None);
+        // Not a zip at all.
+        assert_eq!(read_in_blocks(B42, 4096).0, None);
     }
 
     #[test]

@@ -187,7 +187,55 @@ async fn main() -> Result<(), Failure> {
     Ok(())
 }
 
-/// Downloads only the file of `manifest` that holds the version, into `scratch`, and reads it.
+/// How many times the jar reader may ask for more bytes before giving up.
+const TRIES: usize = 32;
+
+/// Reads the version of a build fetching only the chunks it needs: the end of the jar with its
+/// directory and the chunks of `Core.class`, a few MB, not the whole jar. `None` when something
+/// fails or the class isn't where it is expected, and the caller goes the long way.
+async fn partial(
+    http: &steam::reqwest::Client,
+    hosts: &[String],
+    (depot, key): (u32, &content::Key),
+    file: &content::manifest::File,
+) -> Option<String> {
+    use zomboid::version::{self, Sparse};
+
+    if !file.path.ends_with(".jar") {
+        // A loose class (Build 41) is small: all of it.
+        if file.size > 4 << 20 {
+            return None;
+        }
+        let mut bytes = vec![0; file.size as usize];
+        for (at, plain) in content::read_range(http, hosts, (depot, key), file, 0, file.size)
+            .await
+            .ok()?
+        {
+            let at = at as usize;
+            bytes.get_mut(at..at + plain.len())?.copy_from_slice(&plain);
+        }
+        return version::from_class(&bytes).map(|v| v.to_string());
+    }
+    let mut jar = Sparse::new(file.size);
+    for _ in 0..TRIES {
+        match version::from_sparse(&mut jar) {
+            Ok(found) => return found.map(|v| v.to_string()),
+            Err(need) => {
+                let held =
+                    content::read_range(http, hosts, (depot, key), file, need.start, need.len)
+                        .await
+                        .ok()?;
+                for (at, plain) in held {
+                    jar.hold(at, plain);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// The version of `manifest`'s build: the chunks that hold it, else the file that holds it
+/// downloaded whole into `scratch`.
 async fn read(
     http: &steam::reqwest::Client,
     hosts: &[String],
@@ -196,6 +244,13 @@ async fn read(
     manifest: &content::Manifest,
     scratch: &Path,
 ) -> Option<String> {
+    let source = manifest
+        .files
+        .iter()
+        .find(|f| !f.is_dir && zomboid::version::is_source(&f.path))?;
+    if let Some(version) = partial(http, hosts, (depot, key), source).await {
+        return Some(version);
+    }
     let mut only = manifest.clone();
     only.files
         .retain(|f| !f.is_dir && zomboid::version::is_source(&f.path));

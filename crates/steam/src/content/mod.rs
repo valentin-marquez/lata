@@ -280,27 +280,7 @@ async fn fetch(
     chunk: manifest::Chunk,
 ) -> Result<(usize, std::sync::Arc<std::path::PathBuf>, u64, Timings)> {
     let mut spent = Timings::default();
-    let (mut tries, mut turn) = (0, 0);
-    let mut offline: Option<(Instant, Duration)> = None;
-    let plain = loop {
-        let host = &hosts[(ix + turn) % hosts.len()];
-        turn += 1;
-        match download(http, host, depot, key, &chunk, &mut spent).await {
-            Ok(plain) => break plain,
-            // No connection at all: wait for the network to come back, then go on.
-            Err(err) if err.is_network() => {
-                let (since, wait) = offline.get_or_insert((Instant::now(), Duration::ZERO));
-                if since.elapsed() >= OFFLINE {
-                    return Err(err);
-                }
-                *wait = (*wait * 2).clamp(Duration::from_millis(500), PAUSE);
-                tokio::time::sleep(*wait).await;
-            }
-            // A bad status or a corrupt chunk is usually one bad host: try the next.
-            Err(err) if tries + 1 < TRIES && !matches!(err, Error::Io(_)) => tries += 1,
-            Err(err) => return Err(err),
-        }
-    };
+    let plain = download_retrying(http, hosts, (depot, key), ix, &chunk, &mut spent).await?;
     let started = Instant::now();
     let written = plain.len() as u64;
     let file = path.clone();
@@ -314,6 +294,75 @@ async fn fetch(
     .map_err(|_| Error::Packet("chunk writer stopped"))??;
     spent.write = started.elapsed();
     Ok((ix, path, written, spent))
+}
+
+/// One chunk, trying the hosts in turn starting from `ix`'s, and riding out a network that
+/// drops for a while.
+async fn download_retrying(
+    http: &reqwest::Client,
+    hosts: &[String],
+    (depot, key): (u32, Key),
+    ix: usize,
+    chunk: &manifest::Chunk,
+    spent: &mut Timings,
+) -> Result<Vec<u8>> {
+    let (mut tries, mut turn) = (0, 0);
+    let mut offline: Option<(Instant, Duration)> = None;
+    loop {
+        let host = &hosts[(ix + turn) % hosts.len()];
+        turn += 1;
+        match download(http, host, depot, key, chunk, spent).await {
+            Ok(plain) => return Ok(plain),
+            // No connection at all: wait for the network to come back, then go on.
+            Err(err) if err.is_network() => {
+                let (since, wait) = offline.get_or_insert((Instant::now(), Duration::ZERO));
+                if since.elapsed() >= OFFLINE {
+                    return Err(err);
+                }
+                *wait = (*wait * 2).clamp(Duration::from_millis(500), PAUSE);
+                tokio::time::sleep(*wait).await;
+            }
+            // A bad status or a corrupt chunk is usually one bad host: try the next.
+            Err(err) if tries + 1 < TRIES && !matches!(err, Error::Io(_)) => tries += 1,
+            Err(err) => return Err(err),
+        }
+    }
+}
+
+/// The part of `file` that covers bytes `start..start + len`, without installing anything: the
+/// chunks that overlap it, decrypted and verified, each with its offset in the file. They hold
+/// more than asked (a chunk is up to 1 MB), so a caller that keeps them can answer nearby reads
+/// too. This is how the version of a build is read from its jar (a few MB) without the build.
+pub async fn read_range(
+    http: &reqwest::Client,
+    hosts: &[String],
+    (depot, key): (u32, &Key),
+    file: &manifest::File,
+    start: u64,
+    len: u64,
+) -> Result<Vec<(u64, Vec<u8>)>> {
+    use futures_util::{StreamExt, TryStreamExt, stream};
+
+    if hosts.is_empty() {
+        return Err(Error::NoServers);
+    }
+    let end = start.saturating_add(len);
+    let wanted: Vec<(usize, &manifest::Chunk)> = file
+        .chunks
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.offset < end && c.offset + u64::from(c.original) > start)
+        .collect();
+    stream::iter(wanted)
+        .map(|(ix, chunk)| async move {
+            let mut spent = Timings::default();
+            let plain =
+                download_retrying(http, hosts, (depot, *key), ix, chunk, &mut spent).await?;
+            Ok::<_, Error>((chunk.offset, plain))
+        })
+        .buffer_unordered(PARALLEL)
+        .try_collect()
+        .await
 }
 
 /// One chunk from one host, decrypted and verified.
