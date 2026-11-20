@@ -23,6 +23,10 @@ pub struct Item {
     pub id: u64,
     pub app: u32,
     pub title: String,
+    /// SteamID of the author; [`authors`] gives the name.
+    pub author: u64,
+    /// The start of its description, in BBCode; only [`search`] asks for it.
+    pub summary: String,
     /// Manifest of the current version in the app's depot.
     pub manifest: u64,
     /// Legacy items are a direct download instead of a manifest.
@@ -55,6 +59,8 @@ impl From<PublishedFileDetails> for Item {
             id: d.publishedfileid(),
             app: d.consumer_appid(),
             title: d.title().to_owned(),
+            author: d.creator(),
+            summary: d.short_description().to_owned(),
             manifest: d.hcontent_file(),
             size: d.file_size(),
             updated: d.time_updated,
@@ -77,6 +83,7 @@ async fn query(
     let request = CPublishedFileGetDetailsRequest {
         publishedfileids: ids.to_vec(),
         includetags: Some(true),
+        includeadditionalpreviews: None,
         includechildren: children.then_some(true),
     };
     let reply: CPublishedFileGetDetailsResponse =
@@ -91,6 +98,51 @@ pub async fn details(client: &mut Client, ids: &[u64]) -> Result<Vec<Item>> {
         .into_iter()
         .map(Item::from)
         .collect())
+}
+
+/// Everything an item's page shows: [`Item`] plus its whole description and gallery.
+#[derive(Debug, Clone)]
+pub struct About {
+    pub item: Item,
+    /// The whole description, in BBCode.
+    pub description: String,
+    /// When it was first published, in seconds since the epoch.
+    pub created: Option<u32>,
+    /// How many users have it among their favorites.
+    pub favorited: u32,
+    /// The gallery's pictures, on Steam's image hosts; videos are left out.
+    pub gallery: Vec<String>,
+}
+
+/// The page of item `id`: what [`details`] gives, its whole description and its gallery.
+pub async fn about(client: &mut Client, id: u64) -> Result<About> {
+    let request = CPublishedFileGetDetailsRequest {
+        publishedfileids: vec![id],
+        includetags: Some(true),
+        includeadditionalpreviews: Some(true),
+        includechildren: Some(true),
+    };
+    let reply: CPublishedFileGetDetailsResponse =
+        client.call("PublishedFile.GetDetails", &request).await?;
+    let d = reply
+        .publishedfiledetails
+        .into_iter()
+        .find(|d| d.result() == OK)
+        .ok_or(Error::Gone)?;
+    let gallery = d
+        .previews
+        .iter()
+        .filter(|p| p.youtubevideoid().is_empty())
+        .filter_map(|p| p.url.clone())
+        .filter(|url| is_steam_image(url))
+        .collect();
+    Ok(About {
+        description: d.file_description().to_owned(),
+        created: d.time_created,
+        favorited: d.favorited(),
+        gallery,
+        item: Item::from(d),
+    })
 }
 
 /// One version an item's author published.
@@ -132,28 +184,133 @@ pub async fn history(client: &mut Client, id: u64) -> Result<Vec<Change>> {
     Ok(changes)
 }
 
-/// `EPublishedFileQueryType::RankedByTrend`.
-const BY_TREND: u32 = 3;
+/// How [`search`] ranks what it finds (`EPublishedFileQueryType`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sort {
+    /// What matches the search text best; without text Steam ranks by trend.
+    Relevance,
+    /// Gained the most over the last `days`.
+    Trend {
+        days: u32,
+    },
+    /// Most subscribed of all time.
+    Popular,
+    Newest,
+    Updated,
+}
 
-/// The `count` items of `app`'s Workshop that gained the most over the last `days`, most
-/// first. Collections are left out.
-pub async fn trending(client: &mut Client, app: u32, days: u32, count: u32) -> Result<Vec<Item>> {
+impl Sort {
+    fn query_type(self) -> u32 {
+        match self {
+            Sort::Newest => 1,
+            Sort::Trend { .. } => 3,
+            Sort::Popular => 9,
+            Sort::Relevance => 12,
+            Sort::Updated => 21,
+        }
+    }
+}
+
+/// What to look for in an app's Workshop.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Query {
+    pub app: u32,
+    /// Matched against titles and descriptions; empty for everything.
+    pub text: String,
+    /// Only items carrying all of these tags.
+    pub tags: Vec<String>,
+    /// Only items carrying none of these.
+    pub excluded: Vec<String>,
+    pub sort: Sort,
+    /// Where the page starts: `None` for the first, then [`Page::next`].
+    pub cursor: Option<String>,
+    pub count: u32,
+}
+
+/// One page of what [`search`] found.
+#[derive(Debug)]
+pub struct Page {
+    /// Mods only: collections are left out.
+    pub items: Vec<Item>,
+    /// How many items match in all.
+    pub total: u32,
+    /// The cursor of the page after this one; `None` at the end.
+    pub next: Option<String>,
+}
+
+/// A page of the Workshop items that match `query`, with their tags and the start of their
+/// descriptions. Works on an anonymous session.
+pub async fn search(client: &mut Client, query: &Query) -> Result<Page> {
+    let text = query.text.trim();
     let request = crate::proto::CPublishedFileQueryFilesRequest {
-        query_type: Some(BY_TREND),
-        page: Some(1),
-        numperpage: Some(count),
-        appid: Some(app),
+        query_type: Some(query.sort.query_type()),
+        numperpage: Some(query.count),
+        appid: Some(query.app),
+        requiredtags: query.tags.clone(),
+        excludedtags: query.excluded.clone(),
+        search_text: (!text.is_empty()).then(|| text.to_owned()),
         filetype: Some(0),
-        days: Some(days),
+        days: match query.sort {
+            Sort::Trend { days } => Some(days),
+            _ => None,
+        },
         return_tags: Some(true),
+        return_short_description: Some(true),
+        cursor: Some(query.cursor.clone().unwrap_or_else(|| "*".into())),
+        page: None,
     };
     let reply: crate::proto::CPublishedFileQueryFilesResponse =
         client.call("PublishedFile.QueryFiles", &request).await?;
-    Ok(reply
+    let items: Vec<Item> = reply
         .publishedfiledetails
         .into_iter()
         .filter(|d| d.result() == OK && d.file_type() != COLLECTION)
         .map(Item::from)
+        .collect();
+    // The last page hands back the cursor it was given, or none.
+    let next = reply
+        .next_cursor
+        .filter(|next| !items.is_empty() && Some(next) != query.cursor.as_ref() && next != "*");
+    Ok(Page {
+        items,
+        total: reply.total.unwrap_or(0),
+        next,
+    })
+}
+
+/// The `count` items of `app`'s Workshop that gained the most over the last `days`, most
+/// first. Collections are left out.
+pub async fn trending(client: &mut Client, app: u32, days: u32, count: u32) -> Result<Vec<Item>> {
+    let query = Query {
+        app,
+        text: String::new(),
+        tags: Vec::new(),
+        excluded: Vec::new(),
+        sort: Sort::Trend { days },
+        cursor: None,
+        count,
+    };
+    Ok(search(client, &query).await?.items)
+}
+
+/// The names the authors in `ids` go by on their profiles. Steam denies this to anonymous
+/// sessions, so `client` has to be logged on as a user; ids it says nothing about are left out.
+pub async fn authors(
+    client: &mut Client,
+    ids: &[u64],
+) -> Result<std::collections::HashMap<u64, String>> {
+    let request = crate::proto::CPlayerGetPlayerLinkDetailsRequest {
+        steamids: ids.to_vec(),
+    };
+    let reply: crate::proto::CPlayerGetPlayerLinkDetailsResponse =
+        client.call("Player.GetPlayerLinkDetails", &request).await?;
+    Ok(reply
+        .accounts
+        .into_iter()
+        .filter_map(|account| {
+            let data = account.public_data?;
+            Some((data.steamid?, data.persona_name.filter(|n| !n.is_empty())?))
+        })
         .collect())
 }
 
@@ -218,7 +375,7 @@ const PREVIEW_CAP: usize = 8 << 20;
 
 /// An `https` URL on one of the hosts Steam serves Workshop pictures from. The URL comes from
 /// what an item's author uploaded, so it is checked before lata fetches it.
-fn is_steam_image(url: &str) -> bool {
+pub fn is_steam_image(url: &str) -> bool {
     let Some(host) = url
         .strip_prefix("https://")
         .and_then(|rest| rest.split('/').next())

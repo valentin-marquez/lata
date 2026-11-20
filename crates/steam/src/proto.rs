@@ -279,6 +279,9 @@ pub struct CPublishedFileGetDetailsRequest {
     /// Asks for the item's Workshop tags.
     #[prost(bool, optional, tag = "2")]
     pub includetags: Option<bool>,
+    /// Asks for the gallery: the pictures and videos past the main one.
+    #[prost(bool, optional, tag = "3")]
+    pub includeadditionalpreviews: Option<bool>,
     /// Asks for the items a collection holds, or the ones a mod requires.
     #[prost(bool, optional, tag = "4")]
     pub includechildren: Option<bool>,
@@ -297,6 +300,9 @@ pub struct PublishedFileDetails {
     pub result: Option<u32>,
     #[prost(uint64, optional, tag = "2")]
     pub publishedfileid: Option<u64>,
+    /// SteamID of the author.
+    #[prost(fixed64, optional, tag = "3")]
+    pub creator: Option<u64>,
     #[prost(uint32, optional, tag = "5")]
     pub consumer_appid: Option<u32>,
     #[prost(uint64, optional, tag = "8")]
@@ -310,6 +316,14 @@ pub struct PublishedFileDetails {
     pub hcontent_file: Option<u64>,
     #[prost(string, optional, tag = "16")]
     pub title: Option<String>,
+    /// The whole description, in BBCode.
+    #[prost(string, optional, tag = "17")]
+    pub file_description: Option<String>,
+    /// The start of the description, in BBCode; only when asked for.
+    #[prost(string, optional, tag = "18")]
+    pub short_description: Option<String>,
+    #[prost(uint32, optional, tag = "19")]
+    pub time_created: Option<u32>,
     #[prost(uint32, optional, tag = "20")]
     pub time_updated: Option<u32>,
     /// How many users are subscribed to it now.
@@ -318,6 +332,12 @@ pub struct PublishedFileDetails {
     /// EWorkshopFileType: a collection is not a mod.
     #[prost(uint32, optional, tag = "34")]
     pub file_type: Option<u32>,
+    /// How many users have it among their favorites.
+    #[prost(uint32, optional, tag = "37")]
+    pub favorited: Option<u32>,
+    /// The gallery, when asked for.
+    #[prost(message, repeated, tag = "51")]
+    pub previews: Vec<PublishedFilePreview>,
     /// Workshop tags; Project Zomboid mods carry `Build 41` and `Build 42` among them.
     #[prost(message, repeated, tag = "52")]
     pub tags: Vec<PublishedFileTag>,
@@ -337,6 +357,14 @@ pub struct CPublishedFileQueryFilesRequest {
     pub numperpage: Option<u32>,
     #[prost(uint32, optional, tag = "5")]
     pub appid: Option<u32>,
+    /// Only items with all of these tags.
+    #[prost(string, repeated, tag = "6")]
+    pub requiredtags: Vec<String>,
+    /// None of these tags.
+    #[prost(string, repeated, tag = "7")]
+    pub excludedtags: Vec<String>,
+    #[prost(string, optional, tag = "11")]
+    pub search_text: Option<String>,
     /// EPublishedFileInfoMatchingFileType; 0 is plain items, which leaves collections out.
     #[prost(uint32, optional, tag = "12")]
     pub filetype: Option<u32>,
@@ -344,6 +372,11 @@ pub struct CPublishedFileQueryFilesRequest {
     pub days: Option<u32>,
     #[prost(bool, optional, tag = "18")]
     pub return_tags: Option<bool>,
+    #[prost(bool, optional, tag = "22")]
+    pub return_short_description: Option<bool>,
+    /// `*` for the first page, then the response's `next_cursor`; replaces `page`.
+    #[prost(string, optional, tag = "39")]
+    pub cursor: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -352,6 +385,8 @@ pub struct CPublishedFileQueryFilesResponse {
     pub total: Option<u32>,
     #[prost(message, repeated, tag = "2")]
     pub publishedfiledetails: Vec<PublishedFileDetails>,
+    #[prost(string, optional, tag = "3")]
+    pub next_cursor: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -361,11 +396,49 @@ pub struct PublishedFileTag {
 }
 
 #[derive(Clone, PartialEq, Message)]
+pub struct PublishedFilePreview {
+    #[prost(string, optional, tag = "3")]
+    pub url: Option<String>,
+    /// A YouTube video's id, for a video instead of a picture.
+    #[prost(string, optional, tag = "6")]
+    pub youtubevideoid: Option<String>,
+}
+
+#[derive(Clone, PartialEq, Message)]
 pub struct PublishedFileChild {
     #[prost(uint64, optional, tag = "1")]
     pub publishedfileid: Option<u64>,
     #[prost(uint32, optional, tag = "2")]
     pub sortorder: Option<u32>,
+}
+
+// Players
+
+/// `Player.GetPlayerLinkDetails`: public data of some accounts. Anonymous sessions are denied.
+#[derive(Clone, PartialEq, Message)]
+pub struct CPlayerGetPlayerLinkDetailsRequest {
+    #[prost(uint64, repeated, tag = "1")]
+    pub steamids: Vec<u64>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct CPlayerGetPlayerLinkDetailsResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub accounts: Vec<PlayerLinkDetails>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct PlayerLinkDetails {
+    #[prost(message, optional, tag = "1")]
+    pub public_data: Option<AccountPublicData>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct AccountPublicData {
+    #[prost(fixed64, optional, tag = "1")]
+    pub steamid: Option<u64>,
+    #[prost(string, optional, tag = "10")]
+    pub persona_name: Option<String>,
 }
 
 // Authentication (user login)

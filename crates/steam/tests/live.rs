@@ -226,3 +226,115 @@ async fn lists_a_mods_versions_and_downloads_an_old_one() {
         .expect("the oldest version still downloads");
     std::fs::remove_dir_all(dir).expect("clean up");
 }
+
+/// A search narrows by text and tags, and its cursor walks to a page with other items.
+#[tokio::test]
+#[ignore = "talks to Steam"]
+async fn searches_the_workshop_page_by_page() {
+    use steam::workshop::{Query, Sort};
+    let http = steam::http();
+    let mut client = steam::Client::anonymous(&http)
+        .await
+        .expect("anonymous logon");
+    let mut query = Query {
+        app: PROJECT_ZOMBOID,
+        text: "vehicle".into(),
+        tags: vec!["Build 42".into()],
+        excluded: Vec::new(),
+        sort: Sort::Relevance,
+        cursor: None,
+        count: 10,
+    };
+    let first = steam::workshop::search(&mut client, &query)
+        .await
+        .expect("the first page loads");
+    eprintln!("{} found", first.total);
+    assert!(first.total > 100 && first.items.len() == 10);
+    assert!(
+        first
+            .items
+            .iter()
+            .all(|m| m.tags.iter().any(|t| t == "Build 42"))
+    );
+    assert!(first.items.iter().all(|m| m.author != 0));
+    query.cursor = first.next.clone();
+    assert!(query.cursor.is_some());
+    let second = steam::workshop::search(&mut client, &query)
+        .await
+        .expect("the second page loads");
+    let new = second
+        .items
+        .iter()
+        .filter(|m| first.items.iter().all(|seen| seen.id != m.id))
+        .count();
+    assert!(new >= 5, "the next page brings other items");
+    for sort in [
+        Sort::Popular,
+        Sort::Newest,
+        Sort::Updated,
+        Sort::Trend { days: 7 },
+    ] {
+        let page = steam::workshop::search(
+            &mut client,
+            &Query {
+                text: String::new(),
+                tags: Vec::new(),
+                sort,
+                cursor: None,
+                ..query.clone()
+            },
+        )
+        .await
+        .expect("every sort loads");
+        assert!(!page.items.is_empty(), "{sort:?}");
+    }
+    // A left-out tag is on none of the results.
+    let without = steam::workshop::search(
+        &mut client,
+        &Query {
+            text: String::new(),
+            excluded: vec!["Vehicles".into()],
+            sort: Sort::Popular,
+            cursor: None,
+            ..query.clone()
+        },
+    )
+    .await
+    .expect("a search without a tag loads");
+    assert!(!without.items.is_empty());
+    assert!(
+        without
+            .items
+            .iter()
+            .all(|m| m.tags.iter().all(|t| t != "Vehicles"))
+    );
+    // Names need a logged-on user.
+    assert!(
+        steam::workshop::authors(&mut client, &[first.items[0].author])
+            .await
+            .is_err()
+    );
+}
+
+/// An item's page brings its whole description and its gallery.
+#[tokio::test]
+#[ignore = "talks to Steam"]
+async fn reads_a_workshop_page() {
+    let http = steam::http();
+    let mut client = steam::Client::anonymous(&http)
+        .await
+        .expect("anonymous logon");
+    // Sartek's Snake Eater Ladder: a long description and a few gallery pictures.
+    let about = steam::workshop::about(&mut client, 3837899636)
+        .await
+        .expect("the page loads");
+    eprintln!(
+        "{}: {} chars, {} pictures, {} favorites",
+        about.item.title,
+        about.description.len(),
+        about.gallery.len(),
+        about.favorited
+    );
+    assert!(about.description.len() > about.item.summary.len());
+    assert!(about.created.is_some());
+}

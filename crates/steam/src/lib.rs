@@ -43,6 +43,8 @@ pub enum Error {
     TooLarge(&'static str),
     #[error("that is not a Workshop collection, or it is private")]
     NotCollection,
+    #[error("that Workshop item is gone, or it is private")]
+    Gone,
     #[error("Steam took too long to answer")]
     Timeout,
 }
