@@ -25,6 +25,12 @@ pub enum Incoming {
     /// The text of a link, not yet read (`parse` decides).
     Link(String),
     Show,
+    /// From the tray's menu: quit lata, even with its window hidden.
+    #[cfg_attr(
+        not(windows),
+        expect(dead_code, reason = "only the Windows tray sends it, so far")
+    )]
+    Quit,
 }
 
 /// What a link asks for.

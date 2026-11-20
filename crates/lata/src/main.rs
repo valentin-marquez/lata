@@ -17,6 +17,7 @@ mod settings;
 mod shell;
 mod storage;
 mod theme;
+mod tray;
 mod ui;
 mod update;
 mod workshop;
@@ -68,6 +69,7 @@ fn main() {
         let _ = outside.send(link::Incoming::Link(link));
     }
     let (from_others, back) = (outside.clone(), outside.clone());
+    tray::connect(outside.clone());
     if let Err(err) = link::single::serve(&lock, move |message| {
         let _ = from_others.send(message);
     }) {
@@ -103,6 +105,9 @@ fn open(mut incoming: tokio::sync::mpsc::UnboundedReceiver<link::Incoming>, cx: 
     };
     gpui_kit::open_window(options, cx, |window, cx| {
         theme::follow_system(window, cx);
+        // With the tray on, closing the window hides it instead of quitting lata.
+        tray::apply(cx);
+        window.on_window_should_close(cx, tray::close);
         let shell = cx.new(Shell::new);
         let (handle, weak) = (window.window_handle(), shell.downgrade());
         cx.spawn(async move |cx| {
@@ -111,8 +116,12 @@ fn open(mut incoming: tokio::sync::mpsc::UnboundedReceiver<link::Incoming>, cx: 
                     link::Incoming::Link(text) => {
                         let _ = weak.update(cx, |shell, cx| shell.receive_link(text, handle, cx));
                     }
+                    // Also brings the window back from the tray.
                     link::Incoming::Show => {
                         let _ = handle.update(cx, |_, window, _| window.activate_window());
+                    }
+                    link::Incoming::Quit => {
+                        cx.update(tray::quit);
                     }
                 }
             }

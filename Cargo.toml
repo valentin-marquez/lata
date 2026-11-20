@@ -32,3 +32,6 @@ opt-level = 3
 gpui-component = { path = "vendor/gpui-component" }
 # gpui's Linux backend, patched to copy images (see vendor/gpui-pre-linux/LATA-PATCHES.md).
 gpui-pre-linux = { path = "vendor/gpui-pre-linux" }
+# gpui's Windows backend, patched to hide a window and show a hidden one (see
+# vendor/gpui-pre-windows/LATA-PATCHES.md).
+gpui-pre-windows = { path = "vendor/gpui-pre-windows" }

@@ -38,6 +38,9 @@ pub struct Saved {
     /// default, and a file from before the setting, mean it does.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub updates_off: bool,
+    /// Whether closing the window keeps lata running in the system tray. Off by default.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub minimize_to_tray: bool,
     /// The version whose "what's new" was last shown; `None` until lata runs once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub news_seen: Option<String>,
@@ -131,6 +134,7 @@ pub fn open(shell: WeakEntity<crate::shell::Shell>, window: &mut Window, cx: &mu
         startup: startup::enabled(),
         protocol: crate::link::protocol::enabled(),
         updates: !load().updates_off,
+        tray: crate::tray::enabled(),
     };
     let newer = shell.upgrade().and_then(|shell| shell.read(cx).newer());
     let storage = cx.new(|cx| crate::storage::picker::Picker::new(shell.clone(), false, cx));
@@ -174,6 +178,8 @@ struct Values {
     protocol: bool,
     /// Whether lata looks for newer versions of itself.
     updates: bool,
+    /// Whether closing the window keeps lata running in the system tray.
+    tray: bool,
 }
 
 struct Settings {
@@ -521,6 +527,13 @@ impl Settings {
             update(|saved| saved.updates_off = off);
             self.saved.updates = self.draft.updates;
         }
+        if self.draft.tray != self.saved.tray {
+            let on = self.draft.tray;
+            update(|saved| saved.minimize_to_tray = on);
+            // The icon appears or goes away now, not at the next start.
+            crate::tray::apply(cx);
+            self.saved.tray = self.draft.tray;
+        }
         if self.draft.theme != self.saved.theme {
             theme::choose(self.draft.theme, window, cx);
             self.saved.theme = self.draft.theme;
@@ -678,8 +691,18 @@ impl Settings {
                     cx.notify();
                 })
             });
-        // Needs a system tray icon, which gpui doesn't have.
-        let tray = Switch::new("tray").checked(false).disabled(true);
+        // Only where lata can put itself in the tray; the rest shows it off until it can.
+        let this = cx.entity();
+        let tray = Switch::new("tray")
+            .cursor_pointer()
+            .checked(self.draft.tray)
+            .disabled(!crate::tray::SUPPORTED)
+            .on_click(move |&on, _, cx| {
+                this.update(cx, |this, cx| {
+                    this.draft.tray = on;
+                    cx.notify();
+                })
+            });
         // Only where lata registers the protocol itself; elsewhere the app's files declare it.
         let this = cx.entity();
         let links = crate::link::protocol::SUPPORTED.then(|| {
@@ -733,7 +756,11 @@ impl Settings {
             ))
             .child(row(
                 "Minimize to the system tray",
-                "Closing the window keeps lata running in the tray. Coming soon.",
+                if crate::tray::SUPPORTED {
+                    "Closing the window keeps lata running in the tray. Quit it from the tray icon."
+                } else {
+                    "Closing the window keeps lata running in the tray. Coming soon on this system."
+                },
                 tray,
                 cx,
             ))
