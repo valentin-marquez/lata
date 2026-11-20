@@ -500,6 +500,7 @@ fn card(
                 let (folder, path) = (dir.clone(), dir.to_string_lossy().into_owned());
                 // The main action stands out in the accent, as on the card and the page.
                 let (label, accent) = (SharedString::from(menu_action.clone()), theme.primary);
+                let danger = theme.danger;
                 let play = PopupMenuItem::element(move |_, _| {
                     div()
                         .text_color(accent)
@@ -538,7 +539,13 @@ fn card(
                         }),
                     )
                     .separator()
-                    .item(item("Delete", IconName::Trash).on_click(on(Shell::confirm_delete)))
+                    .item(
+                        PopupMenuItem::element(move |_, _| {
+                            div().text_color(danger).child("Delete")
+                        })
+                        .icon(Icon::new(IconName::Trash).text_color(danger))
+                        .on_click(on(Shell::confirm_delete)),
+                    )
             }
         })
         .into_any_element()

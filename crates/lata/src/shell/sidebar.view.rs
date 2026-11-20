@@ -148,6 +148,7 @@ pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> im
         let state = shell.status(instance);
         let (shell_for_menu, id, dir) = (handle.clone(), instance.id.clone(), instance.dir.clone());
         let accent = theme.primary;
+        let danger = theme.danger;
         // The highlight under the list marks the open one, so no row draws its own fill.
         let open = shell.page == Page::Instance(ix);
         if open {
@@ -190,6 +191,17 @@ pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> im
                     Shell::duplicate(shell.clone(), id.clone(), window, cx)
                 }
             };
+            // Last, apart from the rest, as in the Library card's menu: the one that can't be
+            // undone, in red. It still asks before deleting.
+            let delete =
+                PopupMenuItem::element(move |_, _| div().text_color(danger).child("Delete"))
+                    .icon(Icon::new(IconName::Trash).text_color(danger))
+                    .on_click({
+                        let (shell, id) = (shell_for_menu.clone(), id.clone());
+                        move |_, window, cx| {
+                            Shell::confirm_delete(shell.clone(), id.clone(), window, cx)
+                        }
+                    });
             menu.item(play)
                 .item(
                     PopupMenuItem::new("Open folder")
@@ -201,6 +213,8 @@ pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> im
                         .icon(IconName::Copy)
                         .on_click(copy),
                 )
+                .separator()
+                .item(delete)
         })
     });
 

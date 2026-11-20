@@ -1,9 +1,9 @@
 //! The selected instance: header with Play, and its Mods / Worlds / Logs tabs.
 
 use gpui_kit::assets::IconName;
-use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
+use gpui_kit::component::{ActiveTheme, Icon};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -166,12 +166,13 @@ impl Detail {
                         })
                     })
             })
-            .child(self.more(instance))
+            .child(self.more(instance, cx))
     }
 
     /// Everything but Play, behind one button: the header keeps a single strong action.
-    fn more(&self, instance: &Instance) -> impl IntoElement + use<> {
+    fn more(&self, instance: &Instance, cx: &App) -> impl IntoElement + use<> {
         let (shell, instance) = (self.shell.clone(), instance.clone());
+        let danger = cx.theme().danger;
         Button::new("instance-more")
             .ghost()
             .cursor_pointer()
@@ -219,8 +220,8 @@ impl Detail {
                 )
                 .separator()
                 .item(
-                    PopupMenuItem::new("Delete")
-                        .icon(IconName::Trash)
+                    PopupMenuItem::element(move |_, _| div().text_color(danger).child("Delete"))
+                        .icon(Icon::new(IconName::Trash).text_color(danger))
                         .on_click(on(Shell::confirm_delete)),
                 )
             })
