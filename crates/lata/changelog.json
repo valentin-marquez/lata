@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.10.2",
+    "date": "November 20, 2026",
+    "added": [],
+    "changed": [],
+    "fixed": [
+      "The can on the update screen keeps moving while an update downloads, so a slow download doesn't look stuck.",
+      "On Linux with a tiling window manager like Hyprland, the update screen shows as a small centered window instead of filling a tile."
+    ]
+  },
+  {
     "version": "0.10.1",
     "date": "November 19, 2026",
     "added": [],
