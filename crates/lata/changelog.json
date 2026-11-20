@@ -1,5 +1,23 @@
 [
   {
+    "version": "0.10.0",
+    "date": "November 19, 2026",
+    "added": [
+      "A Workshop tab: search Project Zomboid mods, sort them, filter by build and category, and leave categories out. Sign in with Steam and every mod shows who made it.",
+      "Each mod has its own page, with its description, pictures, changelog, the mods it needs and a button to install it.",
+      "Install a mod right from the Workshop: pick the instance, or make a new one and it only offers game versions the mod runs on.",
+      "Update or roll back just the mods you check, and filter the Mods tab to the ones with an update.",
+      "Sort mods by when you installed them or when they last updated. These two came from typpy(Re.) on Discord, thanks a lot!",
+      "View in Workshop in a mod's menu opens its page without leaving lata."
+    ],
+    "changed": [
+      "The bar for checked mods floats over the list instead of pushing it up, and fits narrow windows.",
+      "Add is now Install everywhere, since that's what it does.",
+      "Instance menus are grouped: the instance, its files, copies of it, and Delete on its own at the end."
+    ],
+    "fixed": []
+  },
+  {
     "version": "0.9.0",
     "date": "November 18, 2026",
     "added": [
