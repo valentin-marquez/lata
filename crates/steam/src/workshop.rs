@@ -382,9 +382,12 @@ pub fn is_steam_image(url: &str) -> bool {
     else {
         return false;
     };
-    [".steamusercontent.com", ".steamstatic.com", ".akamaihd.net"]
+    // akamaihd.net is shared by every Akamai customer: only Steam's own names there.
+    let akamai = host.starts_with("steamuserimages-") && host.ends_with(".akamaihd.net");
+    ([".steamusercontent.com", ".steamstatic.com"]
         .iter()
         .any(|suffix| host.ends_with(suffix))
+        || akamai)
         && host
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-'))
@@ -542,6 +545,7 @@ mod tests {
             "https://evil.example/images.steamusercontent.com/a",
             "https://steamusercontent.com.evil.example/a",
             "https://user:pw@images.steamusercontent.com/a",
+            "https://anyone.akamaihd.net/ugc/1/2/",
             "file:///etc/passwd",
             "",
         ] {
