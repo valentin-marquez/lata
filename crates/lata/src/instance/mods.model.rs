@@ -718,15 +718,25 @@ fn picture_ext(bytes: &[u8]) -> Option<&'static str> {
 pub async fn picture(http: &steam::reqwest::Client, url: Option<&str>) -> Option<PathBuf> {
     let cache = super::store::data().join("cache").join("workshop");
     let url = url?;
-    // Named by the picture's own address, which changes when its author replaces it.
-    let name: String = url
-        .trim_end_matches('/')
-        .rsplit('/')
-        .next()?
-        .chars()
-        .filter(char::is_ascii_alphanumeric)
-        .take(40)
-        .collect();
+    // Named by the picture's own address, which changes when its author replaces it. Steam's
+    // end in a hash of the picture; any other host's by a hash of the whole address, so a
+    // description's picture can't take the name of another mod's.
+    let name: String = match steam::workshop::is_steam_image(url) {
+        true => url
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()?
+            .chars()
+            .filter(char::is_ascii_alphanumeric)
+            .take(40)
+            .collect(),
+        false => {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::hash::DefaultHasher::new();
+            url.hash(&mut hasher);
+            format!("web{:016x}", hasher.finish())
+        }
+    };
     for ext in ["jpg", "png", "gif", "webp"] {
         let path = cache.join(format!("{name}.{ext}"));
         if path.is_file() {
