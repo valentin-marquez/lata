@@ -476,7 +476,7 @@ impl Mods {
                     })
                     .child(self.updates(outdated, cx))
                     .child(
-                        FancyButton::new("mod-add", "Add mod")
+                        FancyButton::new("mod-add", "Install mod")
                             .small()
                             .icon(IconName::Plus)
                             .on_click(move |_, window, cx| {
@@ -519,7 +519,7 @@ impl Mods {
                         many => format!("{many} Java mods need ZombieBuddy to run"),
                     },
                     names.join(", "),
-                    FancyButton::new("java-add-loader", "Add ZombieBuddy")
+                    FancyButton::new("java-add-loader", "Install ZombieBuddy")
                         .small()
                         .icon(IconName::Plus)
                         .on_click(move |_, window, cx| {
@@ -1219,10 +1219,10 @@ impl Render for Mods {
                     Empty::new(
                         IconName::Puzzle,
                         "No mods yet",
-                        "Add one from the Workshop and it lands here.",
+                        "Install one from the Workshop and it lands here.",
                     )
                     .action(
-                        FancyButton::new("mod-add-first", "Add mod")
+                        FancyButton::new("mod-add-first", "Install mod")
                             .small()
                             .icon(IconName::Plus)
                             .on_click(move |_, window, cx| {

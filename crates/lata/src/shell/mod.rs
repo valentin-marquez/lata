@@ -1380,7 +1380,7 @@ impl Shell {
                 Ok(Ok((missing, Ok(())))) => toast::heads_up(
                     "Almost everything made it",
                     format!(
-                        "Steam doesn't have these mods here, add them from the Workshop: {}",
+                        "Steam doesn't have these mods here, install them from the Workshop: {}",
                         missing.join(", ")
                     ),
                 ),

@@ -1,4 +1,4 @@
-//! "Add mod" dialog: paste a Workshop link, see what it is, then add it to the instance.
+//! "Install mod" dialog: paste a Workshop link, see what it is, then install it in the instance.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::dialog::DialogEntrance;
@@ -27,7 +27,7 @@ pub fn open(instance: Instance, shell: WeakEntity<Shell>, window: &mut Window, c
         // Fades in settling from just above, and back out (the default drops from the window top).
         let dialog = dialog.entrance(DialogEntrance::FadeSlide);
         dialog
-            .title("Add mod")
+            .title("Install mod")
             .centered()
             .w(px(WIDTH))
             .child(view.clone())
@@ -113,7 +113,8 @@ impl AddMod {
                 }
                 this.lookup = match found {
                     Ok(found) if found.item.manifest == 0 => Lookup::Failed(
-                        "That one is a collection. Add those when you create an instance".into(),
+                        "That one is a collection. Install those when you create an instance"
+                            .into(),
                     ),
                     Ok(found) => Lookup::Found(Box::new(found)),
                     Err(why) => Lookup::Failed(why),
@@ -427,7 +428,7 @@ impl Render for AddMod {
                     )
                     .when(ready, |this| {
                         this.child(
-                            FancyButton::new("mod-add-confirm", "Add mod")
+                            FancyButton::new("mod-add-confirm", "Install mod")
                                 .small()
                                 .icon(IconName::Plus)
                                 .on_click(cx.listener(|this, _, window, cx| this.add(window, cx))),

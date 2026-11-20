@@ -944,7 +944,7 @@ pub async fn install(
     }
     if !items.iter().any(|item| ids.contains(&item.id)) {
         return Err(if ids.len() == 1 {
-            "That isn't a Project Zomboid mod. Collections are added when creating an instance"
+            "That isn't a Project Zomboid mod. Collections get installed when you create an instance"
                 .into()
         } else {
             "None of those are Project Zomboid mods Steam still has".into()
