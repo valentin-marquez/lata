@@ -1,5 +1,14 @@
 [
   {
+    "version": "0.10.1",
+    "date": "November 19, 2026",
+    "added": [],
+    "changed": [],
+    "fixed": [
+      "A mod's pictures can't stand in for another mod's anymore: lata keeps each one under a name nobody can copy, and only trusts Steam's own picture hosts."
+    ]
+  },
+  {
     "version": "0.10.0",
     "date": "November 19, 2026",
     "added": [
