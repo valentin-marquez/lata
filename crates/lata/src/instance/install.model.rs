@@ -169,8 +169,13 @@ pub fn start(
     .abort_handle()
 }
 
+/// Whether an install is writing into `game` right now. A cancelled one lets go of it.
+pub fn writing(game: &std::path::Path) -> bool {
+    lock(game).try_lock().is_err()
+}
+
 /// The lock for installing into `game`, shared by every install that targets that folder.
-fn lock(game: &std::path::Path) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+pub(super) fn lock(game: &std::path::Path) -> std::sync::Arc<tokio::sync::Mutex<()>> {
     use std::collections::HashMap;
     use std::sync::{Arc, LazyLock, Mutex};
     static LOCKS: LazyLock<Mutex<HashMap<std::path::PathBuf, Arc<tokio::sync::Mutex<()>>>>> =

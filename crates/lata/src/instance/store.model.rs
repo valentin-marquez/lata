@@ -123,13 +123,31 @@ pub fn migrate(root: &Path) {
 
 /// Deletes complete builds that no instance runs any more.
 pub fn prune(root: &Path) -> io::Result<()> {
-    let used: Vec<PathBuf> = list(root).iter().filter_map(Instance::game).collect();
+    sweep(root, false)
+}
+
+/// What is left to clean after an instance is deleted: [`prune`], and the half-downloaded
+/// builds a cancelled install left, which nothing would ever remove. A half download stays
+/// while an install is writing into it, and while an instance that hasn't installed yet could
+/// pick it up where it stopped.
+fn prune_abandoned(root: &Path) -> io::Result<()> {
+    sweep(root, true)
+}
+
+fn sweep(root: &Path, abandoned: bool) -> io::Result<()> {
+    let instances = list(root);
+    let used: Vec<PathBuf> = instances.iter().filter_map(Instance::game).collect();
+    let waiting = instances.iter().any(|i| i.build.is_none());
     let Ok(entries) = std::fs::read_dir(builds(root)) else {
         return Ok(());
     };
     for entry in entries.flatten() {
         let dir = entry.path();
-        if complete(&dir) && !used.contains(&dir) {
+        if used.contains(&dir) {
+            continue;
+        }
+        let gone = complete(&dir) || (abandoned && !waiting && !super::install::writing(&dir));
+        if gone {
             std::fs::remove_dir_all(&dir)?;
         }
     }
@@ -354,7 +372,7 @@ pub fn delete(root: &Path, dir: &Path, mut progress: impl FnMut(u64, u64)) -> io
     progress(total, total);
     // Only folders are left.
     std::fs::remove_dir_all(dir)?;
-    prune(root)
+    prune_abandoned(root)
 }
 
 /// Every file under `dir` (links as themselves, never followed) with its size, and their sum.
@@ -626,6 +644,53 @@ mod tests {
             assert!(delete(&root, &target, |_, _| {}).is_err());
         }
         assert!(root.is_dir() && outside.is_dir());
+
+        std::fs::remove_dir_all(root.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn deleting_an_instance_also_clears_the_download_it_left_cancelled() {
+        let root = temp_root("abandoned");
+        let builds = builds(&root);
+        let half = |name: &str| {
+            std::fs::create_dir_all(builds.join(name)).unwrap();
+            std::fs::write(builds.join(name).join("file.bin"), "x").unwrap();
+        };
+        let (a, b) = (
+            create(&root, "A", "public").unwrap(),
+            create(&root, "B", "public").unwrap(),
+        );
+        // A's install was cancelled halfway: the build is there, with no completion mark, and
+        // neither instance has a build.
+        half("7");
+        // Another instance that hasn't installed could pick it up where it stopped.
+        delete(&root, &a.dir, |_, _| {}).unwrap();
+        assert!(builds.join("7").is_dir());
+        // The last one waiting goes: nothing can use it any more.
+        delete(&root, &b.dir, |_, _| {}).unwrap();
+        assert!(!builds.join("7").exists());
+
+        // One an install is writing into right now is never touched, and is cleaned once it
+        // lets go (cancelled).
+        let c = create(&root, "C", "public").unwrap();
+        half("8");
+        let held = crate::instance::install::lock(&builds.join("8"))
+            .try_lock_owned()
+            .unwrap();
+        delete(&root, &c.dir, |_, _| {}).unwrap();
+        assert!(builds.join("8").is_dir());
+        drop(held);
+        let d = create(&root, "D", "public").unwrap();
+        delete(&root, &d.dir, |_, _| {}).unwrap();
+        assert!(!builds.join("8").exists());
+
+        // A build an instance runs stays, complete or not.
+        let e = create(&root, "E", "public").unwrap();
+        half("9");
+        set_build(&e.dir, 9).unwrap();
+        let f = create(&root, "F", "public").unwrap();
+        delete(&root, &f.dir, |_, _| {}).unwrap();
+        assert!(builds.join("9").is_dir());
 
         std::fs::remove_dir_all(root.parent().unwrap()).unwrap();
     }
