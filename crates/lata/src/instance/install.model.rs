@@ -154,7 +154,8 @@ pub fn start(
         let event = match install(&account, &instance, &events).await {
             Ok((build, fell_back)) => match store::set_build(&instance.dir, build) {
                 Ok(()) => {
-                    // The build this instance ran before may now be unused.
+                    // The build this instance ran before may now be unused, and an update it
+                    // cancelled on the way, left behind.
                     if let Some(root) = instance.dir.parent() {
                         let _ = store::prune(root);
                     }
@@ -301,6 +302,10 @@ async fn install(
             let _ = std::fs::remove_dir_all(&own);
         }
         return Ok((build, fell_back));
+    }
+    // So deleting another instance doesn't clear this download if it gets cancelled.
+    if !detached {
+        let _ = store::claim(&game, &instance.dir);
     }
     // Files that didn't change since the build the instance runs now are copied, not downloaded.
     let seed = match partial {

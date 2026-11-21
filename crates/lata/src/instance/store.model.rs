@@ -99,6 +99,33 @@ pub fn set_complete(build: &Path) -> io::Result<()> {
     std::fs::write(build.join(DONE), b"")
 }
 
+/// The instances (their folder names, one per line) that started downloading into a build
+/// folder. A cancelled download stays while one of them is left to resume it, even one that
+/// runs another build and was updating.
+const FOR: &str = ".lata-for";
+
+/// Notes in `build` that the instance in `instance` is downloading it.
+pub fn claim(build: &Path, instance: &Path) -> io::Result<()> {
+    use std::io::Write;
+    let Some(name) = instance.file_name().and_then(|n| n.to_str()) else {
+        return Ok(());
+    };
+    if claimants(build).iter().any(|line| line == name) {
+        return Ok(());
+    }
+    std::fs::create_dir_all(build)?;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(build.join(FOR))?;
+    writeln!(file, "{name}")
+}
+
+fn claimants(build: &Path) -> Vec<String> {
+    let text = std::fs::read_to_string(build.join(FOR)).unwrap_or_default();
+    text.lines().map(str::to_owned).collect()
+}
+
 /// Moves each installed instance's own `game/` (from before builds were shared) into `builds/`,
 /// and drops empty ones. A copy whose build is already shared stays, as a detached instance.
 pub fn migrate(root: &Path) {
@@ -121,20 +148,11 @@ pub fn migrate(root: &Path) {
     }
 }
 
-/// Deletes complete builds that no instance runs any more.
+/// Deletes complete builds that no instance runs any more, and the half-downloaded builds a
+/// cancelled install left, which nothing else would ever remove. A half download stays while an
+/// install is writing into it, while an instance that started it could still resume it, and
+/// while an instance that hasn't installed yet could pick it up where it stopped.
 pub fn prune(root: &Path) -> io::Result<()> {
-    sweep(root, false)
-}
-
-/// What is left to clean after an instance is deleted: [`prune`], and the half-downloaded
-/// builds a cancelled install left, which nothing would ever remove. A half download stays
-/// while an install is writing into it, and while an instance that hasn't installed yet could
-/// pick it up where it stopped.
-fn prune_abandoned(root: &Path) -> io::Result<()> {
-    sweep(root, true)
-}
-
-fn sweep(root: &Path, abandoned: bool) -> io::Result<()> {
     let instances = list(root);
     let used: Vec<PathBuf> = instances.iter().filter_map(Instance::game).collect();
     let waiting = instances.iter().any(|i| i.build.is_none());
@@ -146,7 +164,20 @@ fn sweep(root: &Path, abandoned: bool) -> io::Result<()> {
         if used.contains(&dir) {
             continue;
         }
-        let gone = complete(&dir) || (abandoned && !waiting && !super::install::writing(&dir));
+        // Only one who could still resume it: once it runs this build or a newer one, the half
+        // download is garbage of several GB nobody will use.
+        let number = dir
+            .file_name()
+            .and_then(|n| n.to_str()?.parse::<u32>().ok());
+        let claimed = || {
+            claimants(&dir).iter().any(|name| {
+                instances.iter().any(|i| {
+                    i.dir.file_name().is_some_and(|n| *n == **name)
+                        && i.build.zip(number).is_none_or(|(runs, half)| runs < half)
+                })
+            })
+        };
+        let gone = complete(&dir) || (!waiting && !super::install::writing(&dir) && !claimed());
         if gone {
             std::fs::remove_dir_all(&dir)?;
         }
@@ -372,7 +403,7 @@ pub fn delete(root: &Path, dir: &Path, mut progress: impl FnMut(u64, u64)) -> io
     progress(total, total);
     // Only folders are left.
     std::fs::remove_dir_all(dir)?;
-    prune_abandoned(root)
+    prune(root)
 }
 
 /// Every file under `dir` (links as themselves, never followed) with its size, and their sum.
@@ -691,6 +722,27 @@ mod tests {
         let f = create(&root, "F", "public").unwrap();
         delete(&root, &f.dir, |_, _| {}).unwrap();
         assert!(builds.join("9").is_dir());
+
+        // E was updating to 10 and cancelled: its half download stays while E is there, even
+        // though E runs 9 and nobody waits for a first install.
+        half("10");
+        claim(&builds.join("10"), &e.dir).unwrap();
+        let g = create(&root, "G", "public").unwrap();
+        delete(&root, &g.dir, |_, _| {}).unwrap();
+        assert!(builds.join("10").is_dir());
+        delete(&root, &e.dir, |_, _| {}).unwrap();
+        assert!(!builds.join("10").exists());
+
+        // H cancelled 11, then installed 12: 11 is garbage now, even with H still there.
+        let h = create(&root, "H", "public").unwrap();
+        set_build(&h.dir, 9).unwrap();
+        half("11");
+        claim(&builds.join("11"), &h.dir).unwrap();
+        prune(&root).unwrap();
+        assert!(builds.join("11").is_dir());
+        set_build(&h.dir, 12).unwrap();
+        prune(&root).unwrap();
+        assert!(!builds.join("11").exists());
 
         std::fs::remove_dir_all(root.parent().unwrap()).unwrap();
     }
