@@ -400,10 +400,14 @@ pub fn delete(root: &Path, dir: &Path, mut progress: impl FnMut(u64, u64)) -> io
             told = freed;
         }
     }
-    progress(total, total);
     // Only folders are left.
     std::fs::remove_dir_all(dir)?;
-    prune(root)
+    // The instance is gone. A build that can't be removed now (an open file, an antivirus) goes
+    // at the next prune; it isn't a reason to report the deletion as failed. Cleaning it can be
+    // gigabytes, so the bar only reaches its end after it.
+    let _ = prune(root);
+    progress(total, total);
+    Ok(())
 }
 
 /// Every file under `dir` (links as themselves, never followed) with its size, and their sum.

@@ -193,15 +193,10 @@ pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> im
             };
             // Last, apart from the rest, as in the Library card's menu: the one that can't be
             // undone, in red. It still asks before deleting.
-            let delete =
-                PopupMenuItem::element(move |_, _| div().text_color(danger).child("Delete"))
-                    .icon(Icon::new(IconName::Trash).text_color(danger))
-                    .on_click({
-                        let (shell, id) = (shell_for_menu.clone(), id.clone());
-                        move |_, window, cx| {
-                            Shell::confirm_delete(shell.clone(), id.clone(), window, cx)
-                        }
-                    });
+            let delete = crate::ui::danger_item("Delete", IconName::Trash, danger).on_click({
+                let (shell, id) = (shell_for_menu.clone(), id.clone());
+                move |_, window, cx| Shell::confirm_delete(shell.clone(), id.clone(), window, cx)
+            });
             menu.item(play)
                 .item(
                     PopupMenuItem::new("Open folder")

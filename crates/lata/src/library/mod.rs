@@ -540,11 +540,8 @@ fn card(
                     )
                     .separator()
                     .item(
-                        PopupMenuItem::element(move |_, _| {
-                            div().text_color(danger).child("Delete")
-                        })
-                        .icon(Icon::new(IconName::Trash).text_color(danger))
-                        .on_click(on(Shell::confirm_delete)),
+                        ui::danger_item("Delete", IconName::Trash, danger)
+                            .on_click(on(Shell::confirm_delete)),
                     )
             }
         })

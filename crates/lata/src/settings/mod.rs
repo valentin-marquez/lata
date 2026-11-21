@@ -12,6 +12,7 @@ use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::dialog::DialogEntrance;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{ActiveTheme, Disableable, Icon};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use serde::{Deserialize, Serialize};
 
@@ -694,7 +695,8 @@ impl Settings {
         // Only where lata can put itself in the tray; the rest shows it off until it can.
         let this = cx.entity();
         let tray = Switch::new("tray")
-            .cursor_pointer()
+            // The hand only where it can be clicked: a disabled one keeps the arrow.
+            .when(crate::tray::SUPPORTED, |switch| switch.cursor_pointer())
             .checked(self.draft.tray)
             .disabled(!crate::tray::SUPPORTED)
             .on_click(move |&on, _, cx| {

@@ -172,8 +172,9 @@ impl RenderOnce for Trigger {
                     // percentage whatever its width.
                     .justify_start()
                     .text_color(theme.muted_foreground)
-                    // Until the speed is measured (the first moments, or a task that has none,
-                    // like a deletion) a spinner says it is working and not stuck.
+                    // Until the speed is measured (about the first second of any task, a
+                    // deletion's too: it counts the bytes it frees) a spinner says it is
+                    // working and not stuck.
                     .map(|this| match s.speed {
                         // Centered where the speed will go, not at its left edge.
                         0 => this

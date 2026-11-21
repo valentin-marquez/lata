@@ -11,14 +11,23 @@ mod meta;
 
 use std::time::Duration;
 
+use gpui_kit::assets::IconName;
 use gpui_kit::base::Spring;
-use gpui_kit::component::ActiveTheme;
-use gpui_kit::{App, Hsla, Pixels};
+use gpui_kit::component::menu::PopupMenuItem;
+use gpui_kit::component::{ActiveTheme, Icon};
+use gpui_kit::{App, Hsla, ParentElement as _, Pixels, Styled as _, div};
 
 pub use empty::Empty;
 pub use fancy_button::FancyButton;
 pub use loader::Loader;
 pub use meta::Meta;
+
+/// A menu item for what can't be undone (an instance's Delete), in the danger color `color`,
+/// text and icon. The caller adds its `on_click`.
+pub fn danger_item(label: &'static str, icon: IconName, color: Hsla) -> PopupMenuItem {
+    PopupMenuItem::element(move |_, _| div().text_color(color).child(label))
+        .icon(Icon::new(icon).text_color(color))
+}
 
 /// Default motion for anything that reacts to the user: critically damped, no overshoot.
 /// Interactions animate with springs, never with linear timing.
