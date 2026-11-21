@@ -102,7 +102,7 @@ async fn main() -> Result<(), Failure> {
                 let key = content::depot_key(&mut client, GAME, *depot).await?;
                 let id = (GAME, *depot, same.manifest);
                 if let Err(err) =
-                    content::manifest(&mut client, &http, &hosts[0], id, "public", &key).await
+                    content::manifest(&mut client, &http, &hosts, id, "public", &key).await
                 {
                     println!(
                         "{}  {depot}:{}  not served: {err}",
@@ -140,7 +140,7 @@ async fn main() -> Result<(), Failure> {
         let manifest = match content::manifest(
             &mut client,
             &http,
-            &hosts[0],
+            &hosts,
             (GAME, *lead, row.manifest),
             "public",
             &key,

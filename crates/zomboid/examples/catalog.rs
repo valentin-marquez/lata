@@ -101,7 +101,7 @@ async fn read_version(
     let mut manifest = steam::content::manifest(
         client,
         http,
-        &hosts[0],
+        hosts,
         (SERVER, SERVER_COMMON, gid),
         branch,
         &key,

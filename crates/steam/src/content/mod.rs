@@ -55,6 +55,12 @@ pub async fn cdn_hosts(client: &mut Client) -> Result<Vec<String>> {
         .servers
         .into_iter()
         .filter(|s| matches!(s.https_support(), "mandatory" | "optional"))
+        // As DepotDownloader does: other types and servers kept for a few apps (ISP caches
+        // like Qwilted) answer 403 for content they don't carry.
+        .filter(|s| matches!(s.r#type(), "CDN" | "SteamCache"))
+        // ponytail: drops app-restricted servers even when they carry our app; take the app
+        // here if one of those turns out to be the only nearby server.
+        .filter(|s| s.allowed_app_ids.is_empty())
         .filter_map(|s| s.host)
         .collect();
     if hosts.is_empty() {
@@ -64,11 +70,12 @@ pub async fn cdn_hosts(client: &mut Client) -> Result<Vec<String>> {
 }
 
 /// Downloads and parses manifest `id` of `depot`. `branch` is the app branch it belongs to
-/// (`public` for Workshop items and the default game branch).
+/// (`public` for Workshop items and the default game branch). `hosts` are tried in order until
+/// one serves it.
 pub async fn manifest(
     client: &mut Client,
     http: &reqwest::Client,
-    host: &str,
+    hosts: &[String],
     (app, depot, id): (u32, u32, u64),
     branch: &str,
     key: &Key,
@@ -79,11 +86,11 @@ pub async fn manifest(
         manifest_id: Some(id),
         app_branch: Some(branch.to_owned()),
     };
-    // The code expires within minutes: fetch it right before the download, and once more if
-    // the CDN rejects it as expired (401/403) because the download started late.
-    let mut tries = 0;
-    loop {
-        tries += 1;
+    // The code expires within minutes, so each try asks for a fresh one right before its
+    // download. A host that refuses it (an expired code, a cache that doesn't carry the depot)
+    // hands over to the next one.
+    let mut last = Error::NoServers;
+    for host in hosts.iter().take(TRIES) {
         let code: CContentServerDirectoryGetManifestRequestCodeResponse = client
             .call("ContentServerDirectory.GetManifestRequestCode", &request)
             .await?;
@@ -91,13 +98,15 @@ pub async fn manifest(
             "https://{host}/depot/{depot}/manifest/{id}/5/{}",
             code.manifest_request_code()
         );
-        let response = http.get(url).send().await?;
-        if tries < 2 && matches!(response.status().as_u16(), 401 | 403) {
-            continue;
+        match http.get(url).send().await {
+            Ok(response) => match crate::read_capped(response, MANIFEST_CAP, "manifest").await {
+                Ok(zip) => return manifest::parse(&zip, key),
+                Err(err) => last = err,
+            },
+            Err(err) => last = err.into(),
         }
-        let zip = crate::read_capped(response, MANIFEST_CAP, "manifest").await?;
-        return manifest::parse(&zip, key);
     }
+    Err(last)
 }
 
 /// Chunks downloaded at once. They finish in any order and are written at their offset, so

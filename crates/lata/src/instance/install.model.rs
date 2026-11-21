@@ -191,7 +191,7 @@ type Plan = Vec<(u32, content::Key, content::Manifest)>;
 async fn plan(
     client: &mut steam::Client,
     http: &steam::reqwest::Client,
-    host: &str,
+    hosts: &[String],
     depots: &[(u32, u64)],
     branch: &str,
 ) -> Result<Plan, steam::Error> {
@@ -199,7 +199,7 @@ async fn plan(
     for &(depot, id) in depots {
         let key = content::depot_key(client, APP, depot).await?;
         let manifest =
-            content::manifest(client, http, host, (APP, depot, id), branch, &key).await?;
+            content::manifest(client, http, hosts, (APP, depot, id), branch, &key).await?;
         plan.push((depot, key, manifest));
     }
     Ok(plan)
@@ -264,9 +264,9 @@ async fn install(
             if let Some(wanted) = wanted.filter(|w| !w.is_empty()) {
                 // Steam serves a build that has left `public` only when asked on `public`; one
                 // still current on its own branch, on that branch.
-                let mut got = plan(&mut client, &http, &found[0], &wanted, branch).await;
+                let mut got = plan(&mut client, &http, &found, &wanted, branch).await;
                 if got.is_err() && branch != "public" {
-                    got = plan(&mut client, &http, &found[0], &wanted, "public").await;
+                    got = plan(&mut client, &http, &found, &wanted, "public").await;
                 }
                 match got {
                     Ok(got) => {
@@ -327,7 +327,7 @@ async fn install(
         Some(plan) => plan,
         None => {
             let wanted: Vec<_> = depots.iter().map(|d| (d.id, d.manifest)).collect();
-            plan(&mut client, &http, &hosts[0], &wanted, branch)
+            plan(&mut client, &http, &hosts, &wanted, branch)
                 .await
                 .map_err(said)?
         }

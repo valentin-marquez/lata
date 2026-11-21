@@ -457,7 +457,7 @@ pub async fn manifest(
     content::manifest(
         client,
         http,
-        &source.hosts[0],
+        &source.hosts,
         (source.app, source.app, item.manifest),
         "public",
         &source.key,

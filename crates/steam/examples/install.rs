@@ -32,7 +32,7 @@ async fn main() -> steam::Result<()> {
     let manifest = steam::content::manifest(
         &mut client,
         &http,
-        &hosts[0],
+        &hosts,
         (app, depot, manifest_id),
         branch,
         &key,

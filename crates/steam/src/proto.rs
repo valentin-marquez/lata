@@ -172,10 +172,14 @@ pub struct CContentServerDirectoryGetServersForSteamPipeResponse {
 
 #[derive(Clone, PartialEq, Message)]
 pub struct ServerInfo {
+    #[prost(string, optional, tag = "1")]
+    pub r#type: Option<String>,
     #[prost(string, optional, tag = "8")]
     pub host: Option<String>,
     #[prost(string, optional, tag = "12")]
     pub https_support: Option<String>,
+    #[prost(uint32, repeated, packed = "false", tag = "13")]
+    pub allowed_app_ids: Vec<u32>,
 }
 
 #[derive(Clone, PartialEq, Message)]
