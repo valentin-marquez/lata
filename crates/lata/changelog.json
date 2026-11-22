@@ -1,5 +1,26 @@
 [
   {
+    "version": "0.11.0",
+    "date": "November 22, 2026",
+    "added": [
+      "On Windows, lata can hide in the system tray when you close it. Turn on \"Minimize to the system tray\" in Settings; click the icon to bring it back, or quit from its menu.",
+      "Delete is in the sidebar's instance menu too."
+    ],
+    "changed": [
+      "Delete shows in red in every instance menu.",
+      "The downloads pill shows a spinner until it knows the speed, so a download that just started doesn't look stuck.",
+      "If an instance can't be deleted yet, lata tells you why: the game is running, it's downloading, or mods are still going in."
+    ],
+    "fixed": [
+      "Deleting an instance also clears the half download a cancelled install left, which could take about 10 GB for good.",
+      "A build lata can't clean up right away no longer makes deleting an instance fail; it goes next time.",
+      "If a Steam download server turns lata away, it tries the next one instead of failing the install.",
+      "A cancelled update keeps its half download, so trying again picks up where it stopped.",
+      "The downloads pill's fill stays inside its rounded ends at the start of a download.",
+      "The Workshop filters menu opens at the top, so \"Game version\" is always in view."
+    ]
+  },
+  {
     "version": "0.10.2",
     "date": "November 20, 2026",
     "added": [],
