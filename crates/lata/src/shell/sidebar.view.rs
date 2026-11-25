@@ -103,7 +103,7 @@ fn nav(
     row(text, shell.page == page, cx)
         .child(tile(icon, cx))
         .child(label(crate::i18n::tr(text)))
-        .on_click(cx.listener(move |shell, _, _, cx| shell.go(page, cx)))
+        .on_click(cx.listener(move |shell, _, window, cx| shell.visit(page, window, cx)))
 }
 
 pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> impl IntoElement {
@@ -180,7 +180,9 @@ pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> im
                 .child(label(instance.name.clone()))
                 .child(status(shell.status(instance), cx)),
         )
-        .on_click(cx.listener(move |shell, _, _, cx| shell.go(Page::Instance(ix), cx)))
+        .on_click(
+            cx.listener(move |shell, _, window, cx| shell.visit(Page::Instance(ix), window, cx)),
+        )
         // Right click: the two things wanted without opening the page. The main action
         // in the accent, as on the Library card's menu.
         .context_menu(move |menu, _, _| {

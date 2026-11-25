@@ -345,6 +345,24 @@ impl Shell {
         cx.notify();
     }
 
+    /// Goes to `page` from the sidebar. Off a character being edited, which asks first when
+    /// it has changes; clicking Characters there goes back to the grid.
+    pub fn visit(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+        if self.page == Page::Characters
+            && let Some(characters) = &self.characters
+        {
+            let shell = cx.entity().downgrade();
+            let then = move |_: &mut Window, cx: &mut App| {
+                let _ = shell.update(cx, |shell, cx| shell.go(page, cx));
+            };
+            let characters = characters.clone();
+            if characters.update(cx, |characters, cx| characters.leave(then, window, cx)) {
+                return;
+            }
+        }
+        self.go(page, cx);
+    }
+
     pub fn status(&self, instance: &Instance) -> Status {
         if self.running.contains_key(&instance.id) {
             return Status::Running;
@@ -1981,8 +1999,15 @@ impl Render for Shell {
         };
 
         crate::ui::smooth_scroll("sidebar-scroll", &self.sidebar_scroll, window, cx);
-        // The panel on the right needs a window wide enough for it and the page.
+        // The character editor's controls take the panel on the right, at any window width.
+        let editing = self
+            .characters
+            .as_ref()
+            .filter(|_| self.page == Page::Characters)
+            .and_then(|characters| characters.read(cx).panel());
+        // The news panel needs a window wide enough for it and the page.
         let discover = window.bounds().size.width >= crate::discover::MIN_WINDOW;
+        let panel = editing.is_some() || discover;
         // Mods downloading into the instance on screen load under the title bar, where the
         // Library's own loading shows, instead of in the middle of the Mods tab.
         let adding = match self.page {
@@ -2032,7 +2057,7 @@ impl Render for Shell {
                             .border_l_1()
                             // With the panel beside it the page is an island with both top
                             // corners round; without, it runs to the window's edge.
-                            .when(discover, |this| this.rounded_tr(px(14.)).border_r_1())
+                            .when(panel, |this| this.rounded_tr(px(14.)).border_r_1())
                             .border_color(cx.theme().border)
                             .bg(cx.theme().muted)
                             .overflow_hidden()
@@ -2053,8 +2078,12 @@ impl Render for Shell {
                                 )
                             }),
                     )
-                    .when(discover, |this| {
-                        this.child(crate::discover::render(self, self.feed.as_ref(), cx))
+                    .map(|this| match editing {
+                        Some(editor) => this.child(editor),
+                        None if discover => {
+                            this.child(crate::discover::render(self, self.feed.as_ref(), cx))
+                        }
+                        None => this,
                     }),
             )
     }

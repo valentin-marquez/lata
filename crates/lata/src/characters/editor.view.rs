@@ -1,10 +1,13 @@
-//! The character editor: a dialog laid out like Settings, a section per part of the game's
-//! character screen. Its lists come from one installed build ([`Catalog`]).
+//! The character editor: a page in place of the Characters grid. The character stands large
+//! in the middle, and the shell's right panel holds what changes it, a section per part of the
+//! game's character screen. Its lists come from one installed build ([`Catalog`]).
 
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui_kit::assets::IconName;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dialog::DialogEntrance;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::searchable_list::SearchableListItem;
@@ -16,77 +19,29 @@ use gpui_kit::*;
 
 use super::catalog::{Catalog, Choice};
 use super::character::{self, Build, Character, Look, Rgb};
+use super::page::Characters;
 use super::preview::Preview;
 use crate::ui::{self, FancyButton};
 
-const WIDTH: f32 = 1080.;
-const HEIGHT: f32 = 560.;
-const NAV: f32 = 200.;
-const PREVIEW: f32 = 300.;
-
-/// What happens on Save: the character, and its name before (`None` for a new one).
-type Saved = Rc<dyn Fn(Character, Option<String>, &mut Window, &mut App)>;
-
 #[derive(Clone, Copy, PartialEq)]
 enum Section {
-    Look,
+    Appearance,
     Clothes,
-    Profession,
-    Traits,
+    Build,
 }
 
 impl Section {
-    const ALL: [Section; 4] = [
-        Section::Look,
-        Section::Clothes,
-        Section::Profession,
-        Section::Traits,
-    ];
+    const ALL: [Section; 3] = [Section::Appearance, Section::Clothes, Section::Build];
 
     fn label(self) -> &'static str {
         match self {
-            Section::Look => t!("Look"),
+            Section::Appearance => t!("Appearance"),
             Section::Clothes => t!("Clothes"),
-            Section::Profession => t!("Profession"),
-            Section::Traits => t!("Traits"),
+            // The game asks for traits on its profession screen too; "Build" already names a
+            // game build in the translations.
+            Section::Build => t!("Profession"),
         }
     }
-
-    fn icon(self) -> IconName {
-        match self {
-            Section::Look => IconName::UserRound,
-            Section::Clothes => IconName::Shirt,
-            Section::Profession => IconName::Briefcase,
-            Section::Traits => IconName::WandSparkles,
-        }
-    }
-}
-
-/// Opens the editor on `character`, or on a new one when it is `None`. `taken` are the names
-/// of the others, which this one can't take.
-pub fn open(
-    character: Option<Character>,
-    taken: Vec<String>,
-    catalog: Arc<Catalog>,
-    saved: impl Fn(Character, Option<String>, &mut Window, &mut App) + 'static,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    let title = if character.is_some() {
-        t!("Edit character")
-    } else {
-        t!("New character")
-    };
-    let saved: Saved = Rc::new(saved);
-    let view = cx.new(|cx| Editor::new(character, taken, catalog, saved, window, cx));
-    window.open_dialog(cx, move |dialog, _, _| {
-        dialog
-            .entrance(DialogEntrance::FadeSlide)
-            .title(title)
-            .centered()
-            .w(px(WIDTH))
-            .child(view.clone())
-    });
 }
 
 /// What a dropdown row tells the editor when the mouse enters or leaves it: its id, and which.
@@ -149,11 +104,14 @@ enum Which {
     Profession,
 }
 
-struct Editor {
+pub struct Editor {
+    characters: WeakEntity<Characters>,
     catalog: Arc<Catalog>,
     section: Section,
     /// The name it had when the editor opened; `None` for a new character.
     old: Option<String>,
+    /// What it was when the editor opened, to tell whether anything changed since.
+    original: Character,
     taken: Vec<String>,
     name: Entity<InputState>,
     first: Entity<InputState>,
@@ -167,16 +125,19 @@ struct Editor {
     beard: Option<Entity<SelectState<Vec<Pick>>>>,
     profession: Option<Entity<SelectState<Vec<Pick>>>>,
     preview: Entity<Preview>,
-    saved: Saved,
+    /// Why the last Save didn't go through; the draft stays for another try.
+    error: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl Editor {
-    fn new(
+    /// An editor on `character`, or on a new one when it is `None`. `taken` are the names of
+    /// the others, which this one can't take.
+    pub fn new(
+        characters: WeakEntity<Characters>,
         character: Option<Character>,
         taken: Vec<String>,
         catalog: Arc<Catalog>,
-        saved: Saved,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -202,21 +163,27 @@ impl Editor {
                         .default_value(value)
                 })
             };
+        // As tall as the page leaves it at the window's size when it opens: a portrait, about
+        // three wide to four tall.
+        // ponytail: fixed once made; a window resized while editing crops or pads it.
+        let tall = (window.viewport_size().height - px(230.)).clamp(px(360.), px(900.));
         let preview = cx.new(|cx| {
             Preview::new(
                 catalog.media.clone(),
                 catalog.skins.clone(),
-                size(px(PREVIEW), px(HEIGHT)),
+                size(tall * 0.75, tall),
                 cx,
             )
         });
         let mut editor = Self {
+            characters,
             name: input(character.name.clone(), t!("Kate the nurse"), window, cx),
             first: input(first, t!("Kate"), window, cx),
             last: input(last, t!("Smith"), window, cx),
             catalog,
-            section: Section::Look,
+            section: Section::Appearance,
             old: (!fresh).then(|| character.name.clone()),
+            original: character.clone(),
             taken,
             look: character.look,
             build: character.build,
@@ -225,9 +192,11 @@ impl Editor {
             beard: None,
             profession: None,
             preview,
-            saved,
+            error: None,
             _subscriptions: Vec::new(),
         };
+        // Compared the way Save would write it, so opening and closing isn't a change.
+        editor.original = editor.current(cx);
         editor.lists(window, cx);
         editor
     }
@@ -374,6 +343,23 @@ impl Editor {
         (name, problem)
     }
 
+    /// The character as Save would write it now.
+    fn current(&self, cx: &App) -> Character {
+        let mut look = self.look.clone();
+        if let Some(look) = &mut look {
+            look.set_names(&self.first.read(cx).value(), &self.last.read(cx).value());
+        }
+        Character {
+            name: self.name(cx).0,
+            look,
+            build: self.build.clone(),
+        }
+    }
+
+    fn dirty(&self, cx: &App) -> bool {
+        self.current(cx) != self.original
+    }
+
     /// Points left: the profession's, minus what the traits cost. The game won't start a
     /// character below zero.
     fn points(&self) -> Option<i32> {
@@ -388,64 +374,35 @@ impl Editor {
         Some(profession - traits)
     }
 
-    fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (name, problem) = self.name(cx);
-        if problem.is_some() {
-            return;
+    /// Writes the character. The page closes the editor only once it is written; when it
+    /// isn't, the editor stays open with the draft and says why.
+    fn save(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.name(cx).1.is_some() {
+            return false;
         }
-        let mut look = self.look.clone();
-        if let Some(look) = &mut look {
-            look.set_names(&self.first.read(cx).value(), &self.last.read(cx).value());
+        let character = self.current(cx);
+        let old = self.old.clone();
+        let written = self
+            .characters
+            .update(cx, |characters, cx| {
+                characters.commit(&character, old.as_deref(), cx)
+            })
+            .map_err(|err| err.to_string())
+            .and_then(|written| written);
+        match written {
+            Ok(()) => true,
+            Err(why) => {
+                self.error = Some(why);
+                cx.notify();
+                false
+            }
         }
-        let character = Character {
-            name,
-            look,
-            build: self.build.clone(),
-        };
-        window.close_dialog(cx);
-        (self.saved)(character, self.old.clone(), window, cx);
     }
 
-    fn nav(&self, cx: &mut Context<Self>) -> Div {
-        let theme = cx.theme();
-        div()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .gap_1()
-            .w(px(NAV))
-            .p_3()
-            .border_r_1()
-            .border_color(theme.border)
-            .children(Section::ALL.map(|section| {
-                ui::nav_item(section.label(), section.icon(), section == self.section, cx).on_click(
-                    cx.listener(move |this, _, _, cx| {
-                        this.section = section;
-                        cx.notify();
-                    }),
-                )
-            }))
-    }
-
-    fn look(&self, cx: &mut Context<Self>) -> Div {
+    fn appearance(&self, cx: &mut Context<Self>) -> Div {
         let theme = cx.theme().clone();
-        let name = required_field(
-            t!("Name"),
-            t!("What the game lists it as"),
-            Input::new(&self.name),
-            cx,
-        );
         let Some(look) = &self.look else {
-            return div().flex().flex_col().gap_6().child(name).child(missing(
-                t!("No look saved under this name, just a profession and traits."),
-                t!("Add a look"),
-                cx.listener(|this, _, window, cx| {
-                    this.look = Some(first_look(&this.catalog));
-                    this.lists(window, cx);
-                    cx.notify();
-                }),
-                cx,
-            ));
+            return self.no_look(cx);
         };
         let female = look.female();
         let genders = div().flex().gap_2().children(
@@ -483,7 +440,7 @@ impl Editor {
             "skin",
             &self.catalog.skins,
             skin,
-            28.,
+            24.,
             &theme,
             cx,
             |look, color| look.set_skin(color),
@@ -493,7 +450,7 @@ impl Editor {
             "hair-color",
             &self.catalog.hair_colors,
             hair,
-            22.,
+            20.,
             &theme,
             cx,
             move |look, color| look.set_hair(&style, color),
@@ -501,19 +458,18 @@ impl Editor {
         div()
             .flex()
             .flex_col()
-            .gap_6()
-            .child(name)
+            .gap_5()
             .child(
                 div()
                     .flex()
-                    .gap_3()
-                    .child(div().flex_1().child(field(
+                    .gap_2()
+                    .child(div().flex_1().min_w_0().child(field(
                         t!("First name"),
                         "",
                         Input::new(&self.first),
                         cx,
                     )))
-                    .child(div().flex_1().child(field(
+                    .child(div().flex_1().min_w_0().child(field(
                         t!("Last name"),
                         "",
                         Input::new(&self.last),
@@ -549,36 +505,58 @@ impl Editor {
             }))
     }
 
+    fn no_look(&self, cx: &mut Context<Self>) -> Div {
+        missing(
+            t!("No look saved under this name, just a profession and traits."),
+            t!("Add a look"),
+            cx.listener(|this, _, window, cx| {
+                this.look = Some(first_look(&this.catalog));
+                this.lists(window, cx);
+                cx.notify();
+            }),
+            cx,
+        )
+    }
+
     fn clothes(&self, cx: &mut Context<Self>) -> Div {
+        let Some(look) = &self.look else {
+            return self.no_look(cx);
+        };
         let theme = cx.theme();
-        let pieces = self.look.as_ref().map(Look::pieces).unwrap_or_default();
-        let rows = pieces.into_iter().enumerate().map(|(ix, piece)| {
+        let hover = ui::hovered(theme.title_bar, cx);
+        let rows = look.pieces().into_iter().enumerate().map(|(ix, piece)| {
             div()
                 .id(("piece", ix))
                 .flex()
                 .items_center()
                 .gap_3()
-                .px_3()
+                .px_2()
                 .py_2()
                 .rounded(theme.radius)
-                .hover(|s| s.bg(theme.muted))
+                .hover(|s| s.bg(hover))
                 .child(match piece.tint {
                     Some(tint) => dot(tint, 14., theme.border),
-                    None => div().size(px(14.)),
+                    None => div().flex_none().size(px(14.)),
                 })
                 .child(
                     div()
+                        .flex()
+                        .flex_col()
                         .flex_1()
                         .min_w_0()
-                        .truncate()
-                        .text_sm()
-                        .child(self.catalog.item(&piece.item)),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child(piece.slot),
+                        .child(
+                            div()
+                                .truncate()
+                                .text_sm()
+                                .child(self.catalog.item(&piece.item)),
+                        )
+                        .child(
+                            div()
+                                .truncate()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(piece.slot),
+                        ),
                 )
         });
         div()
@@ -594,21 +572,39 @@ impl Editor {
             .child(div().flex().flex_col().children(rows))
     }
 
-    fn profession(&self, cx: &mut Context<Self>) -> Div {
-        let Some(state) = &self.profession else {
-            return self.no_build(cx);
+    fn build(&self, cx: &mut Context<Self>) -> Div {
+        let (Some(build), Some(state)) = (&self.build, &self.profession) else {
+            return missing(
+                t!("No profession or traits saved under this name, just a look."),
+                t!("Add a profession"),
+                cx.listener(|this, _, window, cx| {
+                    this.build = Some(Build {
+                        profession: this
+                            .catalog
+                            .professions
+                            .first()
+                            .map(|p| p.id.clone())
+                            .unwrap_or_default(),
+                        traits: Vec::new(),
+                    });
+                    this.lists(window, cx);
+                    cx.notify();
+                }),
+                cx,
+            );
         };
+        let theme = cx.theme().clone();
         let about = self
-            .build
-            .as_ref()
-            .filter(|b| self.catalog.profession(&b.profession).is_none())
-            .map(|b| {
+            .catalog
+            .profession(&build.profession)
+            .is_none()
+            .then(|| {
                 div().text_xs().text_color(ui::warning_text(cx)).child(t!(
                     "\"{profession}\" isn't in this game version, maybe it comes from a mod.",
-                    profession = b.profession
+                    profession = build.profession
                 ))
             });
-        div().flex().flex_col().gap_2().child(field(
+        let profession = field(
             t!("Profession"),
             t!("Some give you points to spend on traits, some cost them"),
             div()
@@ -622,79 +618,64 @@ impl Editor {
                 )
                 .children(about),
             cx,
-        ))
-    }
-
-    fn no_build(&self, cx: &mut Context<Self>) -> Div {
-        missing(
-            t!("No profession or traits saved under this name, just a look."),
-            t!("Add a profession"),
-            cx.listener(|this, _, window, cx| {
-                this.build = Some(Build {
-                    profession: this
-                        .catalog
-                        .professions
-                        .first()
-                        .map(|p| p.id.clone())
-                        .unwrap_or_default(),
-                    traits: Vec::new(),
-                });
-                this.lists(window, cx);
-                cx.notify();
-            }),
-            cx,
-        )
-    }
-
-    /// Traits the profession's own traits rule out (a veteran can't be brave).
-    fn ruled_out(&self) -> Vec<String> {
-        self.build
-            .as_ref()
-            .and_then(|b| self.catalog.profession(&b.profession))
-            .map(|p| p.exclusive.clone())
-            .unwrap_or_default()
-    }
-
-    fn traits(&self, cx: &mut Context<Self>) -> Div {
-        let Some(build) = &self.build else {
-            return self.no_build(cx);
-        };
-        let theme = cx.theme().clone();
+        );
+        let balance = self.points().map(|left| {
+            let (text, color) = if left < 0 {
+                (
+                    tn!(
+                        -left,
+                        "{n} points short, the game won't start it like this",
+                        "{n} points short, the game won't start it like this"
+                    ),
+                    ui::warning_text(cx),
+                )
+            } else {
+                (
+                    tn!(left, "{n} point left", "{n} points left"),
+                    theme.foreground,
+                )
+            };
+            div()
+                .px_3()
+                .py_2()
+                .rounded(theme.radius)
+                .bg(theme.muted)
+                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(color)
+                .child(text)
+        });
         let has = |id: &str| build.traits.iter().any(|t| t.eq_ignore_ascii_case(id));
         let ruled = self.ruled_out();
         let free = |id: &str| !ruled.iter().any(|r| r.eq_ignore_ascii_case(id));
         let group = |title: &'static str, good: bool, cx: &mut Context<Self>| {
-            let chips = self
+            let rows = self
                 .catalog
                 .traits
                 .iter()
                 .filter(|t| (t.cost >= 0) == good)
                 .map(|t| {
                     let id = t.id.clone();
-                    let chip = chip(
+                    let row = trait_row(
                         SharedString::from(format!("trait-{id}")),
-                        format!("{} {}", t.name, points(-t.cost)).into(),
+                        t.name.clone().into(),
+                        Some(-t.cost),
                         has(&id),
+                        free(&id),
                         &theme,
                         cx,
                     );
                     if free(&id) {
-                        chip.on_click(cx.listener(move |this, _, _, cx| {
+                        row.on_click(cx.listener(move |this, _, _, cx| {
                             this.toggle(&id);
                             cx.notify();
                         }))
                     } else {
-                        // Its profession rules it out: shown, but it can't be taken.
-                        chip.opacity(0.5).cursor_default()
+                        row
                     }
                 })
                 .collect::<Vec<_>>();
-            field(
-                title,
-                "",
-                div().flex().flex_wrap().gap_2().children(chips),
-                cx,
-            )
+            field(title, "", div().flex().flex_col().children(rows), cx)
         };
         // Saved by another version or a mod: shown so they can be dropped.
         let unknown: Vec<String> = build
@@ -709,12 +690,13 @@ impl Editor {
                 t!("From another version or a mod. Click one to drop it."),
                 div()
                     .flex()
-                    .flex_wrap()
-                    .gap_2()
+                    .flex_col()
                     .children(unknown.into_iter().map(|id| {
-                        chip(
+                        trait_row(
                             SharedString::from(format!("unknown-{id}")),
                             id.clone().into(),
+                            None,
+                            true,
                             true,
                             &theme,
                             cx,
@@ -730,10 +712,21 @@ impl Editor {
         div()
             .flex()
             .flex_col()
-            .gap_6()
+            .gap_5()
+            .child(profession)
+            .children(balance)
             .child(group(t!("Good traits"), true, cx))
             .child(group(t!("Bad traits"), false, cx))
             .children(others)
+    }
+
+    /// Traits the profession's own traits rule out (a veteran can't be brave).
+    fn ruled_out(&self) -> Vec<String> {
+        self.build
+            .as_ref()
+            .and_then(|b| self.catalog.profession(&b.profession))
+            .map(|p| p.exclusive.clone())
+            .unwrap_or_default()
     }
 
     /// Takes or drops a trait; taking one drops those it can't go with.
@@ -752,81 +745,125 @@ impl Editor {
         build.traits.push(id.to_owned());
     }
 
-    fn footer(&self, cx: &mut Context<Self>) -> Div {
-        let theme = cx.theme();
-        let (_, problem) = self.name(cx);
-        // A new character starts without a name and that isn't a mistake, so this says what the
-        // button is waiting for in the muted tone, not as an error.
-        let nameless = problem == Some("");
-        let note = match (problem, self.points()) {
-            (Some(problem), _) if !problem.is_empty() => {
-                Some(div().text_color(theme.danger).child(problem))
-            }
-            (Some(_), _) => Some(
-                div()
-                    .text_color(theme.muted_foreground)
-                    .child(t!("Give the character a name first")),
-            ),
-            (_, Some(left)) if left < 0 => Some(div().text_color(ui::warning_text(cx)).child(tn!(
-                -left,
-                "{n} points short, the game won't start it like this",
-                "{n} points short, the game won't start it like this"
-            ))),
-            (_, Some(left)) => Some(div().text_color(theme.muted_foreground).child(tn!(
-                left,
-                "{n} point left",
-                "{n} points left"
-            ))),
-            (_, None) => None,
+    /// The shell's right panel while this editor is open: the sections and their controls.
+    fn panel(&self, cx: &mut Context<Self>) -> Div {
+        use gpui_kit::component::Sizable as _;
+        use gpui_kit::component::tab::{Tab, TabBar};
+        let selected = Section::ALL
+            .iter()
+            .position(|s| *s == self.section)
+            .unwrap_or(0);
+        let tabs = TabBar::new("character-sections")
+            .pill()
+            .w_full()
+            .selected_index(selected)
+            .children(Section::ALL.map(|s| Tab::new().label(s.label()).flex_1().cursor_pointer()))
+            .on_click(cx.listener(|this, ix: &usize, _, cx| {
+                this.section = Section::ALL[*ix];
+                cx.notify();
+            }))
+            .small();
+        let content = match self.section {
+            Section::Appearance => self.appearance(cx),
+            Section::Clothes => self.clothes(cx),
+            Section::Build => self.build(cx),
         };
         div()
             .flex()
-            .items_center()
-            .gap_2()
-            .px_6()
-            .py_3()
-            .border_t_1()
-            .border_color(theme.border)
-            .child(div().flex_1().min_w_0().text_sm().children(note))
+            .flex_col()
+            .flex_none()
+            .w(crate::discover::WIDTH)
+            .h_full()
+            .p_3()
+            .gap_3()
+            .child(ui::tab_tray(tabs, cx))
             .child(
-                ui::secondary("character-cancel", t!("Cancel"))
-                    .on_click(|_, window, cx| window.close_dialog(cx)),
-            )
-            .child(
-                // The wrapper carries the tooltip: the button itself is off while it applies.
                 div()
-                    .id("character-save-tip")
-                    .when(nameless, |this| {
-                        this.tooltip(|window, cx| {
-                            Tooltip::new(t!("Give the character a name first")).build(window, cx)
-                        })
-                    })
-                    .child(
-                        FancyButton::new(
-                            "character-save",
-                            if self.old.is_some() {
-                                t!("Save")
-                            } else {
-                                t!("Create character")
-                            },
-                        )
-                        .small()
-                        .icon(IconName::Check)
-                        .disabled(problem.is_some())
-                        .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),
-                    ),
+                    .id("character-section")
+                    .flex_1()
+                    .min_h_0()
+                    .px_1()
+                    .pb_3()
+                    .overflow_y_scroll()
+                    .child(ui::enter(content, self.section.label())),
             )
     }
 }
 
+/// Leaves the editor, then runs `then`. With changes not saved yet it asks first: Save,
+/// Discard or Keep editing. Always runs after the current event, so it can be called from
+/// inside any view's handler.
+pub fn leave(
+    editor: Entity<Editor>,
+    then: impl FnOnce(&mut Window, &mut App) + 'static,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    window.defer(cx, move |window, cx| {
+        if !editor.read(cx).dirty(cx) {
+            close(&editor, cx);
+            then(window, cx);
+            return;
+        }
+        // The dialog is built again on every frame; whichever button wins takes `then`.
+        let then = Rc::new(RefCell::new(Some(then)));
+        window.open_dialog(cx, move |dialog, _, _| {
+            let (save_editor, discard_editor) = (editor.clone(), editor.clone());
+            let (save_then, discard_then) = (then.clone(), then.clone());
+            dialog
+                .entrance(DialogEntrance::FadeSlide)
+                .title(t!("Save your changes?"))
+                .w(px(440.))
+                .child(t!(
+                    "This character has changes that aren't saved yet. Leaving without saving drops them."
+                ))
+                .child(
+                    div()
+                        .flex()
+                        .justify_end()
+                        .gap_2()
+                        .pt_4()
+                        .child(
+                            ui::secondary("character-keep-editing", t!("Keep editing"))
+                                .on_click(|_, window, cx| window.close_dialog(cx)),
+                        )
+                        .child(
+                            ui::secondary("character-discard", t!("Discard"))
+                                .icon(IconName::Trash)
+                                .on_click(move |_, window, cx| {
+                                    window.close_dialog(cx);
+                                    close(&discard_editor, cx);
+                                    if let Some(then) = discard_then.borrow_mut().take() {
+                                        then(window, cx);
+                                    }
+                                }),
+                        )
+                        .child(
+                            FancyButton::new("character-save-leave", t!("Save"))
+                                .small()
+                                .icon(IconName::Check)
+                                .on_click(move |_, window, cx| {
+                                    window.close_dialog(cx);
+                                    if save_editor.update(cx, |editor, cx| editor.save(cx))
+                                        && let Some(then) = save_then.borrow_mut().take()
+                                    {
+                                        then(window, cx);
+                                    }
+                                }),
+                        ),
+                )
+        });
+    });
+}
+
+/// Back to the grid, dropping the draft.
+fn close(editor: &Entity<Editor>, cx: &mut App) {
+    let characters = editor.read(cx).characters.clone();
+    let _ = characters.update(cx, |characters, cx| characters.close(cx));
+}
+
 impl Render for Editor {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let content = match self.section {
-            Section::Look => self.look(cx),
-            Section::Clothes => self.clothes(cx),
-            Section::Profession => self.profession(cx),
-            Section::Traits => self.traits(cx),
-        };
         // The preview shows the hair style under the mouse in the open list, as the pick would
         // set it (same color), without choosing it.
         let mut look = self.look.clone();
@@ -835,40 +872,184 @@ impl Render for Editor {
             look.set_hair(style, color);
         }
         self.preview.update(cx, |p, _| p.show(look.as_ref()));
-        let theme = cx.theme();
-        let (border, well) = (theme.border, theme.muted);
-        div()
+        let theme = cx.theme().clone();
+        let (_, problem) = self.name(cx);
+        let me = cx.entity();
+        let leave_now = move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+            leave(me.clone(), |_, _| {}, window, cx)
+        };
+        let back = Button::new("character-back")
+            .ghost()
+            .cursor_pointer()
+            .icon(IconName::ChevronLeft)
+            .label(t!("Characters"))
+            .on_click(leave_now.clone());
+        let save = FancyButton::new(
+            "character-save",
+            if self.old.is_some() {
+                t!("Save")
+            } else {
+                t!("Create character")
+            },
+        )
+        .small()
+        .icon(IconName::Check)
+        .disabled(problem.is_some())
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.error = None;
+            this.save(cx);
+        }));
+        let actions = div()
             .flex()
-            .h(px(HEIGHT))
-            .border_t_1()
-            .border_color(border)
-            .child(self.nav(cx))
+            .items_center()
+            .gap_2()
+            .child(ui::secondary("character-cancel", t!("Cancel")).on_click(leave_now))
+            .child(
+                // The wrapper carries the tooltip: the button itself is off while it applies.
+                div()
+                    .id("character-save-tip")
+                    .when(problem == Some(""), |this| {
+                        this.tooltip(|window, cx| {
+                            Tooltip::new(t!("Give the character a name first")).build(window, cx)
+                        })
+                    })
+                    .child(save),
+            );
+        let note = match (&self.error, problem) {
+            (Some(why), _) => Some(
+                div()
+                    .flex()
+                    .flex_col()
+                    .text_sm()
+                    .child(
+                        div()
+                            .text_color(theme.danger)
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(t!("Hmm, that character didn't save")),
+                    )
+                    .child(
+                        div()
+                            .text_color(theme.muted_foreground)
+                            .child(SharedString::from(why.clone())),
+                    ),
+            ),
+            (None, Some(problem)) if !problem.is_empty() => {
+                Some(div().text_sm().text_color(theme.danger).child(problem))
+            }
+            // A new character starts without a name and that isn't a mistake, so this says
+            // what Save is waiting for in the muted tone, not as an error.
+            (None, Some(_)) => Some(
+                div()
+                    .text_sm()
+                    .text_color(theme.muted_foreground)
+                    .child(t!("Give the character a name first")),
+            ),
+            _ => None,
+        };
+        div()
+            .id("character-editor")
+            .flex()
+            .flex_col()
+            .size_full()
+            .gap_4()
+            .p_6()
             .child(
                 div()
-                    .flex_none()
-                    .bg(well)
-                    .border_r_1()
-                    .border_color(border)
-                    .child(self.preview.clone()),
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(back)
+                    .child(actions),
             )
             .child(
                 div()
                     .flex()
-                    .flex_col()
+                    .items_end()
+                    .gap_4()
+                    .child(div().w(px(320.)).flex_none().child(required_field(
+                        t!("Preset name"),
+                        "",
+                        Input::new(&self.name),
+                        cx,
+                    )))
+                    .child(div().flex_1().min_w_0().pb_1().children(note)),
+            )
+            .child(
+                div()
+                    .flex()
                     .flex_1()
-                    .min_w_0()
-                    .child(
-                        div()
-                            .id("character-content")
-                            .flex_1()
-                            .min_h_0()
-                            .p_6()
-                            .overflow_y_scroll()
-                            .child(ui::enter(content, self.section.label())),
-                    )
-                    .child(self.footer(cx)),
+                    .min_h_0()
+                    .items_center()
+                    .justify_center()
+                    .overflow_hidden()
+                    .rounded(theme.radius_lg)
+                    .bg(theme.group_box)
+                    .border_1()
+                    .border_color(theme.border)
+                    .child(self.preview.clone()),
             )
     }
+}
+
+/// The editor's controls, drawn in the shell's right panel.
+pub struct Panel(Entity<Editor>);
+
+impl Panel {
+    pub fn new(editor: Entity<Editor>, cx: &mut Context<Self>) -> Self {
+        cx.observe(&editor, |_, _, cx| cx.notify()).detach();
+        Self(editor)
+    }
+}
+
+impl Render for Panel {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.0.update(cx, |editor, cx| editor.panel(cx))
+    }
+}
+
+/// A trait to take or drop: a full-width row, so taking one doesn't move the others.
+fn trait_row(
+    id: SharedString,
+    name: SharedString,
+    cost: Option<i32>,
+    selected: bool,
+    free: bool,
+    theme: &gpui_kit::component::Theme,
+    cx: &App,
+) -> Stateful<Div> {
+    let hover = if selected {
+        theme.primary.opacity(0.35)
+    } else {
+        ui::hovered(theme.title_bar, cx)
+    };
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap_2()
+        .h(px(32.))
+        .px_2()
+        .rounded(theme.radius)
+        .text_sm()
+        .when(selected, |this| this.bg(theme.primary.opacity(0.25)))
+        .map(|this| {
+            if free {
+                this.cursor_pointer().hover(|s| s.bg(hover))
+            } else {
+                // Its profession rules it out: shown, but it can't be taken.
+                this.opacity(0.5)
+            }
+        })
+        .child(div().flex_none().size_4().when(selected, |this| {
+            this.child(Glyph::new(IconName::Check).size_4())
+        }))
+        .child(div().flex_1().min_w_0().truncate().child(name))
+        .children(cost.map(|cost| {
+            div()
+                .flex_none()
+                .text_color(theme.muted_foreground)
+                .child(points(cost))
+        }))
 }
 
 /// A new look: the game's first skin color and hair color, and its first female hair style
