@@ -1,0 +1,12 @@
+[package]
+name = "figure"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Project Zomboid's characters in 3D: the DirectX .x parser, skinning and a small software rasterizer."
+
+[dependencies]
+image.workspace = true
+
+[lints]
+workspace = true

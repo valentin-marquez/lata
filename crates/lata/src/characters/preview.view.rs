@@ -12,9 +12,7 @@ use gpui_kit::*;
 
 use super::catalog;
 use super::character::{Look, Rgb};
-use super::model::{self, Clip};
-use super::pose::pose;
-use super::render::{self, Bounds, Part};
+use figure::{Bounds, Clip, Part, model, pose, render};
 
 /// Radians per pixel dragged.
 const TURN: f32 = 0.012;

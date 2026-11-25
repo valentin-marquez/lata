@@ -27,6 +27,10 @@ opt-level = 2
 [profile.dev.package.steam]
 opt-level = 3
 
+# The character preview draws in software; unoptimized, one picture took 75 ms instead of 5.
+[profile.dev.package.figure]
+opt-level = 3
+
 # gpui-component patched for things it can't do yet (see vendor/gpui-component/LATA-PATCHES.md).
 [patch.crates-io]
 gpui-component = { path = "vendor/gpui-component" }

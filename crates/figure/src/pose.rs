@@ -1,7 +1,7 @@
 //! Moves skinned meshes with a clip: each joint's transform at a moment, chained down the
 //! skeleton, and every vertex carried by the bones that weigh on it.
 
-use super::model::{Clip, IDENTITY, Matrix, Mesh, Track, multiply, normalize, transform};
+use crate::model::{Clip, IDENTITY, Matrix, Mesh, Track, multiply, normalize, transform};
 
 /// Sets the triangles of `mesh` to its pose `time` seconds into `clip`. Joints the clip
 /// doesn't move keep the transform their file saved; a mesh without skin stays as it is.
@@ -132,8 +132,8 @@ fn rotation(keys: &[(f32, [f32; 4])], time: f32) -> [f32; 4] {
 
 #[cfg(test)]
 mod tests {
-    use super::super::model::{clip, parse};
     use super::*;
+    use crate::model::{clip, parse};
 
     const MEDIA: &str =
         "/mnt/datos/dev/lata/research/demo/home/builds/2978601190/projectzomboid/media";
@@ -241,7 +241,7 @@ mod tests {
             mesh.triangles.clone()
         };
         let (start, half, end) = (at(0.), at(walk.length / 2.), at(walk.length));
-        type Tris = [[super::super::model::Vertex; 3]];
+        type Tris = [[crate::model::Vertex; 3]];
         let moved = |a: &Tris, b: &Tris| {
             a.iter()
                 .flatten()

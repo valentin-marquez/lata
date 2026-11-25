@@ -4,7 +4,7 @@
 
 use image::RgbaImage;
 
-use super::model::{Mesh, Vertex, normalize};
+use crate::model::{Mesh, Vertex, normalize};
 
 /// A mesh with the texture and tint it is drawn with.
 pub struct Part {
