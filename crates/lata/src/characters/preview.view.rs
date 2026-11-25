@@ -27,6 +27,9 @@ const FPS: f32 = 30.;
 /// How fast the game's character screen plays the walk (`AnimSets/player-avatar/walk`).
 const SPEED: f32 = 0.8;
 
+/// The strip under the picture for the drag hint, so it never covers the feet.
+const HINT: Pixels = px(24.);
+
 pub struct Preview {
     media: PathBuf,
     skins: Vec<Rgb>,
@@ -170,7 +173,7 @@ impl Preview {
 impl Render for Preview {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let scale = window.scale_factor();
-        let area = self.size;
+        let area = size(self.size.width, self.size.height - HINT);
         let pixels = size(
             (f32::from(area.width) * scale) as u32,
             (f32::from(area.height) * scale) as u32,
@@ -209,20 +212,25 @@ impl Render for Preview {
         let muted = cx.theme().muted_foreground;
         div()
             .id("character-preview")
-            .relative()
+            .flex()
+            .flex_col()
             .w(self.size.width)
             .h(self.size.height)
             .flex_none()
             .cursor_grab()
-            .children(self.image.as_ref().map(|(image, _)| {
-                img(ImageSource::Render(image.clone()))
-                    .w(area.width)
-                    .h(area.height)
-            }))
             .child(
                 div()
-                    .absolute()
-                    .bottom_3()
+                    .w(area.width)
+                    .h(area.height)
+                    .children(self.image.as_ref().map(|(image, _)| {
+                        img(ImageSource::Render(image.clone()))
+                            .w(area.width)
+                            .h(area.height)
+                    })),
+            )
+            .child(
+                div()
+                    .h(HINT)
                     .w_full()
                     .text_center()
                     .text_xs()
