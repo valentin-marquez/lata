@@ -1,7 +1,7 @@
 //! The system tray. With "Minimize to the system tray" on, closing the window hides lata to a
 //! tray icon instead of quitting: its click or "Show lata" brings the window back, "Quit" ends
-//! lata for real. On Windows, and on Linux where the desktop shows StatusNotifierItems; elsewhere
-//! the setting stays off.
+//! lata for real. On Windows, on macOS (in the menu bar), and on Linux where the desktop shows
+//! StatusNotifierItems; elsewhere the setting stays off.
 
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,7 +21,7 @@ pub fn connect(to_app: UnboundedSender<Incoming>) {
     let _ = TO_APP.set(to_app);
 }
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 fn send(message: Incoming) {
     if let Some(to) = TO_APP.get() {
         let _ = to.send(message);
@@ -60,19 +60,25 @@ pub fn close(window: &mut Window, cx: &mut App) -> bool {
     true
 }
 
+/// Brings the window back from the tray, or to the front.
+pub fn show(window: &mut Window, cx: &mut App) {
+    imp::unhide(cx);
+    window.activate_window();
+}
+
 /// Quits lata, whether or not its window is hidden.
 pub fn quit(cx: &mut App) {
     QUITTING.store(true, Ordering::SeqCst);
     cx.quit();
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod imp {
     use gpui_kit::*;
     use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-    use tray_icon::{
-        Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
-    };
+    use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
+    #[cfg(windows)]
+    use tray_icon::{MouseButton, MouseButtonState, TrayIconEvent};
 
     use super::send;
     use crate::link::Incoming;
@@ -122,6 +128,8 @@ mod imp {
             QUIT => send(Incoming::Quit),
             _ => {}
         }));
+        // A click on the icon itself shows the window on Windows; on macOS it opens the menu.
+        #[cfg(windows)]
         TrayIconEvent::set_event_handler(Some(|event: TrayIconEvent| {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
@@ -136,14 +144,16 @@ mod imp {
             .with_icon(icon)
             .with_tooltip("lata")
             .with_menu(Box::new(menu))
-            // The right button opens the menu; the left one shows the window.
-            .with_menu_on_left_click(false)
+            // On Windows the right button opens the menu and the left one shows the window; a
+            // macOS menu bar item opens its menu on any click.
+            .with_menu_on_left_click(cfg!(target_os = "macos"))
             .build()
             .map_err(|err| err.to_string())
     }
 
     /// Hides the window, which stays; `Window::activate_window` shows it again
     /// (vendor/gpui-pre-windows).
+    #[cfg(windows)]
     pub fn hide(window: &Window, _: &mut App) -> bool {
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};
         if let Ok(handle) = HasWindowHandle::window_handle(window)
@@ -152,6 +162,26 @@ mod imp {
             gpui_windows::hide_window(win.hwnd.get());
         }
         false
+    }
+
+    #[cfg(windows)]
+    pub fn unhide(_: &mut App) {}
+
+    /// Hides lata the way Cmd+H does: the window stays, the app steps back.
+    #[cfg(target_os = "macos")]
+    pub fn hide(_: &Window, cx: &mut App) -> bool {
+        cx.hide();
+        false
+    }
+
+    /// GPUI can hide the app but not unhide it; AppKit's `unhide:` also makes it active.
+    #[cfg(target_os = "macos")]
+    pub fn unhide(cx: &mut App) {
+        if let Some(main) = objc2::MainThreadMarker::new() {
+            objc2_app_kit::NSApplication::sharedApplication(main).unhide(None);
+        }
+        // Also when it wasn't hidden, only behind other apps.
+        cx.activate(true);
     }
 }
 
@@ -211,6 +241,8 @@ mod imp {
         cx.set_quit_mode(QuitMode::Explicit);
         true
     }
+
+    pub fn unhide(_: &mut App) {}
 
     struct Lata;
 
@@ -299,7 +331,7 @@ mod imp {
     }
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 mod imp {
     use gpui_kit::*;
 
@@ -318,4 +350,6 @@ mod imp {
     pub fn hide(_: &Window, _: &mut App) -> bool {
         true
     }
+
+    pub fn unhide(_: &mut App) {}
 }

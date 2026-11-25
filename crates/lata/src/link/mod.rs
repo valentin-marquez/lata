@@ -27,8 +27,8 @@ pub enum Incoming {
     Show,
     /// From the tray's menu: quit lata, even with its window hidden.
     #[cfg_attr(
-        not(any(windows, target_os = "linux")),
-        expect(dead_code, reason = "only the Windows and Linux trays send it")
+        not(any(windows, target_os = "linux", target_os = "macos")),
+        expect(dead_code, reason = "only the Windows, macOS and Linux trays send it")
     )]
     Quit,
 }

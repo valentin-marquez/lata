@@ -127,7 +127,7 @@ fn open(mut incoming: tokio::sync::mpsc::UnboundedReceiver<link::Incoming>, cx: 
                 }
                 // Also brings the window back from the tray.
                 link::Incoming::Show => {
-                    let _ = handle.update(cx, |_, window, _| window.activate_window());
+                    let _ = handle.update(cx, |_, window, cx| tray::show(window, cx));
                 }
                 link::Incoming::Quit => {
                     cx.update(tray::quit);
