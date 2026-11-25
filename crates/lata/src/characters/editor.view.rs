@@ -42,10 +42,10 @@ impl Section {
 
     fn label(self) -> &'static str {
         match self {
-            Section::Look => "Look",
-            Section::Clothes => "Clothes",
-            Section::Profession => "Profession",
-            Section::Traits => "Traits",
+            Section::Look => t!("Look"),
+            Section::Clothes => t!("Clothes"),
+            Section::Profession => t!("Profession"),
+            Section::Traits => t!("Traits"),
         }
     }
 
@@ -70,9 +70,9 @@ pub fn open(
     cx: &mut App,
 ) {
     let title = if character.is_some() {
-        "Edit character"
+        t!("Edit character")
     } else {
-        "New character"
+        t!("New character")
     };
     let saved: Saved = Rc::new(saved);
     let view = cx.new(|cx| Editor::new(character, taken, catalog, saved, window, cx));
@@ -179,9 +179,9 @@ impl Editor {
                 })
             };
         let mut editor = Self {
-            name: input(character.name.clone(), "Kate the nurse", window, cx),
-            first: input(first, "Kate", window, cx),
-            last: input(last, "Smith", window, cx),
+            name: input(character.name.clone(), t!("Kate the nurse"), window, cx),
+            first: input(first, t!("Kate"), window, cx),
+            last: input(last, t!("Smith"), window, cx),
             catalog,
             section: Section::Look,
             old: (!fresh).then(|| character.name.clone()),
@@ -298,7 +298,7 @@ impl Editor {
         let problem = if name.is_empty() {
             Some("")
         } else if self.taken.contains(&name) {
-            Some("Another character already has that name")
+            Some(t!("Another character already has that name"))
         } else {
             None
         };
@@ -361,15 +361,15 @@ impl Editor {
     fn look(&self, cx: &mut Context<Self>) -> Div {
         let theme = cx.theme().clone();
         let name = field(
-            "Name",
-            "What the game lists it as",
+            t!("Name"),
+            t!("What the game lists it as"),
             Input::new(&self.name),
             cx,
         );
         let Some(look) = &self.look else {
             return div().flex().flex_col().gap_6().child(name).child(missing(
-                "No look saved under this name, just a profession and traits.",
-                "Add a look",
+                t!("No look saved under this name, just a profession and traits."),
+                t!("Add a look"),
                 cx.listener(|this, _, window, cx| {
                     this.look = Some(first_look(&this.catalog));
                     this.lists(window, cx);
@@ -379,35 +379,36 @@ impl Editor {
             ));
         };
         let female = look.female();
-        let genders = div()
-            .flex()
-            .gap_2()
-            .children([("Female", true), ("Male", false)].map(|(label, value)| {
-                chip(
-                    SharedString::from(label),
-                    label.into(),
-                    female == value,
-                    &theme,
-                    cx,
-                )
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    if let Some(look) = &mut this.look
-                        && look.female() != value
-                    {
-                        look.set_female(value);
-                        // A style only the other gender has would load as nothing.
-                        let (style, color) = look.hair();
-                        let styles = this.catalog.hair(value);
-                        if !styles.iter().any(|s| s.id == style)
-                            && let Some(first) = styles.first()
+        let genders = div().flex().gap_2().children(
+            [("Female", t!("Female"), true), ("Male", t!("Male"), false)].map(
+                |(id, label, value)| {
+                    chip(
+                        SharedString::from(id),
+                        label.into(),
+                        female == value,
+                        &theme,
+                        cx,
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if let Some(look) = &mut this.look
+                            && look.female() != value
                         {
-                            look.set_hair(&first.id, color.unwrap_or([0., 0., 0.]));
+                            look.set_female(value);
+                            // A style only the other gender has would load as nothing.
+                            let (style, color) = look.hair();
+                            let styles = this.catalog.hair(value);
+                            if !styles.iter().any(|s| s.id == style)
+                                && let Some(first) = styles.first()
+                            {
+                                look.set_hair(&first.id, color.unwrap_or([0., 0., 0.]));
+                            }
+                            this.lists(window, cx);
+                            cx.notify();
                         }
-                        this.lists(window, cx);
-                        cx.notify();
-                    }
-                }))
-            }));
+                    }))
+                },
+            ),
+        );
         let skin = look.skin();
         let skins = swatches(
             "skin",
@@ -438,22 +439,22 @@ impl Editor {
                     .flex()
                     .gap_3()
                     .child(div().flex_1().child(field(
-                        "First name",
+                        t!("First name"),
                         "",
                         Input::new(&self.first),
                         cx,
                     )))
                     .child(div().flex_1().child(field(
-                        "Last name",
+                        t!("Last name"),
                         "",
                         Input::new(&self.last),
                         cx,
                     ))),
             )
-            .child(field("Gender", "", genders, cx))
-            .child(field("Skin", "", skins, cx))
+            .child(field(t!("Gender"), "", genders, cx))
+            .child(field(t!("Skin"), "", skins, cx))
             .child(field(
-                "Hair",
+                t!("Hair"),
                 "",
                 div()
                     .flex()
@@ -462,18 +463,18 @@ impl Editor {
                     .children(self.hair.as_ref().map(|state| {
                         Select::new(state)
                             .menu_max_h(px(280.))
-                            .accessibility_label("Hair style")
+                            .accessibility_label(t!("Hair style"))
                     }))
                     .child(hair_colors),
                 cx,
             ))
             .children(self.beard.as_ref().map(|state| {
                 field(
-                    "Beard",
+                    t!("Beard"),
                     "",
                     Select::new(state)
                         .menu_max_h(px(280.))
-                        .accessibility_label("Beard"),
+                        .accessibility_label(t!("Beard")),
                     cx,
                 )
             }))
@@ -519,7 +520,7 @@ impl Editor {
                 div()
                     .text_sm()
                     .text_color(theme.muted_foreground)
-                    .child("Clothes are picked in the game for now. Change them on its character screen, save the look, and it shows up here."),
+                    .child(t!("Clothes are picked in the game for now. Change them on its character screen, save the look, and it shows up here.")),
             )
             .child(div().flex().flex_col().children(rows))
     }
@@ -533,17 +534,14 @@ impl Editor {
             .as_ref()
             .filter(|b| self.catalog.profession(&b.profession).is_none())
             .map(|b| {
-                div()
-                    .text_xs()
-                    .text_color(ui::warning_text(cx))
-                    .child(format!(
-                        "\"{}\" isn't in this game version, maybe it comes from a mod.",
-                        b.profession
-                    ))
+                div().text_xs().text_color(ui::warning_text(cx)).child(t!(
+                    "\"{profession}\" isn't in this game version, maybe it comes from a mod.",
+                    profession = b.profession
+                ))
             });
         div().flex().flex_col().gap_2().child(field(
-            "Profession",
-            "Some give you points to spend on traits, some cost them",
+            t!("Profession"),
+            t!("Some give you points to spend on traits, some cost them"),
             div()
                 .flex()
                 .flex_col()
@@ -551,7 +549,7 @@ impl Editor {
                 .child(
                     Select::new(state)
                         .menu_max_h(px(320.))
-                        .accessibility_label("Profession"),
+                        .accessibility_label(t!("Profession")),
                 )
                 .children(about),
             cx,
@@ -560,8 +558,8 @@ impl Editor {
 
     fn no_build(&self, cx: &mut Context<Self>) -> Div {
         missing(
-            "No profession or traits saved under this name, just a look.",
-            "Add a profession",
+            t!("No profession or traits saved under this name, just a look."),
+            t!("Add a profession"),
             cx.listener(|this, _, window, cx| {
                 this.build = Some(Build {
                     profession: this
@@ -638,8 +636,8 @@ impl Editor {
             .collect();
         let others = (!unknown.is_empty()).then(|| {
             field(
-                "Not in this game version",
-                "From another version or a mod. Click one to drop it.",
+                t!("Not in this game version"),
+                t!("From another version or a mod. Click one to drop it."),
                 div()
                     .flex()
                     .flex_wrap()
@@ -664,8 +662,8 @@ impl Editor {
             .flex()
             .flex_col()
             .gap_6()
-            .child(group("Good traits", true, cx))
-            .child(group("Bad traits", false, cx))
+            .child(group(t!("Good traits"), true, cx))
+            .child(group(t!("Bad traits"), false, cx))
             .children(others)
     }
 
@@ -692,13 +690,16 @@ impl Editor {
             (Some(problem), _) if !problem.is_empty() => {
                 Some(div().text_color(theme.danger).child(problem))
             }
-            (_, Some(left)) if left < 0 => Some(div().text_color(ui::warning_text(cx)).child(
-                format!("{} points short, the game won't start it like this", -left),
-            )),
-            (_, Some(left)) => Some(div().text_color(theme.muted_foreground).child(match left {
-                1 => "1 point left".to_owned(),
-                n => format!("{n} points left"),
-            })),
+            (_, Some(left)) if left < 0 => Some(div().text_color(ui::warning_text(cx)).child(tn!(
+                -left,
+                "{n} points short, the game won't start it like this",
+                "{n} points short, the game won't start it like this"
+            ))),
+            (_, Some(left)) => Some(div().text_color(theme.muted_foreground).child(tn!(
+                left,
+                "{n} point left",
+                "{n} points left"
+            ))),
             (_, None) => None,
         };
         div()
@@ -711,16 +712,16 @@ impl Editor {
             .border_color(theme.border)
             .child(div().flex_1().min_w_0().text_sm().children(note))
             .child(
-                ui::secondary("character-cancel", "Cancel")
+                ui::secondary("character-cancel", t!("Cancel"))
                     .on_click(|_, window, cx| window.close_dialog(cx)),
             )
             .child(
                 FancyButton::new(
                     "character-save",
                     if self.old.is_some() {
-                        "Save"
+                        t!("Save")
                     } else {
-                        "Create character"
+                        t!("Create character")
                     },
                 )
                 .small()

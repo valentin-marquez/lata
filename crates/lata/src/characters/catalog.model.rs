@@ -123,7 +123,7 @@ impl Catalog {
             list.into_iter()
                 .map(|id| Choice {
                     name: if id.is_empty() {
-                        name(none, "None")
+                        name(none, t!("None"))
                     } else {
                         name(&format!("{prefix}{id}"), &id)
                     },

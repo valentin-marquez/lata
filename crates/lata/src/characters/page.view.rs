@@ -173,7 +173,7 @@ impl Characters {
         });
         if let Err(err) = written {
             window.push_notification(
-                ui::toast::failed_because("Hmm, that character didn't save", err),
+                ui::toast::failed_because(t!("Hmm, that character didn't save"), err),
                 cx,
             );
         }
@@ -204,9 +204,11 @@ impl Characters {
             let (this, name) = (this.clone(), name.clone());
             dialog
                 .entrance(DialogEntrance::FadeSlide)
-                .title(format!("Delete {name}?"))
+                .title(t!("Delete {name}?", name = name))
                 .w(px(420.))
-                .child("It goes from every instance too, the next time each one starts.")
+                .child(t!(
+                    "It goes from every instance too, the next time each one starts."
+                ))
                 .child(
                     div()
                         .flex()
@@ -214,11 +216,11 @@ impl Characters {
                         .gap_2()
                         .pt_4()
                         .child(
-                            ui::secondary("character-keep", "Keep")
+                            ui::secondary("character-keep", t!("Keep"))
                                 .on_click(|_, window, cx| window.close_dialog(cx)),
                         )
                         .child(
-                            FancyButton::new("character-delete", "Delete")
+                            FancyButton::new("character-delete", t!("Delete"))
                                 .small()
                                 .danger()
                                 .icon(IconName::Trash)
@@ -242,7 +244,7 @@ impl Characters {
             .versions
             .iter()
             .find(|v| Some(v.build) == current)
-            .map(|v| format!("Lists from {}", v.name))
+            .map(|v| t!("Lists from {version}", version = v.name))
             .unwrap_or_default();
         let versions = self.versions.clone();
         let this = cx.entity().downgrade();
@@ -362,10 +364,7 @@ impl Characters {
         let clothes = (pieces > 0).then(|| {
             Meta::new(
                 IconName::Shirt,
-                match pieces {
-                    1 => "1 piece of clothing".to_owned(),
-                    n => format!("{n} pieces of clothing"),
-                },
+                tn!(pieces, "{n} piece of clothing", "{n} pieces of clothing"),
             )
         });
         let (inset_x, inset_y) = (px(CARD * 0.01 * press), px(2. * press));
@@ -473,13 +472,13 @@ impl Characters {
                 let editing = edit_item(this.clone(), edit.clone());
                 menu.item(editing.disabled(!editable))
                     .item(
-                        PopupMenuItem::new("Duplicate")
+                        PopupMenuItem::new(t!("Duplicate"))
                             .icon(IconName::Copy)
                             .on_click(on(Characters::duplicate, copy.clone())),
                     )
                     .separator()
                     .item(
-                        ui::danger_item("Delete", IconName::Trash, danger).on_click({
+                        ui::danger_item(t!("Delete"), IconName::Trash, danger).on_click({
                             let (this, name) = (this.clone(), gone.clone());
                             move |_, window, cx| {
                                 let _ = this.update(cx, |this, cx| {
@@ -494,7 +493,7 @@ impl Characters {
 }
 
 fn edit_item(this: WeakEntity<Characters>, character: Character) -> PopupMenuItem {
-    PopupMenuItem::new("Edit")
+    PopupMenuItem::new(t!("Edit"))
         .icon(IconName::Pencil)
         .on_click(move |_, window, cx| {
             let _ = this.update(cx, |this, cx| {
@@ -516,7 +515,7 @@ impl Render for Characters {
                 div()
                     .text_xl()
                     .font_weight(FontWeight::BOLD)
-                    .child("Characters"),
+                    .child(t!("Characters")),
             )
             .when(count > 0, |this| {
                 this.child(
@@ -529,7 +528,7 @@ impl Render for Characters {
             .child(div().flex_1())
             .children(self.versions(cx))
             .child(
-                FancyButton::new("characters-new", "New character")
+                FancyButton::new("characters-new", t!("New character"))
                     .small()
                     .icon(IconName::Plus)
                     .disabled(!editable)
@@ -539,21 +538,21 @@ impl Render for Characters {
             .text_sm()
             .text_color(theme.muted_foreground)
             .child(if self.versions.is_empty() {
-                "Every instance shares these. Install a game version to make and edit them here."
+                t!("Every instance shares these. Install a game version to make and edit them here.")
             } else {
-                "Every instance shares these: save one in any game, or make it here, and it shows up on the character screen of all of them."
+                t!("Every instance shares these: save one in any game, or make it here, and it shows up on the character screen of all of them.")
             });
         let body = match &self.characters {
             None => div(),
             Some(Err(why)) => div().flex().flex_1().child(Empty::new(
                 IconName::TriangleAlert,
-                "Couldn't read your characters",
+                t!("Couldn't read your characters"),
                 SharedString::from(why.clone()),
             )),
             Some(Ok(all)) if all.is_empty() => div().flex().flex_1().child(Empty::new(
                 IconName::UserRound,
-                "No characters yet",
-                "Make one here, or save one on the game's character screen.",
+                t!("No characters yet"),
+                t!("Make one here, or save one on the game's character screen."),
             )),
             Some(Ok(all)) => {
                 let all = all.clone();
