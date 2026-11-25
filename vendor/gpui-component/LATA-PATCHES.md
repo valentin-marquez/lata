@@ -39,3 +39,6 @@ changes on a fresh copy when upgrading.
   three toasts are one column inside a single `ToastStack` item with 8 px between them by real
   height (the stack's own layout assumed fixed-height toasts); the stack still springs its
   height and tracks hover. Width is capped at the window less 32 px.
+- `src/theme/mod.rs`, `src/root.rs`: `Theme::font_fallbacks`, set on the window root next to
+  `font_family`, so characters the main font lacks (CJK for Inter) come from the families the
+  app names instead of whatever the OS fallback picks.

@@ -723,8 +723,11 @@ impl gpui_base::RootPlugin for WindowState {
         use gpui::Refineable as _;
         // The surface's background must follow the window's rounded corners.
         let radii = window_border::window_corner_radii(window, cx);
+        let mut refinement = gpui::StyleRefinement::default();
+        // lata: the theme's fallback families, for text the main font can't show.
+        refinement.text.font_fallbacks = cx.theme().font_fallbacks.clone();
         surface.style().refine(
-            &gpui::StyleRefinement::default()
+            &refinement
                 .font_family(cx.theme().font_family.clone())
                 .bg(cx.theme().tokens.background)
                 .text_color(cx.theme().foreground)

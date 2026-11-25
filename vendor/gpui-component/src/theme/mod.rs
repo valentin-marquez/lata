@@ -168,6 +168,9 @@ pub struct Theme {
     /// [`Theme::change`] names that family here, so every text lookup hits
     /// the font cache. A family set explicitly is used as-is.
     pub font_family: SharedString,
+    // lata: families to try for characters `font_family` lacks (CJK for Inter).
+    /// Families to try, in order, for characters `font_family` has no glyph for.
+    pub font_fallbacks: Option<gpui::FontFallbacks>,
     /// The base font size for the application, default is 16px.
     pub font_size: Pixels,
     /// The monospace font family for the application.
@@ -776,6 +779,7 @@ impl From<&ThemeColor> for Theme {
             mode: ThemeMode::default(),
             transparent: Hsla::transparent_black(),
             font_family: ".SystemUIFont".into(),
+            font_fallbacks: None,
             font_size: px(16.),
             mono_font_family: mono_font::default_mono_font_family(),
             mono_font_size: px(13.),

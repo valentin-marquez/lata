@@ -64,6 +64,23 @@ pub fn init(cx: &mut App) {
     Theme::update(cx, |theme| {
         theme.light_theme = light;
         theme.dark_theme = dark;
+        // Inter has no Chinese. Left to itself, Linux's fallback can land on a serif CJK face;
+        // these are the sans ones each OS ships (missing ones are skipped), so Chinese reads
+        // like the rest of the UI without bundling a 10 MB font.
+        theme.font_fallbacks = Some(FontFallbacks::from_fonts(
+            [
+                "Noto Sans CJK SC",
+                "Source Han Sans SC",
+                "Noto Sans SC",
+                "WenQuanYi Micro Hei",
+                "Microsoft YaHei UI",
+                "Microsoft YaHei",
+                "PingFang SC",
+                "Hiragino Sans GB",
+            ]
+            .map(String::from)
+            .to_vec(),
+        ));
         // Toasts sit at the bottom center, out of the way of the title bar and its downloads.
         theme.notification.placement = Anchor::BottomCenter;
         // The widest a toast gets; shorter messages hug their text.
