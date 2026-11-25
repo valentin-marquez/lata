@@ -1047,11 +1047,34 @@ impl Mods {
             .collect();
         undoable.sort_unstable();
         undoable.dedup();
-        // ponytail: label widths measured by eye at Inter 14 px; a translation would need them
-        // measured for real.
+        // ponytail: widths measured by eye at Inter 14 px in English; another language adds its
+        // labels' extra length, guessed per character (wide ones for CJK). Measure the shaped
+        // text if a language still overflows.
+        let guess = |text: &str| -> f32 {
+            text.chars()
+                .map(|c| if c >= '\u{2e80}' { 14. } else { 7.5 })
+                .sum()
+        };
+        let longer = |english: &str, shown: &str| (guess(shown) - guess(english)).max(0.);
         let needed = 600.
-            + if outdated.is_empty() { 0. } else { 100. }
-            + if undoable.is_empty() { 0. } else { 140. };
+            + longer("Clear", t!("Clear"))
+            + longer("Turn on", t!("Turn on"))
+            + longer("Turn off", t!("Turn off"))
+            + longer("Remove", t!("Remove"))
+            + longer(
+                "2 mods selected",
+                &tn!(2, "{n} mod selected", "{n} mods selected"),
+            )
+            + if outdated.is_empty() {
+                0.
+            } else {
+                100. + longer("Update", t!("Update"))
+            }
+            + if undoable.is_empty() {
+                0.
+            } else {
+                140. + longer("Undo update", t!("Undo update"))
+            };
         let compact = room < px(needed);
         let count = match (chosen.len(), compact) {
             (many, false) => tn!(many, "{n} mod selected", "{n} mods selected"),
