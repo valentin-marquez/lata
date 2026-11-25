@@ -2,17 +2,20 @@
 //! a look, read from the installed build's models and textures and drawn by [`render`]. It
 //! walks in place with the game's own walk, the one its character screen plays; with reduced
 //! motion it stands still. Dragging sideways turns it.
+//!
+//! Pictures are drawn on the background, one at a time, so a slow one costs the walk a step
+//! instead of stalling the app.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use figure::{Bounds, Clip, Part, model, pose, render};
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::*;
 
 use super::catalog;
 use super::character::{Look, Rgb};
-use figure::{Bounds, Clip, Part, model, pose, render};
 
 /// Radians per pixel dragged.
 const TURN: f32 = 0.012;
@@ -31,25 +34,29 @@ pub struct Preview {
     shown: Option<String>,
     /// Counts loads, so a new look draws a new picture.
     loads: u32,
-    parts: Vec<Part>,
+    /// Posed and drawn on the background; `None` without a look. A new look gets new parts,
+    /// so a picture still drawing the old ones never holds this one up.
+    parts: Option<Arc<Mutex<Vec<Part>>>>,
     /// The box the parts fill over the whole walk, so the camera holds still while it moves.
     frame: Bounds,
-    walk: Clip,
+    walk: Arc<Clip>,
     /// Its first pose is the still one, for reduced motion.
-    idle: Clip,
+    idle: Arc<Clip>,
     start: Instant,
     /// The wait for the next picture of the walk, while one is due.
     tick: Option<Task<()>>,
     yaw: f32,
     /// Where a drag started, and the turn then.
     drag: Option<(Pixels, f32)>,
-    /// The picture, and what it was drawn for: the load, turn, size, smoothing and step of the
-    /// walk.
+    /// The picture, and what it was drawn for: the load, turn, size and step of the walk.
     image: Option<(Arc<RenderImage>, Drawn)>,
+    /// The picture being drawn. Only one at a time: the next starts from where things are when
+    /// this one lands, so none queue up behind a slow one.
+    drawing: Option<Task<()>>,
     size: Size<Pixels>,
 }
 
-type Drawn = (u32, f32, Size<u32>, bool, u64);
+type Drawn = (u32, f32, Size<u32>, u64);
 
 impl Preview {
     pub fn new(
@@ -72,19 +79,20 @@ impl Preview {
                 .unwrap_or_default()
         };
         Self {
-            walk: clip("Bob_Walk"),
-            idle: clip("Bob_Idle"),
+            walk: Arc::new(clip("Bob_Walk")),
+            idle: Arc::new(clip("Bob_Idle")),
             media,
             skins,
             shown: None,
             loads: 0,
-            parts: Vec::new(),
+            parts: None,
             frame: ([0.; 3], [0.; 3]),
             start: Instant::now(),
             tick: None,
             yaw: 0.,
             drag: None,
             image: None,
+            drawing: None,
             size,
         }
     }
@@ -93,8 +101,9 @@ impl Preview {
     pub fn show(&mut self, look: Option<&Look>) {
         let key = look.map(|l| format!("{}{:?}{:?}{}", l.female(), l.skin(), l.hair(), l.beard()));
         if key != self.shown {
-            self.parts = look.map_or_else(Vec::new, |l| parts(&self.media, l, &self.skins));
-            self.frame = frame(&mut self.parts, &self.walk, &self.idle);
+            let mut parts = look.map_or_else(Vec::new, |l| parts(&self.media, l, &self.skins));
+            self.frame = frame(&mut parts, &self.walk, &self.idle);
+            self.parts = (!parts.is_empty()).then(|| Arc::new(Mutex::new(parts)));
             self.shown = key;
             self.loads += 1;
         }
@@ -107,54 +116,80 @@ impl Preview {
             cx.notify();
         }
     }
+
+    /// Starts drawing `parts` for `drawn` on the background; the picture replaces the shown
+    /// one when it lands, unless the look changed meanwhile.
+    fn draw(
+        &mut self,
+        parts: Arc<Mutex<Vec<Part>>>,
+        walking: bool,
+        drawn: Drawn,
+        cx: &mut Context<Self>,
+    ) {
+        let (_, yaw, pixels, step) = drawn;
+        let (clip, time) = if walking {
+            let time = (step as f32 / FPS * SPEED) % self.walk.length;
+            (self.walk.clone(), time)
+        } else {
+            (self.idle.clone(), 0.)
+        };
+        let frame = self.frame;
+        let work = cx.background_spawn(async move {
+            let mut parts = parts.lock().unwrap_or_else(PoisonError::into_inner);
+            for part in parts.iter_mut() {
+                pose(&mut part.mesh, &clip, time);
+            }
+            let mut picture = render::render(&parts, frame, yaw, pixels.width, pixels.height, true);
+            // GPUI keeps images in BGRA.
+            for p in picture.pixels_mut() {
+                p.0.swap(0, 2);
+            }
+            Arc::new(RenderImage::new(vec![image::Frame::new(picture)]))
+        });
+        self.drawing = Some(cx.spawn(async move |this, cx| {
+            let image = work.await;
+            this.update(cx, |this, cx| {
+                this.drawing = None;
+                // A picture of a look no longer shown never reached GPUI: nothing to drop.
+                if drawn.0 == this.loads
+                    && let Some((old, _)) = this.image.replace((image, drawn))
+                {
+                    cx.drop_image(old, None);
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
+    fn walking(&self, cx: &App) -> bool {
+        !cx.reduce_motion() && self.walk.length > 0. && self.parts.is_some()
+    }
 }
 
 impl Render for Preview {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let scale = window.scale_factor();
+        let area = self.size;
         let pixels = size(
-            (f32::from(self.size.width) * scale) as u32,
-            (f32::from(self.size.height) * scale) as u32,
+            (f32::from(area.width) * scale) as u32,
+            (f32::from(area.height) * scale) as u32,
         );
-        let walking = !cx.reduce_motion() && self.walk.length > 0. && !self.parts.is_empty();
+        let walking = self.walking(cx);
         let step = if walking {
             (self.start.elapsed().as_secs_f32() * FPS) as u64
         } else {
             0
         };
-        // Rough while it moves, so it keeps up; smoothed once it holds still.
-        let smooth = self.drag.is_none() && !walking;
-        let drawn = (self.loads, self.yaw, pixels, smooth, step);
-        if self.image.as_ref().is_none_or(|(_, at)| *at != drawn) {
-            let (clip, time) = if walking {
-                let time = (step as f32 / FPS * SPEED) % self.walk.length;
-                (&self.walk, time)
-            } else {
-                (&self.idle, 0.)
-            };
-            for part in &mut self.parts {
-                pose(&mut part.mesh, clip, time);
-            }
-            let image = (!self.parts.is_empty()).then(|| {
-                let mut picture = render::render(
-                    &self.parts,
-                    self.frame,
-                    self.yaw,
-                    pixels.width,
-                    pixels.height,
-                    smooth,
-                );
-                // GPUI keeps images in BGRA.
-                for p in picture.pixels_mut() {
-                    p.0.swap(0, 2);
+        let drawn = (self.loads, self.yaw, pixels, step);
+        if self.drawing.is_none() && self.image.as_ref().is_none_or(|(_, at)| *at != drawn) {
+            match self.parts.clone() {
+                Some(parts) => self.draw(parts, walking, drawn, cx),
+                None => {
+                    if let Some((old, _)) = self.image.take() {
+                        cx.drop_image(old, Some(window));
+                    }
                 }
-                (
-                    Arc::new(RenderImage::new(vec![image::Frame::new(picture)])),
-                    drawn,
-                )
-            });
-            if let Some((old, _)) = std::mem::replace(&mut self.image, image) {
-                cx.drop_image(old, Some(window));
             }
         }
         // The next step is asked for only while this is drawn, so the walk stops when the
@@ -181,8 +216,8 @@ impl Render for Preview {
             .cursor_grab()
             .children(self.image.as_ref().map(|(image, _)| {
                 img(ImageSource::Render(image.clone()))
-                    .w(self.size.width)
-                    .h(self.size.height)
+                    .w(area.width)
+                    .h(area.height)
             }))
             .child(
                 div()
@@ -369,7 +404,7 @@ mod tests {
                         pose(&mut part.mesh, &walk, walk.length * phase as f32 / 4.);
                     }
                     let posed = start.elapsed();
-                    let image = render::render(&parts, bounds, yaw, 400, 600, false);
+                    let image = render::render(&parts, bounds, yaw, 400, 600, true);
                     eprintln!(
                         "{name} {view} {phase}: {triangles} triangles, pose {posed:?}, total {:?}",
                         start.elapsed()
