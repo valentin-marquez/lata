@@ -1,6 +1,8 @@
 //! The settings dialog, and the settings kept on disk: sections on the left, the selected one
 //! on the right.
 
+#[path = "overrides.model.rs"]
+pub mod overrides;
 #[path = "startup.model.rs"]
 mod startup;
 
@@ -45,6 +47,9 @@ pub struct Saved {
     /// The version whose "what's new" was last shown; `None` until lata runs once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub news_seen: Option<String>,
+    /// Launch options that win over every instance's own.
+    #[serde(default, skip_serializing_if = "overrides::Overrides::is_empty")]
+    pub overrides: overrides::Overrides,
 }
 
 fn file() -> PathBuf {
