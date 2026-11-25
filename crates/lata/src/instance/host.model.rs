@@ -250,9 +250,11 @@ fn build(instance: &Instance, name: &str) -> io::Result<Command> {
 }
 
 /// `setpriv`, when the system has it (util-linux): it sets the parent-death signal and runs
-/// the server, which lata can't do itself without `unsafe`.
-// ponytail: Windows has no counterpart here (a Job Object needs the Win32 API); there a server
-// outlives a crashed lata until its host leaves.
+/// the server, which lata can't do itself without `unsafe`. Windows does it with a job (see
+/// [`start`]).
+// ponytail: macOS has neither pdeathsig nor jobs; there a server outlives a crashed lata until
+// its host leaves (B42 ignores stdin's EOF). A tiny watcher process polling `getppid()` would
+// do it, if hosting on macOS ever lands.
 fn pdeathsig() -> Option<PathBuf> {
     if !cfg!(target_os = "linux") {
         return None;
@@ -357,6 +359,9 @@ pub struct Server {
     /// When it said it was shutting down by itself.
     terminated: Option<Instant>,
     termed: bool,
+    /// The job the server runs in on Windows: closing it, as lata ending does, kills the server.
+    #[cfg(windows)]
+    job: Option<win32job::Job>,
 }
 
 /// How long a stop waits for `quit` before TERM, and then for TERM before killing. Build 42
@@ -374,6 +379,8 @@ pub fn start(mut command: Command, events: impl Fn(Event) + Send + 'static) -> i
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()?;
+    #[cfg(windows)]
+    let job = bind(&child);
     let stdin = Arc::new(Mutex::new(child.stdin.take().expect("piped")));
     let stdout = child.stdout.take().expect("piped");
     let answer = stdin.clone();
@@ -397,7 +404,21 @@ pub fn start(mut command: Command, events: impl Fn(Event) + Send + 'static) -> i
         stopping: None,
         terminated: None,
         termed: false,
+        #[cfg(windows)]
+        job,
     })
+}
+
+/// Puts the server in a job that kills it once the job's last handle closes, which is when
+/// lata ends, even by crashing: a Build 42 server without players never notices on its own.
+#[cfg(windows)]
+fn bind(child: &Child) -> Option<win32job::Job> {
+    use std::os::windows::io::AsRawHandle;
+    let mut info = win32job::ExtendedLimitInfo::new();
+    info.limit_kill_on_job_close();
+    let job = win32job::Job::create_with_limit_info(&info).ok()?;
+    job.assign_process(child.as_raw_handle() as isize).ok()?;
+    Some(job)
 }
 
 fn send(stdin: &Mutex<ChildStdin>, line: &str) -> io::Result<()> {
@@ -419,9 +440,14 @@ impl Server {
     }
 
     /// TERM: the server's shutdown hook saves the world. On Windows that hook doesn't run,
-    /// so there `quit` is the way and this waits for the kill.
+    /// so there `quit` is the way and this waits for the kill; it lets go of the job instead,
+    /// so a `quit` sent as lata quits can still save before the server exits.
     pub fn terminate(&mut self) {
         self.termed = true;
+        #[cfg(windows)]
+        if let Some(job) = &self.job {
+            let _ = job.set_extended_limit_info(&win32job::ExtendedLimitInfo::new());
+        }
         #[cfg(unix)]
         let _ = Command::new("kill")
             .args(["-TERM", &self.child.id().to_string()])
