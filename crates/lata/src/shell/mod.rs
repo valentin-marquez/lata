@@ -515,6 +515,7 @@ impl Shell {
                 }
             }
             let _ = store::set_last_played(&instance.dir, store::now());
+            let _ = crate::characters::pull(&instance.dir);
             let _ = this.update(cx, |shell, cx| {
                 shell.running.remove(&id);
                 shell.reload(cx);
