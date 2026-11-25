@@ -19,8 +19,11 @@ pub struct Choice {
     pub id: String,
     pub name: String,
     pub cost: i32,
-    /// Traits that can't be taken with this one.
+    /// Traits that can't be taken with this one; for a profession, those its own traits rule
+    /// out (a veteran is desensitized, so can't be brave or cowardly).
     pub exclusive: Vec<String>,
+    /// The traits a profession comes with.
+    pub granted: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -68,31 +71,53 @@ impl Catalog {
             text("scripts/generated/characters/character_professions.txt"),
             text("scripts/generated/characters/character_traits.txt"),
         ) {
-            (Some(p), Some(t)) => (script(&p, "character_profession_definition"), {
-                let mut all = script(&t, "character_trait_definition");
-                all.retain(|(_, _, profession)| !profession);
-                all
-            }),
+            (Some(p), Some(t)) => (
+                script(&p, "character_profession_definition"),
+                script(&t, "character_trait_definition"),
+            ),
             _ => (lua_professions(&creation), lua_traits(&creation)),
         };
         let named = |list: &mut Vec<(Choice, String, bool)>| {
             list.iter_mut()
-                .map(|(choice, key, _)| Choice {
-                    name: name(key, &choice.id),
-                    ..std::mem::take(choice)
+                .map(|(choice, key, granted)| {
+                    let choice = Choice {
+                        name: name(key, &choice.id),
+                        ..std::mem::take(choice)
+                    };
+                    (choice, *granted)
                 })
                 .collect::<Vec<_>>()
         };
-        let mut professions = named(&mut professions);
-        professions.sort_by_key(|p| (p.id != "unemployed", p.name.clone()));
         let mut traits = named(&mut traits);
         for (a, b) in exclusions(&creation) {
             for (one, other) in [(&a, &b), (&b, &a)] {
-                if let Some(t) = traits.iter_mut().find(|t| t.id.eq_ignore_ascii_case(one)) {
+                let found = traits
+                    .iter_mut()
+                    .find(|(t, _)| t.id.eq_ignore_ascii_case(one));
+                if let Some((t, _)) = found {
                     t.exclusive.push(other.clone());
                 }
             }
         }
+        let mut professions: Vec<Choice> = named(&mut professions)
+            .into_iter()
+            .map(|(mut profession, _)| {
+                for own in &profession.granted {
+                    let found = traits.iter().find(|(t, _)| t.id.eq_ignore_ascii_case(own));
+                    if let Some((t, _)) = found {
+                        profession.exclusive.extend(t.exclusive.iter().cloned());
+                    }
+                }
+                profession
+            })
+            .collect();
+        professions.sort_by_key(|p| (p.id != "unemployed", p.name.clone()));
+        // Only the ones a player picks; a profession's own come with it.
+        let mut traits: Vec<Choice> = traits
+            .into_iter()
+            .filter(|(_, granted)| !granted)
+            .map(|(t, _)| t)
+            .collect();
         traits.sort_by(|a, b| a.name.cmp(&b.name));
         let styles = |list: Vec<String>, prefix: &str, none: &str| -> Vec<Choice> {
             list.into_iter()
@@ -103,8 +128,7 @@ impl Catalog {
                         name(&format!("{prefix}{id}"), &id)
                     },
                     id,
-                    cost: 0,
-                    exclusive: Vec::new(),
+                    ..Choice::default()
                 })
                 .collect()
         };
@@ -219,28 +243,40 @@ fn script(text: &str, kind: &str) -> Vec<(Choice, String, bool)> {
             "Cost" => choice.cost = value.parse().unwrap_or(0),
             "UIName" => *key = value.to_owned(),
             "IsProfessionTrait" => *granted = value == "true",
-            "MutuallyExclusiveTraits" => {
-                choice.exclusive = value
-                    .split(';')
-                    .map(|t| t.split_once(':').map_or(t, |(_, id)| id).to_owned())
-                    .collect()
-            }
+            "MutuallyExclusiveTraits" => choice.exclusive = ids(value),
+            "GrantedTraits" => choice.granted = ids(value),
             _ => {}
         }
     }
     found
 }
 
+/// `base:a;base:b` to `a`, `b`.
+fn ids(value: &str) -> Vec<String> {
+    value
+        .split(';')
+        .map(|t| t.split_once(':').map_or(t, |(_, id)| id).to_owned())
+        .collect()
+}
+
 /// The arguments of each uncommented `call(...)` in B41's Lua, split at commas (none of the
 /// calls read here has a comma inside an argument).
 fn calls<'a>(text: &'a str, call: &str) -> Vec<Vec<&'a str>> {
+    calls_in(text, call)
+        .into_iter()
+        .map(|(_, args)| args)
+        .collect()
+}
+
+/// [`calls`], each with what comes before the call on its line (`local veteran =`).
+fn calls_in<'a>(text: &'a str, call: &str) -> Vec<(&'a str, Vec<&'a str>)> {
     text.lines()
         .filter(|line| !line.trim_start().starts_with("--"))
         .filter_map(|line| {
-            let args = &line[line.find(call)? + call.len()..];
-            let args = args.strip_prefix('(')?;
+            let at = line.find(call)?;
+            let args = line[at + call.len()..].strip_prefix('(')?;
             let args = &args[..args.rfind(')')?];
-            Some(args.split(',').map(str::trim).collect())
+            Some((&line[..at], args.split(',').map(str::trim).collect()))
         })
         .collect()
 }
@@ -255,15 +291,25 @@ fn text_key(arg: &str) -> String {
     quoted(arg.trim_end_matches(')'))
 }
 
-/// `ProfessionFactory.addProfession("id", getText("name"), "icon", cost)`.
+/// `local veteran = ProfessionFactory.addProfession("id", getText("name"), "icon", cost)`,
+/// with the traits it grants (`veteran:addFreeTrait("Desensitized")`).
 fn lua_professions(text: &str) -> Vec<(Choice, String, bool)> {
-    calls(text, "ProfessionFactory.addProfession")
+    let free = calls_in(text, ":addFreeTrait");
+    calls_in(text, "ProfessionFactory.addProfession")
         .into_iter()
-        .filter(|args| args.len() >= 4)
-        .map(|args| {
+        .filter(|(_, args)| args.len() >= 4)
+        .map(|(before, args)| {
+            let var = before.trim().trim_end_matches('=').trim();
+            let var = var.strip_prefix("local ").unwrap_or(var).trim();
+            let granted = free
+                .iter()
+                .filter(|(who, args)| who.trim() == var && !args.is_empty())
+                .map(|(_, args)| quoted(args[0]))
+                .collect();
             let choice = Choice {
                 id: quoted(args[0]),
                 cost: args[3].parse().unwrap_or(0),
+                granted,
                 ..Choice::default()
             };
             (choice, text_key(args[1]), false)
@@ -275,14 +321,14 @@ fn lua_professions(text: &str) -> Vec<(Choice, String, bool)> {
 fn lua_traits(text: &str) -> Vec<(Choice, String, bool)> {
     calls(text, "TraitFactory.addTrait")
         .into_iter()
-        .filter(|args| args.len() >= 5 && args[4] != "true")
+        .filter(|args| args.len() >= 5)
         .map(|args| {
             let choice = Choice {
                 id: quoted(args[0]),
                 cost: args[2].parse().unwrap_or(0),
                 ..Choice::default()
             };
-            (choice, text_key(args[1]), false)
+            (choice, text_key(args[1]), args[4] == "true")
         })
         .collect()
 }
@@ -364,6 +410,8 @@ mod tests {
     const B41_LUA: &str = r#"
 	local unemployed = ProfessionFactory.addProfession("unemployed", getText("UI_prof_unemployed"), "", 8);
     local policeofficer = ProfessionFactory.addProfession("policeofficer", getText("UI_prof_policeoff"), "profession_policeofficer2", -4);
+	local veteran = ProfessionFactory.addProfession("veteran", getText("UI_prof_Veteran"), "profession_veteran2", -8);
+	veteran:addFreeTrait("Desensitized");
     TraitFactory.addTrait("Axeman", getText("UI_trait_axeman"), 0, getText("UI_trait_axemandesc"), true);
     local handy = TraitFactory.addTrait("Handy", getText("UI_trait_handy"), 8, getText("UI_trait_handydesc"), false);
   --  TraitFactory.addTrait("Brooding", getText("UI_trait_brooding"), -2, getText("UI_trait_broodingdesc"), false);
@@ -415,16 +463,24 @@ mod tests {
     fn reads_build_41_professions_and_traits() {
         let professions = lua_professions(B41_LUA);
         let ids: Vec<_> = professions.iter().map(|(p, _, _)| p.id.as_str()).collect();
-        assert_eq!(ids, ["unemployed", "policeofficer"]);
+        assert_eq!(ids, ["unemployed", "policeofficer", "veteran"]);
         assert_eq!(professions[1].0.cost, -4);
+        assert_eq!(professions[2].0.granted, ["Desensitized"]);
         assert_eq!(professions[1].1, "UI_prof_policeoff");
         let traits = lua_traits(B41_LUA);
         let ids: Vec<_> = traits.iter().map(|(t, _, _)| t.id.as_str()).collect();
         assert_eq!(
             ids,
-            ["Handy", "SpeedDemon", "SundayDriver", "NeedsLessSleep"]
+            [
+                "Axeman",
+                "Handy",
+                "SpeedDemon",
+                "SundayDriver",
+                "NeedsLessSleep"
+            ]
         );
-        assert_eq!(traits[0].0.cost, 8);
+        assert!(traits[0].2, "a profession's own");
+        assert_eq!(traits[1].0.cost, 8);
         assert_eq!(
             exclusions(B41_LUA),
             [("SpeedDemon".to_owned(), "SundayDriver".to_owned())]
@@ -441,6 +497,7 @@ mod tests {
         assert_eq!(professions[0].0.id, "burglar");
         assert_eq!(professions[0].0.cost, -6);
         assert_eq!(professions[0].1, "UI_prof_Burglar");
+        assert_eq!(professions[0].0.granted, ["burglar"]);
         let traits = script(B42_SCRIPT, "character_trait_definition");
         assert_eq!(traits.len(), 2);
         assert_eq!(traits[0].0.id, "adrenalinejunkie");
@@ -498,6 +555,17 @@ mod tests {
             assert!(catalog.trait_(traits).is_some_and(|t| t.name == "Handy"));
             assert!(catalog.male_hair.len() > 20 && catalog.female_hair.len() > 20);
             assert!(catalog.beards.len() > 5 && catalog.beards[0].id.is_empty());
+            let veteran = catalog.profession("veteran").expect("veteran");
+            assert!(
+                veteran
+                    .exclusive
+                    .iter()
+                    .any(|t| t.eq_ignore_ascii_case("brave"))
+            );
+            assert!(
+                catalog.trait_("desensitized").is_none(),
+                "granted, not picked"
+            );
             assert_eq!(catalog.skins.len(), 5);
             assert!(catalog.hair_colors.len() > 15);
         }

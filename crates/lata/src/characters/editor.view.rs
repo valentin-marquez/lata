@@ -280,6 +280,13 @@ impl Editor {
                 if let Some(build) = &mut self.build {
                     build.profession = id;
                 }
+                // The game drops the traits the new profession's own rule out.
+                let ruled = self.ruled_out();
+                if let Some(build) = &mut self.build {
+                    build
+                        .traits
+                        .retain(|t| !ruled.iter().any(|r| r.eq_ignore_ascii_case(t)));
+                }
             }
         }
     }
@@ -572,12 +579,23 @@ impl Editor {
         )
     }
 
+    /// Traits the profession's own traits rule out (a veteran can't be brave).
+    fn ruled_out(&self) -> Vec<String> {
+        self.build
+            .as_ref()
+            .and_then(|b| self.catalog.profession(&b.profession))
+            .map(|p| p.exclusive.clone())
+            .unwrap_or_default()
+    }
+
     fn traits(&self, cx: &mut Context<Self>) -> Div {
         let Some(build) = &self.build else {
             return self.no_build(cx);
         };
         let theme = cx.theme().clone();
         let has = |id: &str| build.traits.iter().any(|t| t.eq_ignore_ascii_case(id));
+        let ruled = self.ruled_out();
+        let free = |id: &str| !ruled.iter().any(|r| r.eq_ignore_ascii_case(id));
         let group = |title: &'static str, good: bool, cx: &mut Context<Self>| {
             let chips = self
                 .catalog
@@ -586,17 +604,22 @@ impl Editor {
                 .filter(|t| (t.cost >= 0) == good)
                 .map(|t| {
                     let id = t.id.clone();
-                    chip(
+                    let chip = chip(
                         SharedString::from(format!("trait-{id}")),
                         format!("{} {}", t.name, points(-t.cost)).into(),
                         has(&id),
                         &theme,
                         cx,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.toggle(&id);
-                        cx.notify();
-                    }))
+                    );
+                    if free(&id) {
+                        chip.on_click(cx.listener(move |this, _, _, cx| {
+                            this.toggle(&id);
+                            cx.notify();
+                        }))
+                    } else {
+                        // Its profession rules it out: shown, but it can't be taken.
+                        chip.opacity(0.5).cursor_default()
+                    }
                 })
                 .collect::<Vec<_>>();
             field(
