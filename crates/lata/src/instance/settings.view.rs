@@ -14,6 +14,7 @@ use gpui_kit::*;
 
 use super::picture::{self, Picker};
 use super::{Icon, Instance, store};
+use crate::settings::overrides::Overrides;
 use crate::settings::{HEIGHT, NAV, WIDTH, heading};
 use crate::shell::Shell;
 use crate::ui::{self, FancyButton};
@@ -21,9 +22,9 @@ use crate::ui::{self, FancyButton};
 /// Height shared by the buttons of the form.
 const CONTROL: Pixels = px(36.);
 /// What the game gives itself when nothing is set (`-Xmx3072m` in its launcher config).
-const DEFAULT_MEMORY: u32 = 3;
+pub const DEFAULT_MEMORY: u32 = 3;
 /// Less than this and the game struggles to load a world.
-const MIN_MEMORY: u32 = 2;
+pub const MIN_MEMORY: u32 = 2;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Section {
@@ -90,6 +91,8 @@ struct Settings {
     /// Whether Java mods are on here. Saved as soon as the switch moves, not with Save: it
     /// decides what runs at launch, and turning it on goes through its own question.
     java_mods: bool,
+    /// What Settings sets for every instance; an overridden field shows that and waits.
+    overrides: Overrides,
     /// The section's scroll position, for the scrollbar that shows when a small window
     /// still cuts the form short.
     scroll: ScrollHandle,
@@ -100,7 +103,7 @@ struct Settings {
 }
 
 /// This computer's memory in whole GB.
-fn installed_memory() -> u32 {
+pub fn installed_memory() -> u32 {
     let mut system = sysinfo::System::new();
     system.refresh_memory();
     (system.total_memory() >> 30) as u32
@@ -128,14 +131,43 @@ fn hint(text: impl Into<SharedString>, cx: &App) -> Div {
         .child(text.into())
 }
 
-fn field(name: &'static str, input: &Entity<InputState>, line: &'static str, cx: &App) -> Div {
+/// Says Settings sets this for every instance, which is what the game gets.
+fn overridden(text: impl Into<SharedString>, cx: &App) -> Div {
+    let theme = cx.theme();
+    div()
+        .flex()
+        .items_center()
+        .gap_1p5()
+        .min_w_0()
+        .text_xs()
+        .text_color(theme.primary)
+        .child(
+            gpui_kit::component::Icon::new(IconName::Info)
+                .size_3p5()
+                .flex_none(),
+        )
+        .child(div().truncate().child(text.into()))
+}
+
+/// An argument field; `forced` is what Settings uses instead, which locks it.
+fn field(
+    name: &'static str,
+    input: &Entity<InputState>,
+    line: &'static str,
+    forced: Option<&str>,
+    cx: &App,
+) -> Div {
     div()
         .flex()
         .flex_col()
         .gap_1p5()
         .child(title(name))
-        .child(Input::new(input))
-        .child(hint(line, cx))
+        .child(Input::new(input).disabled(forced.is_some()))
+        .child(match forced {
+            Some("") => overridden("Settings clears these for every instance", cx),
+            Some(args) => overridden(format!("Settings uses {args} for every instance"), cx),
+            None => hint(line, cx),
+        })
 }
 
 impl Settings {
@@ -163,12 +195,16 @@ impl Settings {
             .unwrap_or_else(|| Icon::picked(&instance.id));
         let picture = cx.new(|_| Picker::new(Some(shown), true).in_dir(instance.dir.clone()));
         let installed = installed_memory();
+        let overrides = crate::settings::overrides::current();
+        // Overridden, the slider is locked on what the game gets; the instance's own value
+        // stays saved underneath.
+        let shown = overrides.memory_gb.or(instance.memory_gb);
         let slider = cx.new(|_| {
             SliderState::new()
                 .min(MIN_MEMORY as f32)
-                .max(memory_limit(installed, instance.memory_gb) as f32)
+                .max(memory_limit(installed, shown) as f32)
                 .step(1.)
-                .default_value(instance.memory_gb.unwrap_or(DEFAULT_MEMORY) as f32)
+                .default_value(shown.unwrap_or(DEFAULT_MEMORY) as f32)
         });
         let moved = cx.subscribe(&slider, |this, _, event: &SliderEvent, cx| {
             let (SliderEvent::Change(value) | SliderEvent::Release(value)) = event;
@@ -198,6 +234,7 @@ impl Settings {
             launch_args,
             java_ready: super::java::ready(&instance),
             java_mods: super::java::on(&instance),
+            overrides,
             instance,
             shell,
             section,
@@ -303,7 +340,8 @@ impl Settings {
     /// Memory as a slider up to what this computer has; untouched, the game keeps its default.
     fn memory(&self, cx: &mut Context<Self>) -> Div {
         let theme = cx.theme();
-        let value = match self.memory_gb {
+        let forced = self.overrides.memory_gb;
+        let value = match forced.or(self.memory_gb) {
             Some(gb) => format!("{gb} GB"),
             None => format!("Game default, {DEFAULT_MEMORY} GB"),
         };
@@ -328,12 +366,12 @@ impl Settings {
                                 div()
                                     .text_sm()
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .when(self.memory_gb.is_none(), |this| {
+                                    .when(forced.or(self.memory_gb).is_none(), |this| {
                                         this.text_color(theme.muted_foreground)
                                     })
                                     .child(value),
                             )
-                            .when(self.memory_gb.is_some(), |this| {
+                            .when(forced.is_none() && self.memory_gb.is_some(), |this| {
                                 this.child(
                                     Button::new("memory-reset")
                                         .ghost()
@@ -351,14 +389,19 @@ impl Settings {
                             }),
                     ),
             )
-            .child(Slider::new(&self.slider).cursor_pointer())
             .child(
-                div()
+                Slider::new(&self.slider)
+                    .disabled(forced.is_some())
+                    .when(forced.is_none(), |slider| slider.cursor_pointer()),
+            )
+            .child(match forced {
+                Some(gb) => overridden(format!("Settings gives every instance {gb} GB"), cx),
+                None => div()
                     .flex()
                     .justify_between()
                     .child(hint(format!("{MIN_MEMORY} GB"), cx))
                     .child(hint(format!("This computer has {} GB", self.installed), cx)),
-            )
+            })
     }
 
     /// What the instance runs and where it lives, with a way to its folder.
@@ -471,6 +514,7 @@ impl Render for Settings {
                             "Name",
                             &self.name,
                             "Renaming keeps the folder on disk as it is.",
+                            None,
                             cx,
                         )
                         .max_w(px(380.)),
@@ -500,12 +544,14 @@ impl Render for Settings {
                         "Launch arguments",
                         &self.launch_args,
                         "Options for the game, like -debug or -nosteam.",
+                        self.overrides.launch_args.as_deref(),
                         cx,
                     ))
                     .child(field(
                         "Java arguments",
                         &self.jvm_args,
                         "Options for the Java VM the game runs on. A -Xmx here wins over Memory.",
+                        self.overrides.jvm_args.as_deref(),
                         cx,
                     )),
             ),
