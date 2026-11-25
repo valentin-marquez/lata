@@ -19,6 +19,8 @@ image.workspace = true
 auto-launch = "0.6"
 sysinfo = { version = "0.31", default-features = false, features = ["system", "disk"] }
 rusqlite = { version = "0.42.0", features = ["bundled"] }
+# The game names a server's cached world after the MD5 of the username played there.
+md-5 = "0.10"
 zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 # The updater: the checksum of what it downloads, and the Linux package (a .tar.gz).
 sha2 = "0.10"

@@ -42,6 +42,8 @@ pub mod mods_view;
 pub mod order;
 #[path = "picture.view.rs"]
 pub mod picture;
+#[path = "servers.model.rs"]
+pub mod servers;
 #[path = "settings.view.rs"]
 pub mod settings;
 #[path = "store.model.rs"]

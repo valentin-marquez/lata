@@ -3596,6 +3596,7 @@ dependencies = [
  "image",
  "keyring",
  "ksni",
+ "md-5",
  "qrcode",
  "raw-window-handle",
  "rusqlite",

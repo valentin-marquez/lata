@@ -87,7 +87,7 @@ pub fn list(cachedir: &Path) -> Vec<World> {
     worlds
 }
 
-fn read(dir: &Path, mode: &str) -> World {
+pub(super) fn read(dir: &Path, mode: &str) -> World {
     // The game rewrites `map_t.bin` (the world's clock) on every save; the folder's own time
     // only moves when files come and go.
     let saved = [dir.join("map_t.bin"), dir.to_owned()]
