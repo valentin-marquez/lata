@@ -4,6 +4,7 @@
 
 mod account;
 mod assets;
+mod characters;
 mod discover;
 mod game;
 mod instance;
