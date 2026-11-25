@@ -292,10 +292,10 @@ pub(crate) fn ago(secs: u64) -> String {
         return t!("yesterday").into();
     }
     match secs {
-        ..3600 => tn!(secs / 60, "{n} minute ago", "{n} minutes ago"),
-        ..86_400 => tn!(secs / 3600, "{n} hour ago", "{n} hours ago"),
-        ..604_800 => tn!(secs / 86_400, "{n} day ago", "{n} days ago"),
-        ..2_592_000 => tn!(secs / 604_800, "{n} week ago", "{n} weeks ago"),
+        ..3_600 => tn!(secs / 60, "{n} minute ago", "{n} minutes ago"),
+        3_600..86_400 => tn!(secs / 3600, "{n} hour ago", "{n} hours ago"),
+        86_400..604_800 => tn!(secs / 86_400, "{n} day ago", "{n} days ago"),
+        604_800..2_592_000 => tn!(secs / 604_800, "{n} week ago", "{n} weeks ago"),
         _ => tn!(secs / 2_592_000, "{n} month ago", "{n} months ago"),
     }
 }

@@ -38,7 +38,6 @@ macro_rules! tn {
     }};
 }
 
-#[allow(unused_macros)]
 macro_rules! n {
     ($key:literal) => {
         $key
@@ -167,7 +166,7 @@ pub fn init() {
     apply(pinned.unwrap_or_else(|| crate::settings::load().language));
 }
 
-fn lookup<'a>(locale: Locale, key: &'a str) -> &'a str {
+fn lookup(locale: Locale, key: &str) -> &str {
     locale
         .table()
         .and_then(|table| table.get(key))
