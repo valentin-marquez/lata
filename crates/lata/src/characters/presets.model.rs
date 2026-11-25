@@ -113,6 +113,14 @@ impl Presets {
         }
     }
 
+    /// Drops every preset named `name`. True if there was one.
+    pub fn remove(&mut self, name: &str) -> bool {
+        let before = self.lines.len();
+        self.lines
+            .retain(|line| !matches!(line, Line::Preset(n, _) if n == name));
+        self.lines.len() != before
+    }
+
     /// Takes every preset of `other`, its value winning on a shared name; presets only here
     /// stay. True if anything changed.
     pub fn merge(&mut self, other: &Presets) -> bool {

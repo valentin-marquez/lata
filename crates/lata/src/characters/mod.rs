@@ -19,19 +19,55 @@ fn lua(instance: &Path) -> PathBuf {
     instance.join("zomboid").join("Lua")
 }
 
-/// Before a launch: adds the shared presets to the instance, replacing its own of the same name.
+/// Before a launch: adds the shared presets to the instance, replacing its own of the same name,
+/// and notes which names it shared, so [`pull`] can tell a preset the player deleted in game.
 // ponytail: a game that ended while lata was closed isn't read back, so its new presets are
 // shared only after its next session; read the instance first here if that ever matters.
 pub fn push(instance: &Path) -> io::Result<()> {
-    sync(&store(), &lua(instance))
+    share(&store(), &lua(instance))
 }
 
-/// After the game exits: shares the presets saved in game, the last one saved winning by name.
-// ponytail: a preset deleted in game stays in the store and comes back on the next launch;
-// propagating deletes needs a record of what was pushed, add it with the editor (#35).
-// Two games open at once can also put back an older version of a preset the other changed.
+fn share(store: &Path, lua: &Path) -> io::Result<()> {
+    sync(store, lua)?;
+    for kind in Kind::ALL {
+        let Some(shared) = read(&store.join(kind.file()), kind)? else {
+            continue;
+        };
+        let names: String = shared.iter().map(|(name, _)| format!("{name}\n")).collect();
+        std::fs::write(lua.join(shared_list(kind)), names)?;
+    }
+    Ok(())
+}
+
+/// After the game exits: shares the presets saved in game, the last one saved winning by name,
+/// and drops from the store those the player deleted (shared at launch, gone now).
+// ponytail: two games open at once can put back an older version of a preset the other changed.
 pub fn pull(instance: &Path) -> io::Result<()> {
-    sync(&lua(instance), &store())
+    collect(&lua(instance), &store())
+}
+
+fn collect(lua: &Path, store: &Path) -> io::Result<()> {
+    for kind in Kind::ALL {
+        let list = lua.join(shared_list(kind));
+        let Ok(names) = std::fs::read_to_string(&list) else {
+            continue;
+        };
+        let here = read(&lua.join(kind.file()), kind)?.unwrap_or_else(|| Presets::parse(kind, ""));
+        let path = store.join(kind.file());
+        if let Some(mut shared) = read(&path, kind)? {
+            let gone = names.lines().filter(|name| here.get(name).is_none());
+            if gone.fold(false, |changed, name| shared.remove(name) | changed) {
+                write(&path, &shared)?;
+            }
+        }
+        std::fs::remove_file(list)?;
+    }
+    sync(lua, store)
+}
+
+/// Next to a preset file, the names lata put in it at launch.
+fn shared_list(kind: Kind) -> String {
+    format!("{}.lata", kind.file())
 }
 
 /// Merges both preset files of `from` into those of `to`, writing only what changed.
@@ -44,13 +80,17 @@ fn sync(from: &Path, to: &Path) -> io::Result<()> {
         let mut target = read(&path, kind)?.unwrap_or_else(|| Presets::parse(kind, ""));
         if target.merge(&source) {
             std::fs::create_dir_all(to)?;
-            // Write then rename, so a crash never leaves a half-written file.
-            let tmp = path.with_extension("txt.tmp");
-            std::fs::write(&tmp, target.to_string())?;
-            std::fs::rename(&tmp, &path)?;
+            write(&path, &target)?;
         }
     }
     Ok(())
+}
+
+/// Writes then renames, so a crash never leaves a half-written file.
+fn write(path: &Path, presets: &Presets) -> io::Result<()> {
+    let tmp = path.with_extension("txt.tmp");
+    std::fs::write(&tmp, presets.to_string())?;
+    std::fs::rename(&tmp, path)
 }
 
 /// A preset file, `None` if there isn't one. A file that isn't UTF-8 is an error, so it is
@@ -121,6 +161,40 @@ mod tests {
         let outfits = Presets::parse(Kind::Outfits, &outfits);
         assert_eq!(outfits.get("Kate"), Some("gender=1;voicePitch=0.5;"));
         assert_eq!(outfits.get("Mine"), Some("gender=2;"));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_preset_deleted_in_game_stays_deleted() {
+        let root = std::env::temp_dir().join(format!("lata-characters-del-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (store, lua_a) = (root.join("store"), lua(&root.join("a")));
+        std::fs::create_dir_all(&store).unwrap();
+        let outfits = Kind::Outfits.file();
+        std::fs::write(
+            store.join(outfits),
+            "VERSION=1\nKate:gender=1;\nBob:gender=0;\n",
+        )
+        .unwrap();
+
+        // Launch: both reach the instance, and lata notes it shared them.
+        share(&store, &lua_a).unwrap();
+        // In game the player deletes Bob and saves Ann.
+        std::fs::write(
+            lua_a.join(outfits),
+            "VERSION=1\nKate:gender=1;\nAnn:gender=1;\n",
+        )
+        .unwrap();
+        collect(&lua_a, &store).unwrap();
+
+        let after = read(&store.join(outfits), Kind::Outfits).unwrap().unwrap();
+        assert!(
+            !lua_a.join(shared_list(Kind::Outfits)).exists(),
+            "the note goes"
+        );
+        assert_eq!(after.get("Bob"), None, "deleted in game");
+        assert_eq!(after.get("Kate"), Some("gender=1;"));
+        assert_eq!(after.get("Ann"), Some("gender=1;"));
         std::fs::remove_dir_all(&root).unwrap();
     }
 }
