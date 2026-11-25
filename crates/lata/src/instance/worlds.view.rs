@@ -190,7 +190,11 @@ fn server_row(
         Count::Online(players) => format!("{} of {} online", players.online, players.max),
         Count::Silent => "Not answering".to_owned(),
     };
-    let details = [Meta::new(IconName::Users, players)]
+    // Only a server in the game's list is asked (see `Detail`), so only it has a count.
+    let details = server
+        .name
+        .is_some()
+        .then(|| Meta::new(IconName::Users, players))
         .into_iter()
         // A named server says where it is too; an unnamed one has that as its title.
         .chain(

@@ -335,6 +335,9 @@ impl Render for Detail {
                     .get_or_insert_with(|| super::servers::list(&cachedir));
                 let asks: Vec<(String, String, u16)> = servers
                     .iter()
+                    // Only servers the game's own list knows: a folder name alone, which a
+                    // copied or shared instance could carry, never makes lata reach out.
+                    .filter(|server| server.name.is_some())
                     .filter(|server| !self.counts.contains_key(&server.address()))
                     .map(|server| (server.address(), server.host.clone(), server.port))
                     .collect();
