@@ -356,23 +356,7 @@ impl Shell {
             (Status::Running, _) => {
                 launch::stop(&instance);
             }
-            // The game quits silently without Steam, so say so and offer to open it.
-            (Status::Ready | Status::Outdated, _) if !launch::steam_running() => {
-                use gpui_kit::component::WindowExt;
-                window.push_notification(crate::ui::toast::steam_closed(), cx);
-            }
-            (Status::Ready | Status::Outdated, _) => match launch::start(&instance) {
-                Ok(child) => {
-                    let _ = shell.update(cx, |shell, cx| shell.watch(instance, Some(child), cx));
-                }
-                Err(err) => {
-                    use gpui_kit::component::WindowExt;
-                    window.push_notification(
-                        crate::ui::toast::failed_because("The game refused to start", err),
-                        cx,
-                    )
-                }
-            },
+            (Status::Ready | Status::Outdated, _) => Self::start(shell, instance, None, window, cx),
             (Status::Installing(_), _) => {
                 let _ = shell.update(cx, |shell, cx| shell.cancel(&instance.id, cx));
             }
@@ -388,6 +372,47 @@ impl Shell {
                 let _ = shell.update(cx, |shell, cx| shell.install(instance, account, handle, cx));
             }
         }
+    }
+
+    /// Starts the game of a ready instance, joining the server at `connect` (`host:port`)
+    /// when there is one; says so when Steam is closed or the game won't start.
+    fn start(
+        shell: WeakEntity<Shell>,
+        instance: Instance,
+        connect: Option<&str>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        use gpui_kit::component::WindowExt;
+        // The game quits silently without Steam, so say so and offer to open it.
+        if !launch::steam_running() {
+            return window.push_notification(crate::ui::toast::steam_closed(), cx);
+        }
+        match launch::start(&instance, connect) {
+            Ok(child) => {
+                let _ = shell.update(cx, |shell, cx| shell.watch(instance, Some(child), cx));
+            }
+            Err(err) => window.push_notification(
+                crate::ui::toast::failed_because("The game refused to start", err),
+                cx,
+            ),
+        }
+    }
+
+    /// Starts the instance's game straight into joining the server at `address`.
+    pub fn join(
+        shell: WeakEntity<Shell>,
+        id: SharedString,
+        address: String,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let Ok(Some(instance)) = shell.read_with(cx, |shell, _| {
+            shell.instances.iter().find(|i| i.id == id).cloned()
+        }) else {
+            return;
+        };
+        Self::start(shell, instance, Some(&address), window, cx);
     }
 
     /// Asks before updating an outdated instance: a new build can break saves and mods.

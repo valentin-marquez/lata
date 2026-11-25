@@ -7,7 +7,9 @@ use std::process::{Child, Command};
 use super::{APP, Instance};
 
 /// The command that starts the instance's game files with saves, mods and options in `zomboid/`.
-pub fn command(instance: &Instance) -> io::Result<Command> {
+/// With `connect` (`host:port`), the game skips its menu for its dialog to join that server,
+/// filled with the account and password it saved for it.
+pub fn command(instance: &Instance, connect: Option<&str>) -> io::Result<Command> {
     let game = instance
         .game()
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "the game isn't installed"))?;
@@ -60,6 +62,9 @@ pub fn command(instance: &Instance) -> io::Result<Command> {
         .args(["-modfolders", "mods"])
         .arg(cachedir(instance))
         .current_dir(&game);
+    if let Some(address) = connect {
+        command.args(["+connect", address]);
+    }
     Ok(command)
 }
 
@@ -132,8 +137,9 @@ fn split_args(text: &str) -> Vec<String> {
     args
 }
 
+/// Starts the game, joining the server at `connect` when there is one (see [`command`]).
 // ponytail: the game's output is dropped; the Logs tab (#16) will read it.
-pub fn start(instance: &Instance) -> io::Result<Child> {
+pub fn start(instance: &Instance, connect: Option<&str>) -> io::Result<Child> {
     // The game ships with `-Dzomboid.steam=1` and quits silently when SteamAPI_Init fails.
     if !steam_running() {
         return Err(io::Error::other(
@@ -141,7 +147,7 @@ pub fn start(instance: &Instance) -> io::Result<Child> {
         ));
     }
     super::java::prepare(instance)?;
-    command(instance)?
+    command(instance, connect)?
         // Lets the Steam API find the app when the game isn't started by Steam itself.
         .env("SteamAppId", APP.to_string())
         .stdout(std::process::Stdio::null())
@@ -233,11 +239,11 @@ mod tests {
             jvm_args: "-XX:+AlwaysPreTouch".into(),
             launch_args: "-debug".into(),
         };
-        assert!(command(&instance).is_err(), "no game files yet");
+        assert!(command(&instance, None).is_err(), "no game files yet");
 
         std::fs::create_dir_all(dir.join("game")).unwrap();
         std::fs::write(dir.join("game/projectzomboid.sh"), "#!/bin/sh\n").unwrap();
-        let cmd = command(&instance).unwrap();
+        let cmd = command(&instance, None).unwrap();
         assert_eq!(
             cmd.get_program(),
             dir.join("game/projectzomboid.sh").as_os_str()
@@ -259,6 +265,10 @@ mod tests {
             ]
         );
         assert_eq!(cmd.get_current_dir(), Some(dir.join("game").as_path()));
+        // Joining a server adds what `MainScreenState` reads from the command line.
+        let join = command(&instance, Some("40.160.20.9:16261")).unwrap();
+        let args: Vec<_> = join.get_args().collect();
+        assert_eq!(args[args.len() - 2..], ["+connect", "40.160.20.9:16261"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
