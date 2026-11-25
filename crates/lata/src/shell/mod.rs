@@ -1378,7 +1378,7 @@ impl Shell {
     /// instance the mod goes into, or says why the link can't be used. A link that arrives
     /// while that dialog is open waits its turn.
     pub fn receive_link(&mut self, text: String, window: AnyWindowHandle, cx: &mut Context<Self>) {
-        let _ = window.update(cx, |_, window, _| window.activate_window());
+        let _ = window.update(cx, |_, window, cx| crate::tray::show(window, cx));
         self.link_resolving += 1;
         cx.notify();
         cx.spawn(async move |this, cx| {
