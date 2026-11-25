@@ -9,6 +9,7 @@ use gpui_kit::component::dialog::DialogEntrance;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::searchable_list::SearchableListItem;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme, Icon as Glyph, IndexPath, WindowExt};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -372,7 +373,7 @@ impl Editor {
 
     fn look(&self, cx: &mut Context<Self>) -> Div {
         let theme = cx.theme().clone();
-        let name = field(
+        let name = required_field(
             t!("Name"),
             t!("What the game lists it as"),
             Input::new(&self.name),
@@ -698,10 +699,18 @@ impl Editor {
     fn footer(&self, cx: &mut Context<Self>) -> Div {
         let theme = cx.theme();
         let (_, problem) = self.name(cx);
+        // A new character starts without a name and that isn't a mistake, so this says what the
+        // button is waiting for in the muted tone, not as an error.
+        let nameless = problem == Some("");
         let note = match (problem, self.points()) {
             (Some(problem), _) if !problem.is_empty() => {
                 Some(div().text_color(theme.danger).child(problem))
             }
+            (Some(_), _) => Some(
+                div()
+                    .text_color(theme.muted_foreground)
+                    .child(t!("Give the character a name first")),
+            ),
             (_, Some(left)) if left < 0 => Some(div().text_color(ui::warning_text(cx)).child(tn!(
                 -left,
                 "{n} points short, the game won't start it like this",
@@ -728,18 +737,28 @@ impl Editor {
                     .on_click(|_, window, cx| window.close_dialog(cx)),
             )
             .child(
-                FancyButton::new(
-                    "character-save",
-                    if self.old.is_some() {
-                        t!("Save")
-                    } else {
-                        t!("Create character")
-                    },
-                )
-                .small()
-                .icon(IconName::Check)
-                .disabled(problem.is_some())
-                .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),
+                // The wrapper carries the tooltip: the button itself is off while it applies.
+                div()
+                    .id("character-save-tip")
+                    .when(nameless, |this| {
+                        this.tooltip(|window, cx| {
+                            Tooltip::new(t!("Give the character a name first")).build(window, cx)
+                        })
+                    })
+                    .child(
+                        FancyButton::new(
+                            "character-save",
+                            if self.old.is_some() {
+                                t!("Save")
+                            } else {
+                                t!("Create character")
+                            },
+                        )
+                        .small()
+                        .icon(IconName::Check)
+                        .disabled(problem.is_some())
+                        .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),
+                    ),
             )
     }
 }
@@ -926,6 +945,26 @@ fn chip(
 
 /// A labelled control, with an optional line under the label.
 fn field(title: &'static str, line: &'static str, control: impl IntoElement, cx: &App) -> Div {
+    labelled(title, false, line, control, cx)
+}
+
+/// Like [`field`], for what must be filled in: a small red asterisk after the title.
+fn required_field(
+    title: &'static str,
+    line: &'static str,
+    control: impl IntoElement,
+    cx: &App,
+) -> Div {
+    labelled(title, true, line, control, cx)
+}
+
+fn labelled(
+    title: &'static str,
+    required: bool,
+    line: &'static str,
+    control: impl IntoElement,
+    cx: &App,
+) -> Div {
     div()
         .flex()
         .flex_col()
@@ -937,9 +976,14 @@ fn field(title: &'static str, line: &'static str, control: impl IntoElement, cx:
                 .gap_0p5()
                 .child(
                     div()
+                        .flex()
+                        .gap_1()
                         .text_sm()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(title),
+                        .child(title)
+                        .when(required, |this| {
+                            this.child(div().text_color(cx.theme().danger).child("*"))
+                        }),
                 )
                 .when(!line.is_empty(), |this| {
                     this.child(
