@@ -113,11 +113,11 @@ impl Section {
 
     fn label(self) -> &'static str {
         match self {
-            Section::Appearance => "Appearance",
-            Section::Behavior => "Behavior",
-            Section::Overrides => "Overrides",
-            Section::Storage => "Storage",
-            Section::About => "About",
+            Section::Appearance => t!("Appearance"),
+            Section::Behavior => t!("Behavior"),
+            Section::Overrides => t!("Overrides"),
+            Section::Storage => t!("Storage"),
+            Section::About => t!("About"),
         }
     }
 
@@ -188,7 +188,7 @@ pub fn open(shell: WeakEntity<crate::shell::Shell>, window: &mut Window, cx: &mu
             .close_button(!moving)
             .overlay_closable(!moving)
             .keyboard(!moving)
-            .title("Settings")
+            .title(t!("Settings"))
             .centered()
             .w(px(WIDTH))
             .child(view.clone())
@@ -259,8 +259,8 @@ impl Form {
                     .default_value(value.cloned().unwrap_or_default())
             })
         };
-        let jvm_args = input(saved.jvm_args.as_ref(), "Each instance's own");
-        let launch_args = input(saved.launch_args.as_ref(), "Each instance's own");
+        let jvm_args = input(saved.jvm_args.as_ref(), t!("Each instance's own"));
+        let launch_args = input(saved.launch_args.as_ref(), t!("Each instance's own"));
         let slider = cx.new(|_| {
             SliderState::new()
                 .min(MIN_MEMORY as f32)
@@ -416,17 +416,22 @@ pub fn radio(selected: bool, cx: &App) -> Div {
         .children(selected.then(|| div().size(px(8.)).rounded_full().bg(theme.primary)))
 }
 
-pub fn heading(title: &'static str, line: &'static str, cx: &App) -> Div {
+pub fn heading(title: impl Into<SharedString>, line: impl Into<SharedString>, cx: &App) -> Div {
     div()
         .flex()
         .flex_col()
         .gap_1()
-        .child(div().text_lg().font_weight(FontWeight::BOLD).child(title))
+        .child(
+            div()
+                .text_lg()
+                .font_weight(FontWeight::BOLD)
+                .child(title.into()),
+        )
         .child(
             div()
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
-                .child(line),
+                .child(line.into()),
         )
 }
 
@@ -487,15 +492,15 @@ impl Settings {
                         div()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
-                            .child(format!("lata {version} is out")),
+                            .child(t!("lata {version} is out", version = version)),
                     )
                     .child(
                         FancyButton::new(
                             "update-lata",
                             if *installable {
-                                "Restart to update"
+                                t!("Restart to update")
                             } else {
-                                "Get it"
+                                t!("Get it")
                             },
                         )
                         .on_click(move |_, window, cx| {
@@ -510,11 +515,11 @@ impl Settings {
                 .text_sm()
                 .text_color(theme.muted_foreground)
                 .child(Icon::new(IconName::CircleCheck).text_color(theme.success))
-                .child("No newer version found"),
+                .child(t!("No newer version found")),
             (None, false) => div()
                 .text_sm()
                 .text_color(theme.muted_foreground)
-                .child("Automatic updates are off"),
+                .child(t!("Automatic updates are off")),
         };
         let header = div()
             .flex()
@@ -542,12 +547,10 @@ impl Settings {
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child("lata launcher"),
                             )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(theme.muted_foreground)
-                                    .child(concat!("Version ", env!("CARGO_PKG_VERSION"))),
-                            ),
+                            .child(div().text_sm().text_color(theme.muted_foreground).child(t!(
+                                "Version {version}",
+                                version = env!("CARGO_PKG_VERSION")
+                            ))),
                     ),
             )
             .child(status);
@@ -557,25 +560,25 @@ impl Settings {
             .flex_col()
             .gap_5()
             .child(heading(
-                "About",
-                "Which lata you're running, and where to get help.",
+                t!("About"),
+                t!("Which lata you're running, and where to get help."),
                 cx,
             ))
             .child(header)
             .child(row(
-                "What's new",
-                "The notes of every version, newest first.",
+                t!("What's new"),
+                t!("The notes of every version, newest first."),
                 Button::new("news")
                     .ghost()
                     .cursor_pointer()
                     .icon(IconName::WandSparkles)
-                    .label("Open")
+                    .label(t!("Open"))
                     .on_click(|_, window, cx| crate::news::open(window, cx)),
                 cx,
             ))
             .child(row(
-                "Report a problem",
-                "Tell us what broke, or ask for help.",
+                t!("Report a problem"),
+                t!("Tell us what broke, or ask for help."),
                 div()
                     .flex()
                     .gap_1()
@@ -594,19 +597,19 @@ impl Settings {
                 cx,
             ))
             .child(row(
-                "lata's folder",
-                "Settings, logs and caches. Handy when someone asks for a log.",
+                t!("lata's folder"),
+                t!("Settings, logs and caches. Handy when someone asks for a log."),
                 Button::new("data-folder")
                     .ghost()
                     .cursor_pointer()
                     .icon(IconName::FolderOpen)
-                    .label("Open")
+                    .label(t!("Open"))
                     .on_click(move |_, _, cx| cx.open_with_system(&folder)),
                 cx,
             ))
             .child(row(
-                "Source code",
-                "lata is free software under the GPL-3.0.",
+                t!("Source code"),
+                t!("lata is free software under the GPL-3.0."),
                 link(
                     "source",
                     "github",
@@ -619,7 +622,7 @@ impl Settings {
                 div()
                     .text_xs()
                     .text_color(theme.muted_foreground)
-                    .child("lata is not affiliated with The Indie Stone or Valve."),
+                    .child(t!("lata is not affiliated with The Indie Stone or Valve.")),
             )
     }
 
@@ -628,7 +631,7 @@ impl Settings {
         if self.draft.startup != self.saved.startup {
             if let Err(err) = startup::set(self.draft.startup) {
                 window.push_notification(
-                    crate::ui::toast::failed_because("Hmm, that setting didn't stick", err),
+                    crate::ui::toast::failed_because(t!("Hmm, that setting didn't stick"), err),
                     cx,
                 );
                 return;
@@ -638,7 +641,7 @@ impl Settings {
         if self.draft.protocol != self.saved.protocol {
             if let Err(err) = crate::link::protocol::set(self.draft.protocol) {
                 window.push_notification(
-                    crate::ui::toast::failed_because("Hmm, that setting didn't stick", err),
+                    crate::ui::toast::failed_because(t!("Hmm, that setting didn't stick"), err),
                     cx,
                 );
                 return;
@@ -706,7 +709,7 @@ impl Settings {
                 div()
                     .text_sm()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child("You have unsaved changes."),
+                    .child(t!("You have unsaved changes.")),
             )
             .child(
                 div()
@@ -718,11 +721,11 @@ impl Settings {
                             .ghost()
                             .cursor_pointer()
                             .icon(IconName::Undo2)
-                            .label("Reset")
+                            .label(t!("Reset"))
                             .on_click(cx.listener(|this, _, window, cx| this.reset(window, cx))),
                     )
                     .child(
-                        FancyButton::new("save", "Save")
+                        FancyButton::new("save", t!("Save"))
                             .small()
                             .icon(IconName::Check)
                             .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),
@@ -799,7 +802,7 @@ impl Settings {
                         .text_sm()
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(radio(selected, cx))
-                        .child(mode.label()),
+                        .child(crate::i18n::tr(mode.label())),
                 )
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.draft.theme = mode;
@@ -841,15 +844,15 @@ impl Settings {
             .flex_col()
             .gap_4()
             .child(heading(
-                "Color theme",
-                "System follows your system's light or dark setting.",
+                t!("Color theme"),
+                t!("System follows your system's light or dark setting."),
                 cx,
             ))
             .child(div().flex().gap_3().children(cards))
             .child(div().h_2())
             .child(heading(
-                "Language",
-                "System follows your system's language when lata speaks it.",
+                t!("Language"),
+                t!("System follows your system's language when lata speaks it."),
                 cx,
             ))
             .child(div().flex().flex_wrap().gap_3().children(languages))
@@ -860,8 +863,8 @@ impl Settings {
         let theme = cx.theme();
         let form = &self.form;
         let value = match form.memory_gb {
-            Some(gb) => format!("{gb} GB"),
-            None => "Each instance's own".to_owned(),
+            Some(gb) => t!("{gb} GB", gb = gb),
+            None => t!("Each instance's own").to_owned(),
         };
         let memory = div()
             .flex()
@@ -878,7 +881,7 @@ impl Settings {
                         div()
                             .text_sm()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Memory"),
+                            .child(t!("Memory")),
                     )
                     .child(
                         div()
@@ -900,7 +903,7 @@ impl Settings {
                                         .ghost()
                                         .cursor_pointer()
                                         .icon(IconName::Undo2)
-                                        .label("Clear")
+                                        .label(t!("Clear"))
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             this.form.memory_gb = None;
                                             this.form.slider.update(cx, |slider, cx| {
@@ -919,8 +922,8 @@ impl Settings {
                     .justify_between()
                     .text_xs()
                     .text_color(theme.muted_foreground)
-                    .child(format!("{MIN_MEMORY} GB"))
-                    .child(format!("This computer has {} GB", self.installed)),
+                    .child(t!("{gb} GB", gb = MIN_MEMORY))
+                    .child(t!("This computer has {gb} GB", gb = self.installed)),
             );
         let field = |name: &'static str, input: &Entity<InputState>, line: &'static str| {
             div()
@@ -946,20 +949,20 @@ impl Settings {
             .flex_col()
             .gap_5()
             .child(heading(
-                "Overrides",
-                "Set something here and every instance starts with it, whatever its own settings say. Leave it empty and each one keeps its own.",
+                t!("Overrides"),
+                t!("Set something here and every instance starts with it, whatever its own settings say. Leave it empty and each one keeps its own."),
                 cx,
             ))
             .child(memory)
             .child(field(
-                "Launch arguments",
+                t!("Launch arguments"),
                 &form.launch_args,
-                "Options for the game, used instead of each instance's.",
+                t!("Options for the game, used instead of each instance's."),
             ))
             .child(field(
-                "Java arguments",
+                t!("Java arguments"),
                 &form.jvm_args,
-                "Options for the Java VM, used instead of each instance's.",
+                t!("Options for the Java VM, used instead of each instance's."),
             ))
     }
 
@@ -1000,8 +1003,8 @@ impl Settings {
                     })
                 });
             row(
-                "Open links from the browser",
-                "Let the lata browser extension open lata. This registers lata:// for your user.",
+                t!("Open links from the browser"),
+                t!("Let the lata browser extension open lata. This registers lata:// for your user."),
                 switch,
                 cx,
             )
@@ -1021,31 +1024,31 @@ impl Settings {
             .flex_col()
             .gap_5()
             .child(heading(
-                "Behavior",
-                "How lata starts and what closing it does.",
+                t!("Behavior"),
+                t!("How lata starts and what closing it does."),
                 cx,
             ))
             .child(row(
-                "Launch at startup",
-                "Start lata when you sign in to your computer.",
+                t!("Launch at startup"),
+                t!("Start lata when you sign in to your computer."),
                 startup,
                 cx,
             ))
             .children(links)
             .child(row(
-                "Update lata automatically",
-                "Installs a new version when lata starts, and tells you when one comes out while it's open. Off, it never looks.",
+                t!("Update lata automatically"),
+                t!("Installs a new version when lata starts, and tells you when one comes out while it's open. Off, it never looks."),
                 updates,
                 cx,
             ))
             .child(row(
-                "Minimize to the system tray",
+                t!("Minimize to the system tray"),
                 if self.tray {
-                    "Closing the window keeps lata running in the tray. Quit it from the tray icon."
+                    t!("Closing the window keeps lata running in the tray. Quit it from the tray icon.")
                 } else if cfg!(target_os = "linux") {
-                    "Closing the window keeps lata running in the tray. Your desktop doesn't show tray icons, so it stays off."
+                    t!("Closing the window keeps lata running in the tray. Your desktop doesn't show tray icons, so it stays off.")
                 } else {
-                    "Closing the window keeps lata running in the tray. Coming soon on this system."
+                    t!("Closing the window keeps lata running in the tray. Coming soon on this system.")
                 },
                 tray,
                 cx,
@@ -1065,8 +1068,8 @@ impl Render for Settings {
                 .flex_col()
                 .gap_4()
                 .child(heading(
-                    "Library location",
-                    "Where your instances and game files live. New downloads go here too.",
+                    t!("Library location"),
+                    t!("Where your instances and game files live. New downloads go here too."),
                     cx,
                 ))
                 .child(self.storage.clone()),

@@ -25,19 +25,19 @@ const STUCK: Duration = Duration::from_secs(3);
 /// Said under the status while lata works, so the window isn't bare: a bit of the game's
 /// humor, and things about lata worth knowing.
 const QUIPS: [&str; 13] = [
-    "Pack light. Bring a can opener.",
-    "Check the doors before checking the fridge.",
-    "Knox County rewards a quiet entrance.",
-    "Save the last can for tomorrow.",
-    "Every safehouse starts with a bad idea.",
-    "Your next great plan needs an escape route.",
-    "Lock the door. Then lock it again.",
-    "Each instance keeps its own mods.",
-    "Mods stay on the version you installed.",
-    "A mod update broke your save? Roll it back.",
-    "Keep a spare instance to try mod updates.",
-    "A spare instance beats a broken evening.",
-    "Different instances, different game versions.",
+    n!("Pack light. Bring a can opener."),
+    n!("Check the doors before checking the fridge."),
+    n!("Knox County rewards a quiet entrance."),
+    n!("Save the last can for tomorrow."),
+    n!("Every safehouse starts with a bad idea."),
+    n!("Your next great plan needs an escape route."),
+    n!("Lock the door. Then lock it again."),
+    n!("Each instance keeps its own mods."),
+    n!("Mods stay on the version you installed."),
+    n!("A mod update broke your save? Roll it back."),
+    n!("Keep a spare instance to try mod updates."),
+    n!("A spare instance beats a broken evening."),
+    n!("Different instances, different game versions."),
 ];
 
 /// What the update is doing. The order they happen in: `Checking`, then with an update
@@ -62,20 +62,25 @@ impl Step {
     /// The one status line.
     fn line(&self) -> &'static str {
         match self {
-            Step::Checking => "Checking for updates",
-            Step::Downloading { .. } => "Downloading update",
-            Step::Installing => "Installing update",
-            Step::Failed(_) => "That update didn't make it",
-            Step::Launching => "Starting lata",
+            Step::Checking => t!("Checking for updates"),
+            Step::Downloading { .. } => t!("Downloading update"),
+            Step::Installing => t!("Installing update"),
+            Step::Failed(_) => t!("That update didn't make it"),
+            Step::Launching => t!("Starting lata"),
         }
     }
 
     /// The small print under it, when there is something to add.
     fn detail(&self) -> Option<SharedString> {
         match self {
-            Step::Downloading { done, total } => {
-                Some(format!("{} of {}", install::size(*done), install::size(*total)).into())
-            }
+            Step::Downloading { done, total } => Some(
+                t!(
+                    "{done} of {total}",
+                    done = install::size(*done),
+                    total = install::size(*total)
+                )
+                .into(),
+            ),
             // Errors come from many places, some starting in lowercase.
             Step::Failed(why) => {
                 let mut chars = why.chars();
@@ -91,9 +96,9 @@ impl Step {
     fn aside(&self, quip: usize) -> Option<&'static str> {
         match self {
             Step::Checking | Step::Downloading { .. } | Step::Installing => {
-                Some(QUIPS[quip % QUIPS.len()])
+                Some(crate::i18n::tr(QUIPS[quip % QUIPS.len()]))
             }
-            Step::Failed(_) => Some("Opening lata as it is"),
+            Step::Failed(_) => Some(t!("Opening lata as it is")),
             Step::Launching => None,
         }
     }
@@ -121,7 +126,7 @@ pub fn pinned() -> Option<Step> {
             total: 26_990_864,
         },
         "installing" => Step::Installing,
-        "failed" => Step::Failed("the download doesn't match the release's checksum".into()),
+        "failed" => Step::Failed(t!("the download doesn't match the release's checksum").into()),
         "launching" => Step::Launching,
         _ => return None,
     })
@@ -208,7 +213,7 @@ impl Render for Splash {
         }
         let stuck = self.progress.1.elapsed() >= STUCK;
         let skip = self.on_skip.clone().filter(|_| stuck).map(|on_skip| {
-            crate::ui::secondary("skip-update", "Skip for now")
+            crate::ui::secondary("skip-update", t!("Skip for now"))
                 .text_color(theme.muted_foreground)
                 .on_click(move |_, _, _| on_skip())
                 .with_animation(

@@ -93,7 +93,7 @@ pub async fn check() -> Result<Option<Found>, String> {
         runtime::spawn(async { tokio::time::timeout(ASK, release::check(&current())).await })
             .await
             .map_err(|err| err.to_string())?
-            .map_err(|_| "GitHub took too long")??;
+            .map_err(|_| t!("GitHub took too long"))??;
     let Some(release) = found else {
         return Ok(None);
     };
@@ -108,7 +108,7 @@ pub async fn check() -> Result<Option<Found>, String> {
 
 /// Starts lata again through the update window; the caller then quits.
 pub fn restart() -> Result<(), String> {
-    let target = swap::installed().ok_or("lata can't tell where it is installed")?;
+    let target = swap::installed().ok_or(t!("lata can't tell where it is installed"))?;
     swap::launch(&target, &[RESTARTED.to_owned()]).map_err(|err| err.to_string())
 }
 
@@ -173,8 +173,9 @@ pub fn start(
                         for link in links {
                             let _ = outside.send(Incoming::Link(link));
                         }
-                        Err(format!(
-                            "The new version is in place but didn't open ({err}). Close lata and open it again"
+                        Err(t!(
+                            "The new version is in place but didn't open ({err}). Close lata and open it again",
+                            err = err
                         ))
                     }
                 }
@@ -264,13 +265,13 @@ async fn body(
     loop {
         let chunk = tokio::time::timeout(STALL, reply.chunk())
             .await
-            .map_err(|_| "the download stalled")?
+            .map_err(|_| t!("the download stalled"))?
             .map_err(|err| err.to_string())?;
         let Some(chunk) = chunk else {
             return Ok(bytes);
         };
         if (bytes.len() + chunk.len()) as u64 > cap {
-            return Err("the download is bigger than it should be".into());
+            return Err(t!("the download is bigger than it should be").into());
         }
         bytes.extend_from_slice(&chunk);
         each(bytes.len() as u64);
@@ -289,9 +290,9 @@ async fn install(
     let (name, total) = release
         .package
         .clone()
-        .ok_or("no download for this system")?;
+        .ok_or(t!("no download for this system"))?;
     if total > MAX_BYTES {
-        return Err("the download is far bigger than lata is".into());
+        return Err(t!("the download is far bigger than lata is").into());
     }
     let http = steam::http();
     let get = async |file: &str, cap: u64, each: &mut (dyn FnMut(u64) + Send)| {
@@ -301,7 +302,7 @@ async fn install(
             .send();
         let reply = tokio::time::timeout(STALL, reply)
             .await
-            .map_err(|_| "the download stalled".to_owned())?
+            .map_err(|_| t!("the download stalled").to_owned())?
             .and_then(|reply| reply.error_for_status())
             .map_err(|err| err.to_string())?;
         body(reply, cap, each).await
@@ -317,19 +318,19 @@ async fn install(
         Ok::<_, String>((sums, package))
     })
     .await
-    .map_err(|_| "the download took too long")?;
+    .map_err(|_| t!("the download took too long"))?;
     let (sums, package) = downloaded?;
     let expected = release::checksum(&String::from_utf8_lossy(&sums), &name)
-        .ok_or("the release lists no checksum for this download")?;
+        .ok_or(t!("the release lists no checksum for this download"))?;
     let got: String = Sha256::digest(&package)
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
     if got != expected {
-        return Err("the download doesn't match the release's checksum".into());
+        return Err(t!("the download doesn't match the release's checksum").into());
     }
     if decided.swap(true, Ordering::SeqCst) {
-        return Err("skipped".into());
+        return Err(t!("skipped").into());
     }
     let _ = events.send(Step::Installing);
     let version = release.version.clone();

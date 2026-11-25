@@ -27,16 +27,16 @@ pub fn size(library: &Path) -> (u64, usize) {
 /// Why `to` can't take the library from `from`; `None` when it can. Leaves no folder behind.
 pub fn check(from: &Path, to: &Path) -> Option<String> {
     if to == from {
-        return Some("Your library is already here".into());
+        return Some(t!("Your library is already here").into());
     }
     if PARTS
         .iter()
         .any(|part| to.starts_with(from.join(part)) || from.join(part).starts_with(to))
     {
-        return Some("That folder is inside your library, pick one outside it".into());
+        return Some(t!("That folder is inside your library, pick one outside it").into());
     }
     if PARTS.iter().any(|part| !empty(&to.join(part))) {
-        return Some("That folder already has a lata library in it".into());
+        return Some(t!("That folder already has a lata library in it").into());
     }
     let (probe, made) = (to.join(".lata-probe"), !to.exists());
     let writable = std::fs::create_dir_all(to).is_ok() && std::fs::write(&probe, b"").is_ok();
@@ -44,7 +44,7 @@ pub fn check(from: &Path, to: &Path) -> Option<String> {
     if made {
         let _ = std::fs::remove_dir(to);
     }
-    (!writable).then(|| "lata can't write in that folder, pick one you own".into())
+    (!writable).then(|| t!("lata can't write in that folder, pick one you own").into())
 }
 
 /// Why a download of `need` bytes into `dir` can't start; `None` when it fits (or the OS
@@ -53,10 +53,10 @@ pub fn room(dir: &Path, need: u64) -> Option<String> {
     let free = drives::free(dir)?;
     (need > free).then(|| {
         use crate::instance::install::size;
-        format!(
-            "Not enough space: this needs {} and the drive only has {} free. Clear some up, or move your library in Settings",
-            size(need),
-            size(free)
+        t!(
+            "Not enough space: this needs {need} and the drive only has {free} free. Clear some up, or move your library in Settings",
+            need = size(need),
+            free = size(free)
         )
     })
 }

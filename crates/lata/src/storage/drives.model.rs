@@ -96,7 +96,7 @@ fn label(device: &str, mount: &Path) -> String {
         return device.to_owned();
     }
     if mount.parent().is_none() {
-        return "System".into();
+        return t!("System").into();
     }
     mount
         .file_name()

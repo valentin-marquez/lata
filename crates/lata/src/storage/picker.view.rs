@@ -109,7 +109,7 @@ impl Picker {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Keep the library here".into()),
+            prompt: Some(t!("Keep the library here").into()),
         });
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(paths))) = picked.await else {
@@ -144,7 +144,7 @@ impl Picker {
             .unwrap_or(true);
         if busy {
             window.push_notification(
-                ui::toast::failed("Close the game and let downloads finish before moving"),
+                ui::toast::failed(t!("Close the game and let downloads finish before moving")),
                 cx,
             );
             return;
@@ -183,14 +183,16 @@ impl Picker {
                             this.choosing = false;
                             let _ = this.shell.update(cx, |shell, cx| shell.relocated(cx));
                             if !this.first {
-                                let text =
-                                    format!("Moved! Your library lives in {} now", to.display());
+                                let text = t!(
+                                    "Moved! Your library lives in {path} now",
+                                    path = to.display()
+                                );
                                 window.push_notification(ui::toast::done(text), cx);
                             }
                             this.finish(window, cx);
                         }
                         Err(err) => window.push_notification(
-                            ui::toast::failed_because("Your library stayed where it was", err),
+                            ui::toast::failed_because(t!("Your library stayed where it was"), err),
                             cx,
                         ),
                     }
@@ -213,7 +215,7 @@ impl Picker {
     fn verdict(&self) -> (Vec<(String, Tone)>, bool) {
         let Some(target) = &self.target else {
             return (
-                vec![("Pick a drive or a folder.".into(), Tone::Plain)],
+                vec![(t!("Pick a drive or a folder.").into(), Tone::Plain)],
                 false,
             );
         };
@@ -226,7 +228,7 @@ impl Picker {
                 (note.collect(), true)
             } else {
                 (
-                    vec![("Your library is already here.".into(), Tone::Plain)],
+                    vec![(t!("Your library is already here.").into(), Tone::Plain)],
                     false,
                 )
             };
@@ -240,23 +242,26 @@ impl Picker {
         let mut ok = true;
         match (self.size, to) {
             (None, _) => {
-                lines.push(("Counting what your library takes.".into(), Tone::Plain));
+                lines.push((t!("Counting what your library takes.").into(), Tone::Plain));
                 ok = false;
             }
-            _ if same => lines.push(("Same drive, so the move is instant.".into(), Tone::Plain)),
+            _ if same => lines.push((
+                t!("Same drive, so the move is instant.").into(),
+                Tone::Plain,
+            )),
             (Some((0, _)), Some(d)) if d.free < GAME => lines.push((
-                format!(
-                    "Only {} free here, and a game build takes about 6 GB.",
-                    bytes(d.free)
+                t!(
+                    "Only {free} free here, and a game build takes about 6 GB.",
+                    free = bytes(d.free)
                 ),
                 Tone::Warn,
             )),
             (Some((need, _)), Some(d)) if need > d.free => {
                 lines.push((
-                    format!(
-                        "Not enough room: it needs {}, and only {} is free.",
-                        bytes(need),
-                        bytes(d.free)
+                    t!(
+                        "Not enough room: it needs {need}, and only {free} is free.",
+                        need = bytes(need),
+                        free = bytes(d.free)
                     ),
                     Tone::Bad,
                 ));
@@ -265,7 +270,11 @@ impl Picker {
             (Some((need, _)), Some(d)) if need > 0 => {
                 let left = d.free - need;
                 lines.push((
-                    format!("Needs {}, and leaves {} free.", bytes(need), bytes(left)),
+                    t!(
+                        "Needs {need}, and leaves {free} free.",
+                        need = bytes(need),
+                        free = bytes(left)
+                    ),
                     if left < LOW { Tone::Warn } else { Tone::Plain },
                 ));
             }
@@ -283,12 +292,16 @@ impl Picker {
             Some((size, count)) => meta
                 .child(Meta::new(IconName::Layers, instances(count)))
                 .child(Meta::new(IconName::Folder, bytes(size))),
-            None => meta.child(Meta::new(IconName::LoaderCircle, "Counting")),
+            None => meta.child(Meta::new(IconName::LoaderCircle, t!("Counting"))),
         };
         if let Some(drive) = drives::of(&self.drives, &self.current) {
             meta = meta.child(Meta::new(
                 icon(drive.kind),
-                format!("{} free on {}", bytes(drive.free), drive.name),
+                t!(
+                    "{free} free on {drive}",
+                    free = bytes(drive.free),
+                    drive = drive.name
+                ),
             ));
         }
         let dir = self.current.clone();
@@ -318,11 +331,11 @@ impl Picker {
                             .ghost()
                             .cursor_pointer()
                             .icon(IconName::FolderOpen)
-                            .label("Open folder")
+                            .label(t!("Open folder"))
                             .on_click(move |_, _, cx| cx.open_with_system(&dir)),
                     )
                     .child(
-                        FancyButton::new("library-change", "Change location")
+                        FancyButton::new("library-change", t!("Change location"))
                             .small()
                             .icon(IconName::HardDrive)
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -389,7 +402,7 @@ impl Picker {
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(drive.name.clone()),
                     )
-                    .when(here, |this| this.child(tag("Current")))
+                    .when(here, |this| this.child(tag(t!("Current"))))
                     .children(badge(drive.kind).map(tag)),
             )
             .child(
@@ -406,16 +419,11 @@ impl Picker {
                     .bg(theme.border)
                     .child(div().h_full().w(relative(used)).rounded_full().bg(fill)),
             )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(format!(
-                        "{} free of {}",
-                        bytes(drive.free),
-                        bytes(drive.total)
-                    )),
-            )
+            .child(div().text_xs().text_color(theme.muted_foreground).child(t!(
+                "{free} free of {total}",
+                free = bytes(drive.free),
+                total = bytes(drive.total)
+            )))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.pick(ix);
                 cx.notify();
@@ -465,15 +473,15 @@ impl Picker {
                             .min_w_0()
                             .child(div().text_xs().text_color(theme.muted_foreground).child(
                                 if self.first {
-                                    "Location"
+                                    t!("Location")
                                 } else {
-                                    "New location"
+                                    t!("New location")
                                 },
                             ))
                             .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(
                                 match &self.target {
                                     Some(target) => target.display().to_string(),
-                                    None => "None yet".into(),
+                                    None => t!("None yet").into(),
                                 },
                             )),
                     )
@@ -482,7 +490,7 @@ impl Picker {
                             .ghost()
                             .cursor_pointer()
                             .icon(IconName::FolderOpen)
-                            .label("Choose folder")
+                            .label(t!("Choose folder"))
                             .on_click(cx.listener(|this, _, _, cx| this.browse(cx))),
                     ),
             )
@@ -519,9 +527,9 @@ impl Picker {
 
     fn actions(&self, ok: bool, cx: &mut Context<Self>) -> Div {
         let label = if self.first {
-            "Use this location"
+            t!("Use this location")
         } else {
-            "Move library"
+            t!("Move library")
         };
         div()
             .flex()
@@ -532,7 +540,7 @@ impl Picker {
                     Button::new("library-cancel")
                         .ghost()
                         .cursor_pointer()
-                        .label("Cancel")
+                        .label(t!("Cancel"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.choosing = false;
                             cx.notify();
@@ -568,14 +576,11 @@ impl Picker {
                 div()
                     .text_sm()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child("Moving your library"),
+                    .child(t!("Moving your library")),
             )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child("Hang tight! This stays open until every file is across."),
-            )
+            .child(div().text_xs().text_color(theme.muted_foreground).child(t!(
+                "Hang tight! This stays open until every file is across."
+            )))
             .child(
                 div()
                     .h(px(6.))
@@ -590,12 +595,11 @@ impl Picker {
                             .bg(theme.primary),
                     ),
             )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(format!("{} of {}", bytes(done), bytes(total))),
-            )
+            .child(div().text_xs().text_color(theme.muted_foreground).child(t!(
+                "{done} of {total}",
+                done = bytes(done),
+                total = bytes(total)
+            )))
     }
 }
 
@@ -619,7 +623,7 @@ pub fn first_start(shell: WeakEntity<Shell>, window: &mut Window, cx: &mut App) 
         let muted = cx.theme().muted_foreground;
         dialog
             .entrance(DialogEntrance::FadeSlide)
-            .title("Where should lata keep your instances?")
+            .title(t!("Where should lata keep your instances?"))
             // Pinned at the top: its height changes with the picked folder, and centered it
             // would slide the button out from under the pointer.
             .margin_top(px(72.))
@@ -634,7 +638,7 @@ pub fn first_start(shell: WeakEntity<Shell>, window: &mut Window, cx: &mut App) 
                     .flex_col()
                     .gap_4()
                     .child(div().text_sm().text_color(muted).child(
-                        "Game files and mods take a lot of room. Pick a drive with space; you can change it later in Settings.",
+                        t!("Game files and mods take a lot of room. Pick a drive with space; you can change it later in Settings."),
                     ))
                     .child(view.clone()),
             )
@@ -642,10 +646,7 @@ pub fn first_start(shell: WeakEntity<Shell>, window: &mut Window, cx: &mut App) 
 }
 
 fn instances(count: usize) -> String {
-    match count {
-        1 => "1 instance".into(),
-        n => format!("{n} instances"),
-    }
+    tn!(count, "{n} instance", "{n} instances")
 }
 
 fn icon(kind: Kind) -> IconName {
@@ -668,16 +669,16 @@ fn badge(kind: Kind) -> Option<&'static str> {
 /// What the kind of drive means for the game.
 fn note(kind: Kind) -> Option<&'static str> {
     match kind {
-        Kind::Nvme => {
-            Some("NVMe is the fastest kind of drive: worlds and mods load quickest here.")
-        }
-        Kind::Ssd => Some("An SSD: worlds and mods load fast here."),
-        Kind::Hdd => {
-            Some("A hard drive: lots of room, but worlds and mods load slower than on an SSD.")
-        }
-        Kind::Removable => {
-            Some("A removable drive: keep it plugged in or your instances won't show up.")
-        }
+        Kind::Nvme => Some(t!(
+            "NVMe is the fastest kind of drive: worlds and mods load quickest here."
+        )),
+        Kind::Ssd => Some(t!("An SSD: worlds and mods load fast here.")),
+        Kind::Hdd => Some(t!(
+            "A hard drive: lots of room, but worlds and mods load slower than on an SSD."
+        )),
+        Kind::Removable => Some(t!(
+            "A removable drive: keep it plugged in or your instances won't show up."
+        )),
         Kind::Unknown => None,
     }
 }

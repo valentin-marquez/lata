@@ -50,7 +50,7 @@ pub fn open(
         // Fades in settling from just above, and back out (the default drops from the window top).
         let dialog = dialog.entrance(DialogEntrance::FadeSlide);
         dialog
-            .title("Sign in to Steam")
+            .title(t!("Sign in to Steam"))
             .w(px(420.))
             .child(view.clone())
     });
@@ -78,13 +78,13 @@ impl Login {
             window: window.window_handle(),
             mode: Mode::Qr,
             state: State::Starting,
-            account: cx.new(|cx| InputState::new(window, cx).placeholder("Account name")),
+            account: cx.new(|cx| InputState::new(window, cx).placeholder(t!("Account name"))),
             password: cx.new(|cx| {
                 InputState::new(window, cx)
-                    .placeholder("Password")
+                    .placeholder(t!("Password"))
                     .masked(true)
             }),
-            code: cx.new(|cx| InputState::new(window, cx).placeholder("Code")),
+            code: cx.new(|cx| InputState::new(window, cx).placeholder(t!("Code"))),
             codes: None,
             task: None,
         }
@@ -131,8 +131,8 @@ impl Login {
                     let _ = handle.update(cx, |_, window, cx| {
                         let note = match saved {
                             Ok(false) => None,
-                            Ok(true) => Some("No system keyring found, so your login is saved in a file only your user can read".to_owned()),
-                            Err(err) => Some(format!("Signed in, but lata couldn't remember it for next time: {err}")),
+                            Ok(true) => Some(t!("No system keyring found, so your login is saved in a file only your user can read").to_owned()),
+                            Err(err) => Some(t!("Signed in, but lata couldn't remember it for next time: {err}", err = err)),
                         };
                         if let Some(note) = note {
                             window.push_notification(note, cx);
@@ -142,7 +142,7 @@ impl Login {
                     });
                 })
                 .detach();
-                State::Waiting("Signing in")
+                State::Waiting(t!("Signing in"))
             }
         };
         cx.notify();
@@ -177,7 +177,7 @@ impl Login {
                 let code = self.code.read(cx).value().trim().to_owned();
                 if let (false, Some(codes)) = (code.is_empty(), &self.codes) {
                     let _ = codes.send(code);
-                    self.state = State::Waiting("Checking the code");
+                    self.state = State::Waiting(t!("Checking the code"));
                     cx.notify();
                 }
             }
@@ -220,8 +220,8 @@ impl Login {
                 .child(label)
                 .on_click(cx.listener(move |this, _, _, cx| this.switch(mode, cx)))
         };
-        let qr = tab(Mode::Qr, "QR code", cx);
-        let password = tab(Mode::Password, "Password", cx);
+        let qr = tab(Mode::Qr, t!("QR code"), cx);
+        let password = tab(Mode::Password, t!("Password"), cx);
         let theme = cx.theme();
         div()
             .flex()
@@ -243,7 +243,7 @@ impl Login {
                 .flex_col()
                 .gap_3()
                 .child(Loader)
-                .child(note("Connecting to Steam".into()))
+                .child(note(t!("Connecting to Steam").into()))
                 .into_any_element(),
             State::Qr(dark, width) => {
                 // A light quiet zone around the code keeps it scannable in the dark theme too.
@@ -265,7 +265,9 @@ impl Login {
                             .bg(white())
                             .children(rows),
                     )
-                    .child(note("Scan it with the Steam mobile app to sign in.".into()))
+                    .child(note(
+                        t!("Scan it with the Steam mobile app to sign in.").into(),
+                    ))
                     .into_any_element()
             }
             State::Form => div()
@@ -275,14 +277,14 @@ impl Login {
                 .child(Input::new(&self.account))
                 .child(Input::new(&self.password))
                 .child(note(
-                    "Your password goes straight to Steam; lata keeps only the sign in token."
+                    t!("Your password goes straight to Steam; lata keeps only the sign in token.")
                         .into(),
                 ))
                 .into_any_element(),
             State::Code(kind) => {
                 let text = match kind {
-                    Confirmation::EmailCode => "Enter the code Steam sent to your email.",
-                    _ => "Enter the code from your Steam mobile authenticator.",
+                    Confirmation::EmailCode => t!("Enter the code Steam sent to your email."),
+                    _ => t!("Enter the code from your Steam mobile authenticator."),
                 };
                 div()
                     .flex()
@@ -309,12 +311,12 @@ impl Login {
                         .size_6()
                         .text_color(muted),
                 )
-                .child(note(format!("Couldn't sign in: {err}")))
+                .child(note(t!("Couldn't sign in: {err}", err = err)))
                 .child(
                     Button::new("retry")
                         .outline()
                         .cursor_pointer()
-                        .label("Try again")
+                        .label(t!("Try again"))
                         .on_click(cx.listener(|this, _, _, cx| this.retry(cx))),
                 )
                 .into_any_element(),
@@ -325,8 +327,8 @@ impl Login {
 impl Render for Login {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let action = match self.state {
-            State::Form => Some("Sign in"),
-            State::Code(_) => Some("Continue"),
+            State::Form => Some(t!("Sign in")),
+            State::Code(_) => Some(t!("Continue")),
             _ => None,
         };
         div()

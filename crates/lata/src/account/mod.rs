@@ -237,18 +237,20 @@ async fn login(
         match session.confirmations.first().copied() {
             Some(kind @ (Confirmation::EmailCode | Confirmation::DeviceCode)) => {
                 let _ = events.send(Event::Code(kind));
-                let code = codes.recv().await.ok_or("Login cancelled")?;
+                let code = codes.recv().await.ok_or(t!("Login cancelled"))?;
                 auth::code(&mut client, &session, kind, &code)
                     .await
                     .map_err(fail)?;
             }
             Some(Confirmation::DeviceConfirmation) => {
-                let _ = events.send(Event::Waiting(
-                    "Approve the sign in from the Steam mobile app.",
-                ));
+                let _ = events.send(Event::Waiting(t!(
+                    "Approve the sign in from the Steam mobile app."
+                )));
             }
             Some(Confirmation::EmailConfirmation) => {
-                let _ = events.send(Event::Waiting("Open the link Steam sent to your email."));
+                let _ = events.send(Event::Waiting(t!(
+                    "Open the link Steam sent to your email."
+                )));
             }
             _ => {}
         }
@@ -256,7 +258,7 @@ async fn login(
 
     loop {
         if events.is_closed() {
-            return Err("Login cancelled".into());
+            return Err(t!("Login cancelled").into());
         }
         tokio::time::sleep(std::time::Duration::from_secs_f32(
             session.interval.max(1.0),

@@ -112,7 +112,7 @@ fn unpack(package: &[u8], name: &str, dir: &Path) -> Result<(), String> {
             bytes = bytes.saturating_add(entry.size());
         }
         if zip.len() > ENTRIES || bytes > UNPACKED_BYTES {
-            return Err("the download unpacks to far more than lata is".into());
+            return Err(t!("the download unpacks to far more than lata is").into());
         }
         zip.extract(dir).map_err(|err| err.to_string())
     } else {
@@ -148,14 +148,14 @@ fn runs(payload: &Path, version: &Version) -> Result<(), String> {
     } else {
         payload.to_owned()
     };
-    let no = || "the new version doesn't start here".to_owned();
+    let no = || t!("the new version doesn't start here").to_owned();
     let mut child = Command::new(binary)
         .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|err| format!("{}: {err}", no()))?;
+        .map_err(|err| t!("the new version doesn't start here: {err}", err = err))?;
     let deadline = Instant::now() + TRIAL;
     let ended = loop {
         match child.try_wait() {
@@ -207,7 +207,7 @@ fn stage_as(
     // remove (or is the old lata, still closing on Windows): stop instead of deleting it.
     tidy(target);
     if let Some(taken) = [&old, &dir].into_iter().find(|path| exists(path)) {
-        return Err(format!("{} is in the way", taken.display()));
+        return Err(t!("{path} is in the way", path = taken.display()));
     }
     let text = |err: io::Error| err.to_string();
     std::fs::create_dir(&dir).map_err(text)?;
@@ -216,7 +216,7 @@ fn stage_as(
         .and_then(|()| unpack(package, name, &dir.join("unpacked")))
         .and_then(|()| {
             let new = payload(&dir.join("unpacked"), payload_name)
-                .ok_or("the download has no lata in it")?;
+                .ok_or(t!("the download has no lata in it"))?;
             runs(&new, version)?;
             Ok(new)
         });
@@ -233,7 +233,7 @@ pub fn swap(new: &Path, target: &Path) -> io::Result<()> {
     if exists(&old) {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
-            format!("{} is in the way", old.display()),
+            t!("{path} is in the way", path = old.display()),
         ));
     }
     // A file on Unix: a second name for the old one, then a rename over the first. That
@@ -261,9 +261,11 @@ pub fn swap(new: &Path, target: &Path) -> io::Result<()> {
     std::fs::rename(target, &old)?;
     std::fs::rename(new, target).map_err(|err| match std::fs::rename(&old, target) {
         Ok(()) => err,
-        Err(undo) => io::Error::other(format!(
-            "{err}, and the old lata couldn't be put back ({undo}): it is at {}",
-            old.display()
+        Err(undo) => io::Error::other(t!(
+            "{err}, and the old lata couldn't be put back ({undo}): it is at {path}",
+            err = err,
+            undo = undo,
+            path = old.display()
         )),
     })
 }
