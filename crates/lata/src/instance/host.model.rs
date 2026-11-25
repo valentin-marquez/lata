@@ -780,4 +780,87 @@ mod tests {
         assert_eq!(found[1].world, None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
+
+    /// The whole flow on a real server, like the shell drives it: `LATA_COOP_INSTANCE` is an
+    /// instance folder whose build is installed, `LATA_COOP_HOST` the host's SteamID64.
+    /// Takes up to half an hour on Build 42.
+    #[test]
+    #[ignore]
+    fn hosts_for_real() {
+        let dir = std::path::PathBuf::from(std::env::var("LATA_COOP_INSTANCE").unwrap());
+        let host: u64 = std::env::var("LATA_COOP_HOST").unwrap().parse().unwrap();
+        let root = dir.parent().unwrap();
+        let instance = crate::instance::store::list(root)
+            .into_iter()
+            .find(|i| i.dir == dir)
+            .expect("an instance");
+        let cachedir = dir.join("zomboid");
+        let name = "e2e";
+        if !list(&cachedir).iter().any(|h| h.name == name) {
+            create(&cachedir, name).unwrap();
+        }
+        let modern = crate::instance::mods::is_modern(&instance);
+        write(&cachedir, name, &plan(&instance), modern).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let server = start(command(&instance, name).unwrap(), move |e| {
+            let _ = tx.send(e);
+        })
+        .unwrap();
+        let mut hosting = Hosting::new(instance.id.clone(), name.into(), server);
+        let began = Instant::now();
+        let mut stop_at = None;
+        let mut game: Option<std::process::Child> = None;
+        loop {
+            while let Ok(event) = rx.try_recv() {
+                eprintln!("[{:>4}s] {event:?}", began.elapsed().as_secs());
+                if hosting.heard(event) {
+                    let server = hosting.server.as_ref().unwrap();
+                    server.send("set-host-user@lata").unwrap();
+                    server.send(&format!("set-host-steamid@{host}")).unwrap();
+                    server.send("invite-add@76561197960287930").unwrap();
+                    server.send("players").unwrap();
+                    let connect = hosting.connect().unwrap();
+                    eprintln!("connect: {connect}");
+                    // With `LATA_COOP_PLAY`, the host's game joins like Play does, and gets
+                    // time to load before the stop.
+                    let play = std::env::var_os("LATA_COOP_PLAY").is_some();
+                    if play {
+                        game = Some(
+                            crate::instance::launch::start(&instance, Some(&connect)).unwrap(),
+                        );
+                    }
+                    // Room for B42 to read stdin, which lags minutes behind Started.
+                    let wait = if play { 900 } else { 360 };
+                    stop_at = Some(Instant::now() + Duration::from_secs(wait));
+                }
+            }
+            // The host leaving closes the server by itself; `quit` only if it doesn't.
+            if stop_at.is_some_and(|at| Instant::now() >= at)
+                && let Some(mut game) = game.take()
+            {
+                eprintln!("[{:>4}s] host leaves", began.elapsed().as_secs());
+                let _ = game.kill();
+                crate::instance::launch::stop(&instance);
+                stop_at = Some(Instant::now() + Duration::from_secs(180));
+            }
+            if stop_at.is_some_and(|at| Instant::now() >= at) && hosting.state == State::Running {
+                eprintln!("[{:>4}s] stop", began.elapsed().as_secs());
+                hosting.state = State::Stopping;
+                hosting.server.as_mut().unwrap().stop();
+            }
+            if let Some(status) = hosting.server.as_mut().and_then(Server::tick) {
+                eprintln!("[{:>4}s] exited {status}", began.elapsed().as_secs());
+                hosting.exited();
+                break;
+            }
+            assert!(began.elapsed() < Duration::from_secs(45 * 60), "too slow");
+            std::thread::sleep(Duration::from_secs(1));
+        }
+        if let Some(mut game) = game {
+            let _ = game.kill();
+        }
+        assert_eq!(hosting.state, State::Stopped, "came up and went down");
+        let console = std::fs::read_to_string(cachedir.join("coop-console.txt")).unwrap();
+        eprintln!("{}", &console[console.len().saturating_sub(3000)..]);
+    }
 }
