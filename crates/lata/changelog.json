@@ -8,6 +8,9 @@
       "The Worlds tab lists the servers you've played on, with how many people are on right now, the character you played there, and a Join button.",
       "Characters you save in the game's character screen now show up in every instance, and the ones you delete stay deleted.",
       "On Linux, lata can hide in the system tray when you close it too, on desktops that show tray icons."
+    ],
+    "fixed": [
+      "On Windows, a Java agent you add to an instance's Java arguments, like PZ Optimization's, loads instead of closing the game at once. typpy(Re.) on Discord found this one, thanks a lot!"
     ]
   },
   {
