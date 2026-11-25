@@ -213,6 +213,7 @@ impl Detail {
                     }
                 };
                 let (pack, folder) = (instance.clone(), instance.dir.clone());
+                let game = instance.game();
                 menu.item(
                     PopupMenuItem::new(t!("Settings"))
                         .icon(IconName::Settings)
@@ -231,6 +232,7 @@ impl Detail {
                         .icon(IconName::FolderOpen)
                         .on_click(move |_, _, cx| cx.open_with_system(&folder)),
                 )
+                .item(crate::ui::game_folder_item(game))
                 .separator()
                 .item(
                     PopupMenuItem::new(t!("Duplicate"))

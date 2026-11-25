@@ -29,6 +29,19 @@ pub fn danger_item(label: &'static str, icon: IconName, color: Hsla) -> PopupMen
         .icon(Icon::new(icon).text_color(color))
 }
 
+/// "Open game folder" for an instance's menu: the folder its game files are in, which is the
+/// shared build's, not the instance's own. Off while the game isn't installed (`None`).
+pub fn game_folder_item(game: Option<std::path::PathBuf>) -> PopupMenuItem {
+    PopupMenuItem::new(t!("Open game folder"))
+        .icon(IconName::Gamepad)
+        .disabled(game.is_none())
+        .on_click(move |_, _, cx| {
+            if let Some(game) = &game {
+                cx.open_with_system(game);
+            }
+        })
+}
+
 /// Keeps a kept input's placeholder in the current language: `InputState` holds the text it
 /// was made with, so a view that outlives a language change calls this as it renders.
 pub fn placeholder(

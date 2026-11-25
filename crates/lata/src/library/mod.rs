@@ -500,6 +500,7 @@ fn card(
                     }
                 };
                 let (folder, path) = (dir.clone(), dir.to_string_lossy().into_owned());
+                let game = pack.game();
                 // The main action stands out in the accent, as on the card and the page.
                 let (label, accent) = (SharedString::from(menu_action.clone()), theme.primary);
                 let danger = theme.danger;
@@ -523,6 +524,7 @@ fn card(
                         item(t!("Open folder"), IconName::FolderOpen)
                             .on_click(move |_, _, cx| cx.open_with_system(&folder)),
                     )
+                    .item(ui::game_folder_item(game))
                     .item(
                         item(t!("Copy path"), IconName::Link).on_click(move |_, window, cx| {
                             use gpui_kit::component::WindowExt;

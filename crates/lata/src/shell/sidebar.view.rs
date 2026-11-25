@@ -160,6 +160,7 @@ pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> im
     let instances = shell.instances.iter().enumerate().map(|(ix, instance)| {
         let state = shell.status(instance);
         let (shell_for_menu, id, dir) = (handle.clone(), instance.id.clone(), instance.dir.clone());
+        let owned = instance.clone();
         let accent = theme.primary;
         let danger = theme.danger;
         // The highlight under the list marks the open one, so no row draws its own fill.
@@ -216,6 +217,7 @@ pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> im
                         .icon(IconName::FolderOpen)
                         .on_click(move |_, _, cx| cx.open_with_system(&folder)),
                 )
+                .item(crate::ui::game_folder_item(owned.game()))
                 .item(
                     PopupMenuItem::new(t!("Duplicate"))
                         .icon(IconName::Copy)
