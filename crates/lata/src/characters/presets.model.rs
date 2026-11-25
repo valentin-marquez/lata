@@ -69,6 +69,10 @@ impl Presets {
         Self { kind, lines }
     }
 
+    pub fn kind(&self) -> Kind {
+        self.kind
+    }
+
     /// Presets by name and value; a repeated name counts once, its last value (the game's
     /// table keeps the last one too).
     pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {

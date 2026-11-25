@@ -9,8 +9,14 @@
 mod catalog;
 #[path = "character.model.rs"]
 mod character;
+#[path = "editor.view.rs"]
+mod editor;
+#[path = "page.view.rs"]
+mod page;
 #[path = "presets.model.rs"]
 pub mod presets;
+
+pub use page::Characters;
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -25,6 +31,18 @@ fn store() -> PathBuf {
 /// Where the game keeps an instance's presets.
 fn lua(instance: &Path) -> PathBuf {
     instance.join("zomboid").join("Lua")
+}
+
+/// The shared presets of `kind`, empty when there are none yet.
+pub fn shared(kind: Kind) -> io::Result<Presets> {
+    Ok(read(&store().join(kind.file()), kind)?.unwrap_or_else(|| Presets::parse(kind, "")))
+}
+
+/// Replaces the shared presets of their kind; instances pick the change up on their next launch.
+pub fn keep(presets: &Presets) -> io::Result<()> {
+    let store = store();
+    std::fs::create_dir_all(&store)?;
+    write(&store.join(presets.kind().file()), presets)
 }
 
 /// Before a launch: adds the shared presets to the instance, replacing its own of the same name,

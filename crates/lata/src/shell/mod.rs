@@ -26,6 +26,7 @@ use topbar::Topbar;
 pub enum Page {
     Library,
     Screenshots,
+    Characters,
     Workshop,
     Instance(usize),
 }
@@ -38,6 +39,7 @@ pub struct Shell {
     /// Made on first view; it needs a window for its search field.
     library: Option<Entity<Library>>,
     screenshots: Option<Entity<screenshots::Screenshots>>,
+    characters: Option<Entity<crate::characters::Characters>>,
     /// Made on first view, like the Library.
     workshop: Option<Entity<crate::workshop::Workshop>>,
     account: Option<Account>,
@@ -111,6 +113,7 @@ impl Shell {
             detail: None,
             library: None,
             screenshots: None,
+            characters: None,
             workshop: None,
             link_open: None,
             link_queue: VecDeque::new(),
@@ -330,6 +333,11 @@ impl Shell {
         }
         // New screenshots land while the game runs: look again on every visit.
         if let (Page::Screenshots, Some(view)) = (page, &self.screenshots) {
+            let instances = self.instances.clone();
+            view.update(cx, |view, cx| view.reload(instances, cx));
+        }
+        // A game that exited since may have saved characters.
+        if let (Page::Characters, Some(view)) = (page, &self.characters) {
             let instances = self.instances.clone();
             view.update(cx, |view, cx| view.reload(instances, cx));
         }
@@ -1925,6 +1933,15 @@ impl Render for Shell {
                 self.screenshots
                     .get_or_insert_with(|| {
                         cx.new(|cx| screenshots::Screenshots::new(instances, cx))
+                    })
+                    .clone()
+                    .into_any_element()
+            }
+            (Page::Characters, _) => {
+                let instances = self.instances.clone();
+                self.characters
+                    .get_or_insert_with(|| {
+                        cx.new(|cx| crate::characters::Characters::new(instances, cx))
                     })
                     .clone()
                     .into_any_element()

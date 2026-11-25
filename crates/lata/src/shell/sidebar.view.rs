@@ -110,6 +110,13 @@ pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> im
     let handle = cx.entity().downgrade();
     let home = nav(Page::Library, IconName::Library, "Library", shell, cx);
     let screenshots = nav(Page::Screenshots, IconName::Image, "Screenshots", shell, cx);
+    let characters = nav(
+        Page::Characters,
+        IconName::UserRound,
+        "Characters",
+        shell,
+        cx,
+    );
     let workshop = nav(Page::Workshop, IconName::Compass, "Workshop", shell, cx);
 
     // Slides to the open instance on a spring, like the tabs' indicator, and fades out on
@@ -225,6 +232,7 @@ pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> im
         .child(home)
         .child(workshop)
         .child(screenshots)
+        .child(characters)
         .child(
             div()
                 .flex()
