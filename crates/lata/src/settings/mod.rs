@@ -130,12 +130,13 @@ const BAR_TRAVEL: f32 = 80.;
 
 pub fn open(shell: WeakEntity<crate::shell::Shell>, window: &mut Window, cx: &mut App) {
     use gpui_kit::component::WindowExt;
+    let tray = crate::tray::supported();
     let now = Values {
         theme: theme::mode(cx),
         startup: startup::enabled(),
         protocol: crate::link::protocol::enabled(),
         updates: !load().updates_off,
-        tray: crate::tray::enabled(),
+        tray: tray && load().minimize_to_tray,
     };
     let newer = shell.upgrade().and_then(|shell| shell.read(cx).newer());
     let storage = cx.new(|cx| crate::storage::picker::Picker::new(shell.clone(), false, cx));
@@ -148,6 +149,7 @@ pub fn open(shell: WeakEntity<crate::shell::Shell>, window: &mut Window, cx: &mu
         left_at: None,
         shell,
         newer,
+        tray,
     });
     // However the dialog closes (X, Escape, outside click), the theme goes back to the saved one.
     cx.observe_release(&view, |settings, cx| {
@@ -198,6 +200,9 @@ struct Settings {
     shell: WeakEntity<crate::shell::Shell>,
     /// The newer lata found when the dialog opened, and whether a restart installs it.
     newer: Option<(String, bool)>,
+    /// Whether lata can sit in the tray here, looked up when the dialog opened: on Linux it
+    /// depends on the desktop.
+    tray: bool,
 }
 
 /// The few colors of a theme preview, fixed so each card shows its own theme.
@@ -692,13 +697,13 @@ impl Settings {
                     cx.notify();
                 })
             });
-        // Only where lata can put itself in the tray; the rest shows it off until it can.
+        // Only where lata can put itself in the tray; the rest shows it off.
         let this = cx.entity();
         let tray = Switch::new("tray")
             // The hand only where it can be clicked: a disabled one keeps the arrow.
-            .when(crate::tray::SUPPORTED, |switch| switch.cursor_pointer())
+            .when(self.tray, |switch| switch.cursor_pointer())
             .checked(self.draft.tray)
-            .disabled(!crate::tray::SUPPORTED)
+            .disabled(!self.tray)
             .on_click(move |&on, _, cx| {
                 this.update(cx, |this, cx| {
                     this.draft.tray = on;
@@ -758,8 +763,10 @@ impl Settings {
             ))
             .child(row(
                 "Minimize to the system tray",
-                if crate::tray::SUPPORTED {
+                if self.tray {
                     "Closing the window keeps lata running in the tray. Quit it from the tray icon."
+                } else if cfg!(target_os = "linux") {
+                    "Closing the window keeps lata running in the tray. Your desktop doesn't show tray icons, so it stays off."
                 } else {
                     "Closing the window keeps lata running in the tray. Coming soon on this system."
                 },

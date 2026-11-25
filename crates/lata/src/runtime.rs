@@ -29,3 +29,10 @@ pub async fn blocking<T: Send + 'static>(
         .await
         .map_err(|err| err.to_string())
 }
+
+/// Waits for `future` on the runtime, blocking the caller. Only for short work the UI needs an
+/// answer to right away (a D-Bus question); never from inside the runtime itself.
+#[cfg(target_os = "linux")]
+pub fn block_on<F: Future>(future: F) -> F::Output {
+    RUNTIME.block_on(future)
+}
