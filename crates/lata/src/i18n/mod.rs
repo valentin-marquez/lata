@@ -204,12 +204,33 @@ pub fn plural<'a>(n: u64, one: &'a str, other: &'a str) -> &'a str {
     plural_in(current(), n, one, other)
 }
 
-/// `text` with each `{name}` replaced by its value.
+/// `text` with each `{name}` replaced by its value, in one pass: a value that itself holds
+/// `{n}` (an instance named so) stays as it is.
 pub fn fill(text: &str, values: &[(&str, &dyn Display)]) -> String {
-    let mut out = text.to_owned();
-    for (name, value) in values {
-        out = out.replace(&format!("{{{name}}}"), &value.to_string());
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        let value = after.find('}').and_then(|close| {
+            let name = &after[..close];
+            values
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, value)| (value.to_string(), close))
+        });
+        match value {
+            Some((value, close)) => {
+                out.push_str(&value);
+                rest = &after[close + 1..];
+            }
+            None => {
+                out.push('{');
+                rest = after;
+            }
+        }
     }
+    out.push_str(rest);
     out
 }
 
@@ -328,6 +349,16 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn fills_values_once() {
+        let name = "Save {n}";
+        assert_eq!(
+            super::fill("{base} (copy {n})", &[("base", &name), ("n", &2)]),
+            "Save {n} (copy 2)"
+        );
+        assert_eq!(super::fill("{a} {missing}", &[("a", &1)]), "1 {missing}");
     }
 
     #[test]
