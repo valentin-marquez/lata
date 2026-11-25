@@ -142,7 +142,7 @@ impl Topbar {
             .child(
                 self.running
                     .clone()
-                    .unwrap_or_else(|| "Nothing running".into()),
+                    .unwrap_or_else(|| t!("Nothing running").into()),
             )
     }
 }

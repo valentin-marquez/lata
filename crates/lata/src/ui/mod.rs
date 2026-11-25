@@ -290,10 +290,10 @@ pub mod toast {
 
     /// Play was pressed with Steam closed: says so, with a button that opens it.
     pub fn steam_closed() -> Notification {
-        Notification::warning("Wake it up, then hit Play again")
-            .title("Oops! Steam is taking a nap")
+        Notification::warning(t!("Wake it up, then hit Play again"))
+            .title(t!("Oops! Steam is taking a nap"))
             .action(|_, _, cx| {
-                action(cx, "open-steam", "Open Steam", |_, cx| {
+                action(cx, "open-steam", t!("Open Steam"), |_, cx| {
                     cx.open_url("steam://open/main")
                 })
             })

@@ -78,7 +78,7 @@ fn show(entries: Vec<Entry>, window: &mut Window, cx: &mut App) {
     window.open_dialog(cx, move |dialog, _, _| {
         dialog
             .entrance(DialogEntrance::FadeSlide)
-            .title("What's new in lata")
+            .title(t!("What's new in lata"))
             .centered()
             .w(px(WIDTH))
             .child(view.clone())
@@ -164,9 +164,9 @@ fn entry(entry: &Entry, cx: &App) -> Div {
                 .border_1()
                 .border_color(theme.border)
                 .bg(theme.background)
-                .children(group("Added", &entry.added, cx))
-                .children(group("Changed", &entry.changed, cx))
-                .children(group("Fixed", &entry.fixed, cx)),
+                .children(group(t!("Added"), &entry.added, cx))
+                .children(group(t!("Changed"), &entry.changed, cx))
+                .children(group(t!("Fixed"), &entry.fixed, cx)),
         )
 }
 
@@ -197,7 +197,7 @@ impl Render for News {
             )
             .child(
                 div().flex().justify_end().child(
-                    FancyButton::new("news-close", "Got it")
+                    FancyButton::new("news-close", t!("Got it"))
                         .small()
                         .on_click(|_, window, cx| window.close_dialog(cx)),
                 ),

@@ -117,8 +117,8 @@ mod imp {
             .into_rgba8();
         let (width, height) = png.dimensions();
         let icon = Icon::from_rgba(png.into_raw(), width, height).map_err(|err| err.to_string())?;
-        let show = MenuItem::with_id(SHOW, "Show lata", true, None);
-        let quit = MenuItem::with_id(QUIT, "Quit", true, None);
+        let show = MenuItem::with_id(SHOW, t!("Show lata"), true, None);
+        let quit = MenuItem::with_id(QUIT, t!("Quit"), true, None);
         let menu = Menu::with_items(&[&show, &PredefinedMenuItem::separator(), &quit])
             .map_err(|err| err.to_string())?;
         // These run on the thread that pumps the window messages, which is lata's own, and only
@@ -275,14 +275,14 @@ mod imp {
         fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
             vec![
                 StandardItem {
-                    label: "Show lata".into(),
+                    label: t!("Show lata").into(),
                     activate: Box::new(|_: &mut Self| send(Incoming::Show)),
                     ..Default::default()
                 }
                 .into(),
                 ksni::MenuItem::Separator,
                 StandardItem {
-                    label: "Quit".into(),
+                    label: t!("Quit").into(),
                     activate: Box::new(|_: &mut Self| send(Incoming::Quit)),
                     ..Default::default()
                 }

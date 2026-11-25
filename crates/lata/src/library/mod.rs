@@ -32,8 +32,8 @@ enum Sort {
 impl Sort {
     fn label(self) -> &'static str {
         match self {
-            Sort::LastPlayed => "Last played",
-            Sort::Name => "Name",
+            Sort::LastPlayed => t!("Last played"),
+            Sort::Name => t!("Name"),
         }
     }
 }
@@ -55,7 +55,7 @@ pub struct Library {
 
 impl Library {
     pub fn new(shell: WeakEntity<Shell>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Search")));
         let on_search = cx.subscribe(&search, |_, _, event: &InputEvent, cx| {
             if let InputEvent::Change = event {
                 cx.notify();
@@ -138,7 +138,7 @@ impl Library {
                     .child(Input::new(&self.search).appearance(false).cleanable(true)),
             )
             .child(
-                FancyButton::new("library-new", "New instance")
+                FancyButton::new("library-new", t!("New instance"))
                     .small()
                     .icon(IconName::Plus)
                     .on_click(move |_, window, cx| Shell::create(shell.clone(), window, cx)),
@@ -181,12 +181,14 @@ impl Library {
                     .cursor_pointer()
                     .icon(IconName::Layers)
                     .label(if grouped {
-                        "Group by channel"
+                        t!("Group by channel")
                     } else {
-                        "No groups"
+                        t!("No groups")
                     })
                     .dropdown_menu(move |mut menu, _, _| {
-                        for (label, value) in [("Group by channel", true), ("No groups", false)] {
+                        for (label, value) in
+                            [(t!("Group by channel"), true), (t!("No groups"), false)]
+                        {
                             let this = this.clone();
                             menu = menu.item(
                                 PopupMenuItem::new(label)
@@ -210,8 +212,8 @@ impl Library {
                     .ml_auto()
                     .cursor_pointer()
                     .icon(IconName::Puzzle)
-                    .label("Browser extension")
-                    .tooltip("Get lata link for your browser")
+                    .label(t!("Browser extension"))
+                    .tooltip(t!("Get lata link for your browser"))
                     .on_click(|_, _, cx| {
                         cx.spawn(async move |cx| {
                             // Asking the system can run a program: off the UI thread.
@@ -334,14 +336,14 @@ fn card(
     };
     let state = match status {
         Status::Running => Some(
-            badge("Running".into())
+            badge(t!("Running").into())
                 .flex()
                 .items_center()
                 .gap_1()
                 .text_color(theme.primary)
                 .child(Icon::empty().path("icons/gamepad.svg").size_3()),
         ),
-        Status::Outdated => Some(badge("Update".into()).text_color(theme.primary)),
+        Status::Outdated => Some(badge(t!("Update").into()).text_color(theme.primary)),
         Status::Installing(pct) | Status::Bringing(pct) => Some(badge(format!("{pct}%").into())),
         _ => None,
     };
@@ -513,34 +515,32 @@ fn card(
                 // and last the one that can't be undone.
                 menu.item(play.on_click(on(Shell::play)))
                     .separator()
-                    .item(item("View instance", IconName::Eye).on_click(on(Shell::view)))
-                    .item(item("Settings", IconName::Settings).on_click(on(Shell::settings)))
-                    .item(item("Edit icon", IconName::Palette).on_click(on(Shell::customize)))
+                    .item(item(t!("View instance"), IconName::Eye).on_click(on(Shell::view)))
+                    .item(item(t!("Settings"), IconName::Settings).on_click(on(Shell::settings)))
+                    .item(item(t!("Edit icon"), IconName::Palette).on_click(on(Shell::customize)))
                     .separator()
                     .item(
-                        item("Open folder", IconName::FolderOpen)
+                        item(t!("Open folder"), IconName::FolderOpen)
                             .on_click(move |_, _, cx| cx.open_with_system(&folder)),
                     )
                     .item(
-                        item("Copy path", IconName::Link).on_click(move |_, window, cx| {
+                        item(t!("Copy path"), IconName::Link).on_click(move |_, window, cx| {
                             use gpui_kit::component::WindowExt;
                             cx.write_to_clipboard(ClipboardItem::new_string(path.clone()));
                             window.push_notification(
-                                ui::toast::done("Copied! Paste it anywhere"),
+                                ui::toast::done(t!("Copied! Paste it anywhere")),
                                 cx,
                             );
                         }),
                     )
                     .separator()
-                    .item(item("Duplicate", IconName::Copy).on_click(on(Shell::duplicate)))
-                    .item(
-                        item("Export as .lata", IconName::Box).on_click(move |_, window, cx| {
-                            crate::pack::export::open(pack.clone(), window, cx)
-                        }),
-                    )
+                    .item(item(t!("Duplicate"), IconName::Copy).on_click(on(Shell::duplicate)))
+                    .item(item(t!("Export as .lata"), IconName::Box).on_click(
+                        move |_, window, cx| crate::pack::export::open(pack.clone(), window, cx),
+                    ))
                     .separator()
                     .item(
-                        ui::danger_item("Delete", IconName::Trash, danger)
+                        ui::danger_item(t!("Delete"), IconName::Trash, danger)
                             .on_click(on(Shell::confirm_delete)),
                     )
             }
@@ -559,7 +559,7 @@ fn banner(total: usize, hero: Option<Option<std::path::PathBuf>>, cx: &App) -> D
             return div()
                 .text_xl()
                 .font_weight(FontWeight::BOLD)
-                .child("Library");
+                .child(t!("Library"));
         }
         Some(Some(hero)) => Some(hero),
         None => None,
@@ -572,10 +572,7 @@ fn banner(total: usize, hero: Option<Option<std::path::PathBuf>>, cx: &App) -> D
             .into_any_element()
     };
     // Just how many: some may not be installed yet, so it claims nothing more.
-    let count = match total {
-        1 => "1 instance".to_owned(),
-        many => format!("{many} instances"),
-    };
+    let count = tn!(total, "{n} instance", "{n} instances");
     div()
         .relative()
         .flex_none()
@@ -630,7 +627,7 @@ fn banner(total: usize, hero: Option<Option<std::path::PathBuf>>, cx: &App) -> D
                     div()
                         .text_2xl()
                         .font_weight(FontWeight::BOLD)
-                        .child("Library"),
+                        .child(t!("Library")),
                 )
                 .child(div().text_sm().child(count)),
         )
@@ -653,15 +650,15 @@ impl Render for Library {
         let body = if total == 0 {
             Empty::new(
                 IconName::Box,
-                "No instances yet",
-                "Create one to pick a game version and start playing.",
+                t!("No instances yet"),
+                t!("Create one to pick a game version and start playing."),
             )
             .into_any_element()
         } else if shown.is_empty() {
             Empty::new(
                 IconName::Search,
-                "No instances match",
-                "Try another name or branch.",
+                t!("No instances match"),
+                t!("Try another name or branch."),
             )
             .into_any_element()
         } else if self.grouped {
@@ -722,14 +719,14 @@ impl Render for Library {
                     .context_menu(move |menu, _, _| {
                         let (create, folder) = (handle.clone(), crate::instance::store::root());
                         menu.item(
-                            PopupMenuItem::new("New instance")
+                            PopupMenuItem::new(t!("New instance"))
                                 .icon(IconName::Plus)
                                 .on_click(move |_, window, cx| {
                                     Shell::create(create.clone(), window, cx)
                                 }),
                         )
                         .item(
-                            PopupMenuItem::new("Open instances folder")
+                            PopupMenuItem::new(t!("Open instances folder"))
                                 .icon(IconName::FolderOpen)
                                 .on_click(move |_, _, cx| cx.open_with_system(&folder)),
                         )

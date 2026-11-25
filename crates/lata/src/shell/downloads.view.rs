@@ -45,7 +45,7 @@ impl Pill {
             Summary {
                 title: match all.as_slice() {
                     [(_, only)] => only.name.clone(),
-                    many => format!("{} tasks", many.len()).into(),
+                    many => tn!(many.len(), "{n} task", "{n} tasks").into(),
                 },
                 fraction: pct as f32 / 100.,
                 pct,
@@ -119,7 +119,7 @@ impl RenderOnce for Trigger {
             return pill
                 .text_color(theme.muted_foreground)
                 .child(Icon::new(IconName::Download).size_4())
-                .child("Tasks");
+                .child(t!("Tasks"));
         };
         pill
             // The fill behind the content is the progress bar. GPUI clips to the pill's box,
@@ -207,14 +207,14 @@ fn panel(shell: &WeakEntity<Shell>, cx: &mut App) -> AnyElement {
             div()
                 .text_sm()
                 .font_weight(FontWeight::SEMIBOLD)
-                .child("Tasks"),
+                .child(t!("Tasks")),
         )
         .when(rows.is_empty(), |this| {
             this.child(
                 div()
                     .text_sm()
                     .text_color(theme.muted_foreground)
-                    .child("All quiet. Downloads and deletions show up here."),
+                    .child(t!("All quiet. Downloads and deletions show up here.")),
             )
         })
         .children(rows)
@@ -228,24 +228,24 @@ fn row(
     theme: &gpui_kit::component::Theme,
 ) -> AnyElement {
     use install::Kind;
-    let (icon, doing, freed) = match download.kind {
-        Kind::Game => (IconName::Box, "Downloading game", ""),
-        Kind::Mods => (IconName::Puzzle, "Downloading mods", ""),
-        Kind::Delete => (IconName::Trash, "Deleting", " freed"),
-        Kind::Copy => (IconName::Copy, "Duplicating", ""),
-        Kind::Existing => (IconName::FolderOpen, "Bringing your game", ""),
+    let (icon, doing) = match download.kind {
+        Kind::Game => (IconName::Box, t!("Downloading game")),
+        Kind::Mods => (IconName::Puzzle, t!("Downloading mods")),
+        Kind::Delete => (IconName::Trash, t!("Deleting")),
+        Kind::Copy => (IconName::Copy, t!("Duplicating")),
+        Kind::Existing => (IconName::FolderOpen, t!("Bringing your game")),
     };
-    let sizes = format!(
-        "{} of {}{freed}",
-        install::size(download.done),
-        install::size(download.total)
-    );
+    let (done, total) = (install::size(download.done), install::size(download.total));
+    let sizes = match download.kind {
+        Kind::Delete => t!("{done} of {total} freed", done = done, total = total),
+        _ => t!("{done} of {total}", done = done, total = total),
+    };
     let cancel = download.can_cancel().then(|| {
         Button::new(SharedString::from(format!("cancel-{id}")))
             .ghost()
             .xsmall()
             .icon(IconName::Close)
-            .tooltip("Cancel")
+            .tooltip(t!("Cancel"))
             .cursor_pointer()
             .on_click(move |_, _, cx| {
                 let _ = shell.update(cx, |shell, cx| shell.cancel(&id, cx));

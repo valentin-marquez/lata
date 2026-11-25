@@ -193,8 +193,8 @@ impl Shell {
         let shell = cx.entity().downgrade();
         notify(cx, move || {
             crate::ui::toast::update(
-                format!("lata {version} is out"),
-                "Fresh out of the can, whenever you feel like it",
+                t!("lata {version} is out", version = version),
+                t!("Fresh out of the can, whenever you feel like it"),
                 label.unwrap_or_default(),
                 shell,
             )
@@ -213,11 +213,11 @@ impl Shell {
         use gpui_kit::assets::IconName;
         let found = self.update.as_ref()?;
         Some(if found.installable {
-            ("Restart to update".into(), IconName::Rocket)
+            (t!("Restart to update").into(), IconName::Rocket)
         } else {
             // lata can't replace itself here: the button opens the release's page.
             (
-                format!("Get lata {}", found.release.version).into(),
+                t!("Get lata {version}", version = found.release.version).into(),
                 IconName::ExternalLink,
             )
         })
@@ -241,8 +241,8 @@ impl Shell {
                 || !shell.link_queue.is_empty();
             if shell.busy() || links {
                 return Some(crate::ui::toast::heads_up(
-                    "Hold on, lata is busy",
-                    "Restart once the game is closed and the downloads and mod links are done",
+                    t!("Hold on, lata is busy"),
+                    t!("Restart once the game is closed and the downloads and mod links are done"),
                 ));
             }
             match crate::update::restart() {
@@ -251,8 +251,8 @@ impl Shell {
                     None
                 }
                 Err(err) => Some(crate::ui::toast::failed_because(
-                    "Oof, lata couldn't restart itself",
-                    format!("{err}. Close it and open it again to update"),
+                    t!("Oof, lata couldn't restart itself"),
+                    t!("{err}. Close it and open it again to update", err = err),
                 )),
             }
         });
@@ -413,7 +413,7 @@ impl Shell {
                 let _ = shell.update(cx, |shell, cx| shell.watch(instance, Some(child), cx));
             }
             Err(err) => window.push_notification(
-                crate::ui::toast::failed_because("The game refused to start", err),
+                crate::ui::toast::failed_because(t!("The game refused to start"), err),
                 cx,
             ),
         }
@@ -506,7 +506,7 @@ impl Shell {
             Ok(server) => server,
             Err(err) => {
                 return window.push_notification(
-                    crate::ui::toast::failed_because("The server wouldn't start", err),
+                    crate::ui::toast::failed_because(t!("The server wouldn't start"), err),
                     cx,
                 );
             }
@@ -571,18 +571,20 @@ impl Shell {
         hosting.exited();
         match (&was, &hosting.state) {
             (State::Running, _) => notify(cx, || {
-                crate::ui::toast::done("It closes when its host leaves the game. World's saved!")
-                    .title("The server is down")
+                crate::ui::toast::done(t!(
+                    "It closes when its host leaves the game. World's saved!"
+                ))
+                .title(t!("The server is down"))
             }),
             (_, State::Failed(doing)) => {
                 let doing = doing.clone();
                 notify(cx, move || {
-                    crate::ui::toast::failed(format!(
-                        "It stopped while {}. Its log is coop-console.txt in the instance's \
+                    crate::ui::toast::failed(t!(
+                        "It stopped while {doing}. Its log is coop-console.txt in the instance's \
                          zomboid folder.",
-                        doing.to_lowercase()
+                        doing = doing.to_lowercase()
                     ))
-                    .title("The server didn't make it")
+                    .title(t!("The server didn't make it"))
                 })
             }
             _ => {}
@@ -609,7 +611,7 @@ impl Shell {
             .hosting
             .as_mut()
             .filter(|h| h.alive())
-            .ok_or_else(|| std::io::Error::other("The server isn't running"))?;
+            .ok_or_else(|| std::io::Error::other(t!("The server isn't running")))?;
         if let Some(server) = &hosting.server {
             server.send(&format!("invite-add@{friend}"))?;
         }
@@ -646,16 +648,18 @@ impl Shell {
         let Some(account) = account else {
             return Self::open_account(shell, window, cx);
         };
-        let text = format!(
+        let text = t!(
             "{have} will be replaced by {newest}. A new version can break saves and \
-             mods. Files that didn't change are not downloaded again."
+             mods. Files that didn't change are not downloaded again.",
+            have = have,
+            newest = newest
         );
         window.open_dialog(cx, move |dialog, _, _| {
             // Fades in settling from just above, and back out (the default drops from the window top).
             let dialog = dialog.entrance(DialogEntrance::FadeSlide);
             let (shell, instance, account) = (shell.clone(), instance.clone(), account.clone());
             dialog
-                .title(format!("Update {}?", instance.name))
+                .title(t!("Update {name}?", name = instance.name))
                 .w(px(420.))
                 .child(text.clone())
                 .child(
@@ -665,11 +669,11 @@ impl Shell {
                         .gap_2()
                         .pt_4()
                         .child(
-                            crate::ui::secondary("cancel-update", "Cancel")
+                            crate::ui::secondary("cancel-update", t!("Cancel"))
                                 .on_click(|_, window, cx| window.close_dialog(cx)),
                         )
                         .child(
-                            crate::ui::FancyButton::new("confirm-update", "Update")
+                            crate::ui::FancyButton::new("confirm-update", t!("Update"))
                                 .small()
                                 .on_click(move |_, window, cx| {
                                     window.close_dialog(cx);
@@ -735,13 +739,13 @@ impl Shell {
             self.instances
                 .iter()
                 .find(|i| &i.id == id)
-                .map(|i| format!("Running {}", i.name))
+                .map(|i| t!("Running {name}", name = i.name))
         });
         let server = || {
             self.hosting
                 .as_ref()
                 .filter(|h| h.alive())
-                .map(|h| format!("Hosting {}", h.name))
+                .map(|h| t!("Hosting {name}", name = h.name))
         };
         game.or_else(server).map(SharedString::from)
     }
@@ -785,10 +789,10 @@ impl Shell {
                                 use gpui_kit::component::WindowExt;
                                 window.push_notification(
                                     crate::ui::toast::heads_up(
-                                        "Steam won't hand out that version",
-                                        format!(
-                                            "So the newest one of {} came instead",
-                                            instance::build::channel(&branch)
+                                        t!("Steam won't hand out that version"),
+                                        t!(
+                                            "So the newest one of {channel} came instead",
+                                            channel = instance::build::channel(&branch)
                                         ),
                                     ),
                                     cx,
@@ -805,7 +809,10 @@ impl Shell {
                         let _ = window.update(cx, |_, window, cx| {
                             use gpui_kit::component::WindowExt;
                             window.push_notification(
-                                crate::ui::toast::failed_because("Yikes, the install tripped", err),
+                                crate::ui::toast::failed_because(
+                                    t!("Yikes, the install tripped"),
+                                    err,
+                                ),
                                 cx,
                             );
                         });
@@ -928,7 +935,7 @@ impl Shell {
             // Asked twice (a link clicked again, say): say so instead of doing nothing.
             let _ = window.update(cx, |_, window, cx| {
                 window.push_notification(
-                    crate::ui::toast::done("Easy, that one is already downloading"),
+                    crate::ui::toast::done(t!("Easy, that one is already downloading")),
                     cx,
                 );
             });
@@ -964,10 +971,10 @@ impl Shell {
         });
         let name = match (&collection, why) {
             (Some(name), _) => name.clone(),
-            (None, Why::Update) => "Mod updates".into(),
-            (None, Why::Version { .. }) => "Mod version".into(),
-            (None, Why::Undo) => "Undoing the update".into(),
-            (None, Why::Add) => "Workshop mod".into(),
+            (None, Why::Update) => t!("Mod updates").into(),
+            (None, Why::Version { .. }) => t!("Mod version").into(),
+            (None, Why::Undo) => t!("Undoing the update").into(),
+            (None, Why::Add) => t!("Workshop mod").into(),
         };
         let download = install::Download::new(name, install::Kind::Mods, Some(task.abort_handle()));
         self.installs.insert(key.clone(), download);
@@ -994,50 +1001,62 @@ impl Shell {
             let note = match added {
                 Ok(Ok(added)) if why == Why::Update => {
                     crate::ui::toast::done(match added.with.len() {
-                        0 => format!("{} is up to date", added.title),
-                        many => format!("Fresh! {} mods are up to date", many + 1),
+                        0 => t!("{title} is up to date", title = added.title),
+                        many => tn!(
+                            many + 1,
+                            "Fresh! {n} mod is up to date",
+                            "Fresh! {n} mods are up to date"
+                        ),
                     })
                 }
                 Ok(Err(reason)) if why == Why::Update => {
-                    crate::ui::toast::failed_because("That update didn't make it", reason)
+                    crate::ui::toast::failed_because(t!("That update didn't make it"), reason)
                 }
                 Ok(Ok(added)) if why != Why::Add && !added.newer.is_empty() => {
                     crate::ui::toast::heads_up(
-                        "Steam no longer has that version",
-                        format!("Still on the newest: {}", added.newer.join(", ")),
+                        t!("Steam no longer has that version"),
+                        t!("Still on the newest: {mods}", mods = added.newer.join(", ")),
                     )
                 }
-                Ok(Ok(added)) if matches!(why, Why::Version { .. }) => crate::ui::toast::done(
-                    format!("Done! {} is on the version you picked", added.title),
-                ),
+                Ok(Ok(added)) if matches!(why, Why::Version { .. }) => crate::ui::toast::done(t!(
+                    "Done! {title} is on the version you picked",
+                    title = added.title
+                )),
                 Ok(Ok(_)) if why == Why::Undo => {
-                    crate::ui::toast::done("Rewound! Your mods are back to before the update")
+                    crate::ui::toast::done(t!("Rewound! Your mods are back to before the update"))
                 }
                 Ok(Err(reason)) if why != Why::Add => {
-                    crate::ui::toast::failed_because("That version didn't make it", reason)
+                    crate::ui::toast::failed_because(t!("That version didn't make it"), reason)
                 }
                 Ok(Ok(added)) if !added.newer.is_empty() => crate::ui::toast::heads_up(
-                    "Some mods came at a newer version",
-                    format!(
-                        "Steam no longer has the version the pack used: {}",
-                        added.newer.join(", ")
+                    t!("Some mods came at a newer version"),
+                    t!(
+                        "Steam no longer has the version the pack used: {mods}",
+                        mods = added.newer.join(", ")
                     ),
                 ),
                 Ok(Ok(added)) => crate::ui::toast::done(match (&collection, added.with.len()) {
-                    (Some(name), many) => {
-                        format!("{name} is in! All {} mods are ready to go", many + 1)
-                    }
-                    (None, 0) => format!("{} is in {target}! Ready for your next run", added.title),
-                    (None, 1) => format!("{} is in {target}, with the mod it needs", added.title),
-                    (None, many) => {
-                        format!(
-                            "{} is in {target}, with the {many} mods it needs",
-                            added.title
-                        )
-                    }
+                    (Some(name), many) => tn!(
+                        many + 1,
+                        "{name} is in! All {n} mod is ready to go",
+                        "{name} is in! All {n} mods are ready to go",
+                        name = name
+                    ),
+                    (None, 0) => t!(
+                        "{title} is in {target}! Ready for your next run",
+                        title = added.title,
+                        target = target
+                    ),
+                    (None, many) => tn!(
+                        many,
+                        "{title} is in {target}, with the mod it needs",
+                        "{title} is in {target}, with the {n} mods it needs",
+                        title = added.title,
+                        target = target
+                    ),
                 }),
                 Ok(Err(reason)) => {
-                    crate::ui::toast::failed_because("That mod didn't make it", reason)
+                    crate::ui::toast::failed_because(t!("That mod didn't make it"), reason)
                 }
                 // Cancelled from the download manager: nothing to say.
                 Err(_) => return,
@@ -1125,9 +1144,9 @@ impl Shell {
             let dialog = dialog.entrance(DialogEntrance::FadeSlide);
             let (shell, id) = (shell.clone(), id.clone());
             dialog
-                .title(format!("Delete {name}?"))
+                .title(t!("Delete {name}?", name = name))
                 .w(px(420.))
-                .child("Its saves, mods and settings are deleted for good.")
+                .child(t!("Its saves, mods and settings are deleted for good."))
                 .child(
                     div()
                         .flex()
@@ -1135,11 +1154,11 @@ impl Shell {
                         .gap_2()
                         .pt_4()
                         .child(
-                            crate::ui::secondary("cancel-delete", "Keep")
+                            crate::ui::secondary("cancel-delete", t!("Keep"))
                                 .on_click(|_, window, cx| window.close_dialog(cx)),
                         )
                         .child(
-                            crate::ui::FancyButton::new("confirm-delete", "Delete")
+                            crate::ui::FancyButton::new("confirm-delete", t!("Delete"))
                                 .small()
                                 .danger()
                                 .icon(gpui_kit::assets::IconName::Trash)
@@ -1171,17 +1190,19 @@ impl Shell {
         // Each reason says what to do about it: the game, the download and the mods being
         // added all stop in different places.
         let busy = if self.running.contains_key(id) {
-            Some("Whoa! Stop the game before deleting it")
+            Some(t!("Whoa! Stop the game before deleting it"))
         } else if self
             .hosting
             .as_ref()
             .is_some_and(|h| h.alive() && h.instance == *id)
         {
-            Some("Whoa! Stop its server before deleting it")
+            Some(t!("Whoa! Stop its server before deleting it"))
         } else if self.installs.contains_key(id) {
-            Some("Whoa! Cancel the download before deleting it")
+            Some(t!("Whoa! Cancel the download before deleting it"))
         } else if self.adding_mods(id) {
-            Some("Whoa! Let its mods finish, or cancel them, before deleting it")
+            Some(t!(
+                "Whoa! Let its mods finish, or cancel them, before deleting it"
+            ))
         } else {
             None
         };
@@ -1232,8 +1253,10 @@ impl Shell {
                 shell.reload(cx);
             });
             let toast = match deleted {
-                Ok(()) => crate::ui::toast::done(format!("Poof! {name} is gone")),
-                Err(err) => crate::ui::toast::failed_because("That instance wouldn't budge", err),
+                Ok(()) => crate::ui::toast::done(t!("Poof! {name} is gone", name = name)),
+                Err(err) => {
+                    crate::ui::toast::failed_because(t!("That instance wouldn't budge"), err)
+                }
             };
             let _ = handle.update(cx, |_, window, cx| window.push_notification(toast, cx));
         })
@@ -1258,7 +1281,7 @@ impl Shell {
                 || shell.installs.contains_key(&id)
                 || shell.adding_mods(&id)
             {
-                return Err("Whoa! Stop the game before duplicating it".to_owned());
+                return Err(t!("Whoa! Stop the game before duplicating it").to_owned());
             }
             let Some(instance) = shell.instances.iter().find(|i| i.id == id).cloned() else {
                 return Ok(());
@@ -1296,8 +1319,8 @@ impl Shell {
                     .and_then(|result| result)
                     .and_then(|result| result);
                 let note = match &made {
-                    Ok(copy) => toast::done(format!("{} is ready", copy.name)),
-                    Err(why) => toast::failed_because("That copy didn't work out", why.clone()),
+                    Ok(copy) => toast::done(t!("{name} is ready", name = copy.name)),
+                    Err(why) => toast::failed_because(t!("That copy didn't work out"), why.clone()),
                 };
                 let _ = this.update(cx, |shell, cx| {
                     shell.installs.remove(&key);
@@ -1403,7 +1426,7 @@ impl Shell {
                     let _ = window.update(cx, |_, window, cx| {
                         use gpui_kit::component::WindowExt;
                         window.push_notification(
-                            crate::ui::toast::failed_because("Couldn't use that link", why),
+                            crate::ui::toast::failed_because(t!("Couldn't use that link"), why),
                             cx,
                         );
                     });
@@ -1531,9 +1554,9 @@ impl Shell {
                 // The branch names Steam gives the two build lines; an instance can move to
                 // another branch of its line later.
                 let (name, branch) = if plan.modern {
-                    ("My game", "public")
+                    (t!("My game"), "public")
                 } else {
-                    ("My Build 41 game", "legacy41")
+                    (t!("My Build 41 game"), "legacy41")
                 };
                 made.push((plan, store::create(&shell.root, name, branch)?));
             }
@@ -1558,7 +1581,7 @@ impl Shell {
         });
         if let Ok(Err(err)) = result {
             window.push_notification(
-                crate::ui::toast::failed_because("Well, that instance didn't happen", err),
+                crate::ui::toast::failed_because(t!("Well, that instance didn't happen"), err),
                 cx,
             );
         }
@@ -1655,17 +1678,17 @@ impl Shell {
             use crate::ui::toast;
             let note = match brought {
                 Ok(Ok((missing, Ok(())))) if missing.is_empty() => {
-                    toast::done(format!("{name} is in! Worlds, mods and settings made it"))
+                    toast::done(t!("{name} is in! Worlds, mods and settings made it", name = name))
                 }
                 Ok(Ok((missing, Ok(())))) => toast::heads_up(
-                    "Almost everything made it",
-                    format!(
-                        "Steam doesn't have these mods here, install them from the Workshop: {}",
-                        missing.join(", ")
+                    t!("Almost everything made it"),
+                    t!(
+                        "Steam doesn't have these mods here, install them from the Workshop: {mods}",
+                        mods = missing.join(", ")
                     ),
                 ),
-                Ok(Ok((_, Err(why)))) => toast::heads_up("Your mods got stuck on the way", why),
-                Ok(Err(why)) => toast::failed_because("Couldn't bring your game over", why),
+                Ok(Ok((_, Err(why)))) => toast::heads_up(t!("Your mods got stuck on the way"), why),
+                Ok(Err(why)) => toast::failed_because(t!("Couldn't bring your game over"), why),
                 // Cancelled from the download manager: nothing to say.
                 Err(_) => return,
             };
@@ -1734,7 +1757,7 @@ impl Shell {
                 Ok(Err(why)) => {
                     let _ = handle.update(cx, |_, window, cx| {
                         window.push_notification(
-                            toast::failed_because("That pack wouldn't open", why),
+                            toast::failed_because(t!("That pack wouldn't open"), why),
                             cx,
                         )
                     });
@@ -1776,10 +1799,10 @@ impl Shell {
                 if older {
                     window.push_notification(
                         toast::heads_up(
-                            "This pack follows its branch",
-                            format!(
-                                "It was made on an older version, so the newest one of {} is coming",
-                                instance::build::channel(&index.build.branch)
+                            t!("This pack follows its branch"),
+                            t!(
+                                "It was made on an older version, so the newest one of {channel} is coming",
+                                channel = instance::build::channel(&index.build.branch)
                             ),
                         ),
                         cx,
@@ -1842,9 +1865,10 @@ impl Shell {
                 if let Some(title) = left_out {
                     use gpui_kit::component::WindowExt;
                     window.push_notification(
-                        crate::ui::toast::failed(format!(
-                            "{title} doesn't run on {}'s build, so it stayed out",
-                            created.name
+                        crate::ui::toast::failed(t!(
+                            "{title} doesn't run on {name}'s build, so it stayed out",
+                            title = title,
+                            name = created.name
                         )),
                         cx,
                     );

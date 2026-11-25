@@ -102,22 +102,28 @@ fn nav(
 ) -> Stateful<Div> {
     row(text, shell.page == page, cx)
         .child(tile(icon, cx))
-        .child(label(text))
+        .child(label(crate::i18n::tr(text)))
         .on_click(cx.listener(move |shell, _, _, cx| shell.go(page, cx)))
 }
 
 pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> impl IntoElement {
     let handle = cx.entity().downgrade();
-    let home = nav(Page::Library, IconName::Library, "Library", shell, cx);
-    let screenshots = nav(Page::Screenshots, IconName::Image, "Screenshots", shell, cx);
-    let characters = nav(
-        Page::Characters,
-        IconName::UserRound,
-        "Characters",
+    let home = nav(Page::Library, IconName::Library, n!("Library"), shell, cx);
+    let screenshots = nav(
+        Page::Screenshots,
+        IconName::Image,
+        n!("Screenshots"),
         shell,
         cx,
     );
-    let workshop = nav(Page::Workshop, IconName::Compass, "Workshop", shell, cx);
+    let characters = nav(
+        Page::Characters,
+        IconName::UserRound,
+        n!("Characters"),
+        shell,
+        cx,
+    );
+    let workshop = nav(Page::Workshop, IconName::Compass, n!("Workshop"), shell, cx);
 
     // Slides to the open instance on a spring, like the tabs' indicator, and fades out on
     // pages that aren't an instance.
@@ -200,18 +206,18 @@ pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> im
             };
             // Last, apart from the rest, as in the Library card's menu: the one that can't be
             // undone, in red. It still asks before deleting.
-            let delete = crate::ui::danger_item("Delete", IconName::Trash, danger).on_click({
+            let delete = crate::ui::danger_item(t!("Delete"), IconName::Trash, danger).on_click({
                 let (shell, id) = (shell_for_menu.clone(), id.clone());
                 move |_, window, cx| Shell::confirm_delete(shell.clone(), id.clone(), window, cx)
             });
             menu.item(play)
                 .item(
-                    PopupMenuItem::new("Open folder")
+                    PopupMenuItem::new(t!("Open folder"))
                         .icon(IconName::FolderOpen)
                         .on_click(move |_, _, cx| cx.open_with_system(&folder)),
                 )
                 .item(
-                    PopupMenuItem::new("Duplicate")
+                    PopupMenuItem::new(t!("Duplicate"))
                         .icon(IconName::Copy)
                         .on_click(copy),
                 )
@@ -243,7 +249,7 @@ pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> im
                 .text_xs()
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.muted_foreground)
-                .child("INSTANCES")
+                .child(t!("INSTANCES"))
                 .child(shell.instances.len().to_string()),
         )
         // As tall as the instances, until the window is too short: then the list scrolls and
@@ -265,7 +271,7 @@ pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> im
         .child(
             row("new", false, cx)
                 .child(tile(IconName::Plus, cx))
-                .child(label("New instance"))
+                .child(label(t!("New instance")))
                 .on_click({
                     let handle = handle.clone();
                     move |_, window, cx| Shell::create(handle.clone(), window, cx)
@@ -275,7 +281,7 @@ pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> im
         .child(
             row("settings", false, cx)
                 .child(tile(IconName::Settings, cx))
-                .child(div().text_sm().child("Settings"))
+                .child(div().text_sm().child(t!("Settings")))
                 .on_click({
                     let handle = handle.clone();
                     move |_, window, cx| crate::settings::open(handle.clone(), window, cx)
@@ -285,7 +291,7 @@ pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> im
             let account = handle.clone();
             let (name, detail) = match shell.account() {
                 Some(signed_in) => (signed_in.display().to_owned(), "Steam"),
-                None => ("Not signed in".to_owned(), "Sign in to Steam"),
+                None => (t!("Not signed in").to_owned(), t!("Sign in to Steam")),
             };
             let who = div()
                 .flex()
@@ -327,7 +333,7 @@ pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> im
                     .dropdown_menu_with_anchor(Anchor::LeftCenter, move |menu, _, _| {
                         let account = account.clone();
                         menu.item(
-                            PopupMenuItem::new("Sign out")
+                            PopupMenuItem::new(t!("Sign out"))
                                 .icon(IconName::LogOut)
                                 .on_click(move |_, _, cx| Shell::sign_out(account.clone(), cx)),
                         )

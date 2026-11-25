@@ -41,9 +41,9 @@ impl Mode {
 
     pub fn label(self) -> &'static str {
         match self {
-            Mode::System => "System",
-            Mode::Light => "Light",
-            Mode::Dark => "Dark",
+            Mode::System => t!("System"),
+            Mode::Light => t!("Light"),
+            Mode::Dark => t!("Dark"),
         }
     }
 }

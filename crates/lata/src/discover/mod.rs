@@ -192,7 +192,7 @@ fn waiting(cx: &App) -> Div {
     div()
         .flex()
         .flex_col()
-        .child(heading("NEWS", cx))
+        .child(heading(t!("NEWS"), cx))
         .child(
             div()
                 .h(px(166.))
@@ -203,7 +203,7 @@ fn waiting(cx: &App) -> Div {
         )
         .children(posts)
         .child(div().h_3())
-        .child(heading("TRENDING MODS THIS WEEK", cx))
+        .child(heading(t!("TRENDING MODS THIS WEEK"), cx))
         .children(mods)
 }
 
@@ -283,7 +283,7 @@ fn lead(newest: &Post, cover: Option<PathBuf>, cx: &App) -> Stateful<Div> {
                         .text_xs()
                         .font_weight(FontWeight::SEMIBOLD)
                         .opacity(0.85)
-                        .child(format!("Latest, {}", branches::date(newest.date))),
+                        .child(t!("Latest, {date}", date = branches::date(newest.date))),
                 )
                 .child(
                     div()
@@ -383,12 +383,10 @@ fn trending(
                         .text_ellipsis()
                         .child(item.title.clone()),
                 )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child(format!("{} playing with it", compact(item.subscriptions))),
-                ),
+                .child(div().text_xs().text_color(theme.muted_foreground).child(t!(
+                    "{count} playing with it",
+                    count = compact(item.subscriptions)
+                ))),
         )
         .when(any, |row| {
             row.child(
@@ -396,7 +394,7 @@ fn trending(
                     .ghost()
                     .cursor_pointer()
                     .icon(IconName::Download)
-                    .tooltip("Install to an instance")
+                    .tooltip(t!("Install to an instance"))
                     .on_click(move |_, window, cx| {
                         pick(
                             item_for_pick.clone(),
@@ -462,7 +460,7 @@ pub(crate) fn pick(
             let state_view = match state {
                 Target::Ready => FancyButton::new(
                     SharedString::from(format!("pick-add-{}", instance.id)),
-                    "Install",
+                    t!("Install"),
                 )
                 .small()
                 .icon(IconName::Download)
@@ -471,8 +469,8 @@ pub(crate) fn pick(
                     let _ = shell.update(cx, |shell, cx| shell.add_mod(instance, id, handle, cx));
                 })
                 .into_any_element(),
-                Target::Adding => status(IconName::LoaderCircle, "Installing", &theme),
-                Target::Installed => status(IconName::Check, "Installed", &theme),
+                Target::Adding => status(IconName::LoaderCircle, t!("Installing"), &theme),
+                Target::Installed => status(IconName::Check, t!("Installed"), &theme),
             };
             div()
                 .flex()
@@ -508,22 +506,24 @@ pub(crate) fn pick(
         });
         let hidden = match (other.len(), build) {
             (0, _) => None,
-            (1, Some(build)) => Some(format!(
-                "1 instance doesn't run {build}, so it isn't offered"
+            (many, Some(build)) => Some(tn!(
+                many,
+                "{n} instance doesn't run {build}, so it isn't offered",
+                "{n} instances don't run {build}, so they aren't offered",
+                build = build
             )),
-            (many, Some(build)) => Some(format!(
-                "{many} instances don't run {build}, so they aren't offered"
-            )),
-            (1, None) => Some("1 instance runs another build, so it isn't offered".to_owned()),
-            (many, None) => Some(format!(
-                "{many} instances run another build, so they aren't offered"
+            (many, None) => Some(tn!(
+                many,
+                "{n} instance runs another build, so it isn't offered",
+                "{n} instances run another build, so they aren't offered"
             )),
         };
         let none = match build {
-            Some(build) => {
-                format!("This mod is for {build}, and none of your instances runs it yet.")
-            }
-            None => "None of your instances can run this mod yet.".to_owned(),
+            Some(build) => t!(
+                "This mod is for {build}, and none of your instances runs it yet.",
+                build = build
+            ),
+            None => t!("None of your instances can run this mod yet.").to_owned(),
         };
         let picture = match &picture {
             Some(path) => div().flex_none().size(px(48.)).child(
@@ -546,7 +546,7 @@ pub(crate) fn pick(
         let (create, wanted) = (shell.clone(), item.clone());
         dialog
             .entrance(DialogEntrance::FadeSlide)
-            .title("Install to an instance")
+            .title(t!("Install to an instance"))
             .centered()
             .w(px(480.))
             .child(
@@ -570,7 +570,7 @@ pub(crate) fn pick(
                                     div()
                                         .text_sm()
                                         .text_color(theme.muted_foreground)
-                                        .child(format!("by {name}"))
+                                        .child(t!("by {name}", name = name))
                                 })),
                         ),
                     )
@@ -584,7 +584,7 @@ pub(crate) fn pick(
                                     .text_sm()
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(theme.muted_foreground)
-                                    .child("Choose an instance"),
+                                    .child(t!("Choose an instance")),
                             )
                             .when(fitting.is_empty(), |this| {
                                 this.child(div().text_sm().child(none.clone()))
@@ -599,7 +599,7 @@ pub(crate) fn pick(
                     }))
                     .child(
                         div().flex().justify_end().child(
-                            crate::ui::secondary("pick-new", "New instance")
+                            crate::ui::secondary("pick-new", t!("New instance"))
                                 .icon(IconName::Plus)
                                 .on_click(move |_, window, cx| {
                                     window.close_dialog(cx);
@@ -642,7 +642,7 @@ pub fn render(shell: &Shell, feed: Option<&Feed>, cx: &mut Context<Shell>) -> im
         return panel.child(waiting(cx));
     };
     let news = match feed.posts.split_first() {
-        None => div().child(note("No news got through. Steam may be napping", cx)),
+        None => div().child(note(t!("No news got through. Steam may be napping"), cx)),
         Some((newest, older)) => div()
             .flex()
             .flex_col()
@@ -660,7 +660,7 @@ pub fn render(shell: &Shell, feed: Option<&Feed>, cx: &mut Context<Shell>) -> im
     let fit = shell.trending_fit;
     let measure = handle.clone();
     let trending_mods = match feed.mods.is_empty() {
-        true => div().child(note("The Workshop didn't answer", cx)),
+        true => div().child(note(t!("The Workshop didn't answer"), cx)),
         false => div()
             .flex()
             .flex_col()
@@ -684,13 +684,13 @@ pub fn render(shell: &Shell, feed: Option<&Feed>, cx: &mut Context<Shell>) -> im
             }),
     };
     panel
-        .child(heading("NEWS", cx))
+        .child(heading(t!("NEWS"), cx))
         .child(news.flex_none())
         .child(div().h_3().flex_none())
         // A heading over nothing goes unseen too; it keeps its room, or the rows would move up
         // into it and change what fits.
         .child(
-            heading("TRENDING MODS THIS WEEK", cx)
+            heading(t!("TRENDING MODS THIS WEEK"), cx)
                 .when(fit == 0 && !feed.mods.is_empty(), |this| this.opacity(0.)),
         )
         .child(
