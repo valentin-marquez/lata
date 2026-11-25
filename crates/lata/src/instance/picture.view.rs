@@ -185,7 +185,7 @@ impl Picker {
             .children(
                 crate::game::THEMES
                     .iter()
-                    .map(|(name, _)| Tab::new().label(theme_label(name)).cursor_pointer()),
+                    .map(|(name, _)| Tab::new().label(crate::i18n::tr(name)).cursor_pointer()),
             )
             .on_click(cx.listener(|this, ix: &usize, _, cx| {
                 this.theme = *ix;
@@ -323,17 +323,4 @@ pub fn keep(icon: &Icon, dir: &Path) -> std::io::Result<Icon> {
     let name = format!("icon.{ext}");
     std::fs::copy(from, dir.join(&name))?;
     Ok(Icon::Image { file: name })
-}
-
-/// A `game::THEMES` name in the current language (the list is a macro of literals).
-fn theme_label(name: &'static str) -> &'static str {
-    match name {
-        "Weapons" => t!("Weapons"),
-        "Tools" => t!("Tools"),
-        "Food" => t!("Food"),
-        "Medical" => t!("Medical"),
-        "Survival" => t!("Survival"),
-        "Everyday" => t!("Everyday"),
-        other => other,
-    }
 }

@@ -50,26 +50,34 @@ const NEVER: [&str; 6] = [
 pub fn about(path: &Path) -> Option<&'static str> {
     Some(match path.to_str()? {
         "Lua" => {
-            "Mod options and in-game settings: key bindings, the UI layout and characters saved \
+            t!(
+                "Mod options and in-game settings: key bindings, the UI layout and characters saved \
              in the creation screen."
+            )
         }
         "mods" => {
-            "Mods added by hand, not from the Workshop. Workshop mods go as links, so they \
+            t!(
+                "Mods added by hand, not from the Workshop. Workshop mods go as links, so they \
              don't show here."
+            )
         }
-        "Saves" => "Your worlds. They can weigh gigabytes, and friends usually start their own.",
+        "Saves" => {
+            t!("Your worlds. They can weigh gigabytes, and friends usually start their own.")
+        }
         "Server" => {
-            "Hosting settings: server rules, sandbox options and spawn points. Passwords and \
+            t!(
+                "Hosting settings: server rules, sandbox options and spawn points. Passwords and \
              tokens are left out."
+            )
         }
         "Sandbox Presets" => {
-            "Sandbox settings saved in the game's setup screen, like zombie count and loot."
+            t!("Sandbox settings saved in the game's setup screen, like zombie count and loot.")
         }
-        "db" => "Your saved server list. It can hold server passwords, so keep it to yourself.",
-        "Crafting" => "A list of recipes the game writes for itself. It makes it again.",
-        "Screenshots" => "Pictures you took in the game.",
+        "db" => t!("Your saved server list. It can hold server passwords, so keep it to yourself."),
+        "Crafting" => t!("A list of recipes the game writes for itself. It makes it again."),
+        "Screenshots" => t!("Pictures you took in the game."),
         "options.ini" => {
-            "Your own game options: screen, sound and controls. Everyone keeps their own."
+            t!("Your own game options: screen, sound and controls. Everyone keeps their own.")
         }
         _ => return None,
     })
@@ -400,7 +408,7 @@ fn icon_file(icon: &Option<Icon>) -> Option<&str> {
 /// The index of the pack at `path`, after checking that every file in it stays inside the
 /// instance: nothing absolute and no `..` that climbs out.
 pub fn read(path: &Path) -> io::Result<Index> {
-    let mut zip = ZipArchive::new(File::open(path)?).map_err(|_| invalid("it isn't a pack"))?;
+    let mut zip = ZipArchive::new(File::open(path)?).map_err(|_| invalid(t!("it isn't a pack")))?;
     for ix in 0..zip.len() {
         let file = zip.by_index_raw(ix).map_err(zipped)?;
         // `enclosed_name` turns `/etc/x` into `etc/x`; a pack made by lata has none of those.
@@ -410,20 +418,22 @@ pub fn read(path: &Path) -> io::Result<Index> {
             .is_some_and(|c| matches!(c, b'/' | b'\\'))
             || file.name_raw().contains(&b':');
         if absolute || file.enclosed_name().is_none() {
-            return Err(invalid("it has a file that points outside the instance"));
+            return Err(invalid(t!(
+                "it has a file that points outside the instance"
+            )));
         }
     }
     let mut text = String::new();
     zip.by_name(INDEX)
-        .map_err(|_| invalid("it has no lata.index.json"))?
+        .map_err(|_| invalid(t!("it has no lata.index.json")))?
         .take(INDEX_MAX)
         .read_to_string(&mut text)?;
     let index: Index = serde_json::from_str(&text).map_err(invalid)?;
     if index.game != GAME {
-        return Err(invalid("it's for another game"));
+        return Err(invalid(t!("it's for another game")));
     }
     if index.format > FORMAT {
-        return Err(invalid("a newer lata made it, update to open it"));
+        return Err(invalid(t!("a newer lata made it, update to open it")));
     }
     Ok(index)
 }
@@ -434,7 +444,7 @@ pub fn read(path: &Path) -> io::Result<Index> {
 pub fn import(root: &Path, path: &Path) -> io::Result<(Instance, Index)> {
     let index = read(path)?;
     let name = match index.name.trim() {
-        "" => "Shared pack",
+        "" => t!("Shared pack"),
         name => name,
     };
     let instance = store::create(root, name, &index.build.branch)?;

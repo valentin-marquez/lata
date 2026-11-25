@@ -11,7 +11,7 @@ mod pack;
 /// The themes and their items, plus the PNG bytes of each, from one list so the two can't
 /// drift apart. Each file is the game's 32 px icon scaled 4x with nearest neighbour.
 macro_rules! themes {
-    ($($theme:literal => [$($item:literal),* $(,)?]),* $(,)?) => {
+    ($($theme:expr => [$($item:literal),* $(,)?]),* $(,)?) => {
         pub const THEMES: &[(&str, &[&str])] = &[$(($theme, &[$($item),*])),*];
 
         /// The vendored icon for `item` (`Item_Axe`), if it is in the set.
@@ -27,27 +27,27 @@ macro_rules! themes {
 }
 
 themes! {
-    "Weapons" => [
+    n!("Weapons") => [
         "Item_Axe", "Item_BaseballBat", "Item_BaseballBatNails", "Item_Crowbar",
         "Item_Katana", "Item_Machete", "Item_Shotgun", "Item_HuntingRifle",
     ],
-    "Tools" => [
+    n!("Tools") => [
         "Item_Hammer", "Item_Sledgehammer2", "Item_Screwdriver", "Item_Wrench",
         "Item_PipeWrench", "Item_Shovel", "Item_Toolbox", "Item_FishingRod",
     ],
-    "Food" => [
+    n!("Food") => [
         "Item_Beans", "Item_Cereal", "Item_Pan", "Item_Apple",
         "Item_Bread_fresh", "Item_Burger", "Item_Pop2", "Item_CannedCornedBeef",
     ],
-    "Medical" => [
+    n!("Medical") => [
         "Item_FirstAid", "Item_Bandage", "Item_Splint", "Item_Pills2",
         "Item_Pills4", "Item_DuffelbagMedical",
     ],
-    "Survival" => [
+    n!("Survival") => [
         "Item_Duffelbag", "Item_Backpack", "Item_SleepingBag", "Item_TentLarge",
         "Item_Map", "Item_Petrol", "Item_Flashlight", "Item_Lighter",
     ],
-    "Everyday" => [
+    n!("Everyday") => [
         "Item_HamRadioCivilian", "Item_WalkieTalkieCivilian", "Item_Generator", "Item_Battery",
         "Item_CarKey", "Item_GuitarAcoustic", "Item_Book1", "Item_CandleLit",
     ],

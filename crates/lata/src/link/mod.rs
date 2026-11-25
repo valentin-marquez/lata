@@ -17,7 +17,7 @@ use crate::instance::mods::{self, Bundle, Listing};
 const SCHEME: &str = "lata://";
 /// The longest link read; a real one is about 40 characters.
 const MAX_LEN: usize = 200;
-const NOT_OURS: &str = "that isn't a lata link";
+const NOT_OURS: &str = n!("that isn't a lata link");
 
 /// What reaches the running lata from outside: a link, or a second lata asking it to show itself.
 #[derive(Debug, Clone, PartialEq)]
@@ -77,13 +77,13 @@ pub fn from_args(args: impl IntoIterator<Item = String>) -> Vec<String> {
 pub fn parse(text: &str) -> Result<Request, &'static str> {
     let text = text.trim();
     if text.len() > MAX_LEN || text.chars().any(|c| c.is_whitespace() || c.is_control()) {
-        return Err(NOT_OURS);
+        return Err(crate::i18n::tr(NOT_OURS));
     }
     let rest = text
         .get(..SCHEME.len())
         .filter(|start| start.eq_ignore_ascii_case(SCHEME))
         .map(|_| &text[SCHEME.len()..])
-        .ok_or(NOT_OURS)?;
+        .ok_or(crate::i18n::tr(NOT_OURS))?;
     // Some systems add a slash at the end, and a fragment never matters.
     let rest = rest.split('#').next().unwrap_or("").trim_end_matches('/');
     let (action, query) = rest.split_once('?').unwrap_or((rest, ""));
@@ -93,20 +93,20 @@ pub fn parse(text: &str) -> Result<Request, &'static str> {
     } else if action.eq_ignore_ascii_case("install-collection") {
         Request::InstallCollection
     } else {
-        return Err("lata doesn't know that link");
+        return Err(t!("lata doesn't know that link"));
     };
     let mut ids = query.split('&').filter_map(|pair| pair.strip_prefix("id="));
     let (Some(id), None) = (ids.next(), ids.next()) else {
-        return Err("the link needs exactly one Workshop id");
+        return Err(t!("the link needs exactly one Workshop id"));
     };
     if id.is_empty() || id.len() > 20 || !id.bytes().all(|b| b.is_ascii_digit()) {
-        return Err("the Workshop id isn't a number");
+        return Err(t!("the Workshop id isn't a number"));
     }
     id.parse()
         .ok()
         .filter(|id| *id != 0)
         .map(request)
-        .ok_or("the Workshop id isn't valid")
+        .ok_or(t!("the Workshop id isn't valid"))
 }
 
 /// What a link asks to install, as the Workshop lists it, for the dialog that asks the user.
@@ -118,7 +118,7 @@ pub async fn resolve(text: &str) -> Result<Found, String> {
         Request::InstallMod(id) => {
             let listing = mods::lookup(id).await?;
             if !listing.item.is_mod() {
-                return Err("that Workshop item isn't a mod (it may be a guide or art)".into());
+                return Err(t!("that Workshop item isn't a mod (it may be a guide or art)").into());
             }
             Ok(Found::Mod(listing))
         }
@@ -127,7 +127,7 @@ pub async fn resolve(text: &str) -> Result<Found, String> {
             // Of either build line: which ones fit is decided once the instance is known.
             let (modern, legacy) = bundle.split(true);
             if modern.is_empty() && legacy.is_empty() {
-                return Err("that collection has no Project Zomboid mods".into());
+                return Err(t!("that collection has no Project Zomboid mods").into());
             }
             Ok(Found::Collection(bundle))
         }

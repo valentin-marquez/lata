@@ -34,7 +34,7 @@ pub fn open(instance: Instance, window: &mut Window, cx: &mut App) {
     window.open_dialog(cx, move |dialog, _, _| {
         dialog
             .entrance(DialogEntrance::FadeSlide)
-            .title("Export pack")
+            .title(t!("Export pack"))
             .centered()
             .w(px(WIDTH))
             .child(view.clone())
@@ -82,7 +82,7 @@ impl Export {
     fn new(instance: Instance, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let name = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("Pack name")
+                .placeholder(t!("Pack name"))
                 .default_value(instance.name.to_string())
         });
         let version = cx.new(|cx| {
@@ -93,7 +93,7 @@ impl Export {
         let summary = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .rows(3)
-                .placeholder("What's in it, and how to play it")
+                .placeholder(t!("What's in it, and how to play it"))
         });
         let reading = instance.clone();
         cx.spawn(async move |this, cx| {
@@ -272,16 +272,16 @@ impl Export {
                     Ok(Ok(())) => {
                         window.close_dialog(cx);
                         window.push_notification(
-                            toast::done(format!("Canned! {shown} is ready to share")),
+                            toast::done(t!("Canned! {shown} is ready to share", shown = shown)),
                             cx,
                         );
                     }
                     Ok(Err(why)) => window.push_notification(
-                        toast::failed_because("That pack didn't get canned", why),
+                        toast::failed_because(t!("That pack didn't get canned"), why),
                         cx,
                     ),
                     Err(why) => window.push_notification(
-                        toast::failed_because("That pack didn't get canned", why),
+                        toast::failed_because(t!("That pack didn't get canned"), why),
                         cx,
                     ),
                 }
@@ -326,9 +326,9 @@ impl Export {
                         cx.notify();
                     })),
             )
-            .child(name("Name").flex_1())
-            .child(name("Size").w(SIZE))
-            .child(name("Modified").w(MODIFIED))
+            .child(name(t!("Name")).flex_1())
+            .child(name(t!("Size")).w(SIZE))
+            .child(name(t!("Modified")).w(MODIFIED))
             .child(div().w(px(16.)))
     }
 
@@ -415,7 +415,7 @@ impl Export {
                             div()
                                 .text_xs()
                                 .text_color(theme.muted_foreground)
-                                .child("Some files"),
+                                .child(t!("Some files")),
                         )
                     }),
             )
@@ -466,8 +466,8 @@ impl Render for Export {
                 .h(TABLE)
                 .child(ui::Empty::new(
                     IconName::Folder,
-                    "No files yet",
-                    "The game makes its settings the first time you play. The pack still brings the game version and the mods.",
+                    t!("No files yet"),
+                    t!("The game makes its settings the first time you play. The pack still brings the game version and the mods."),
                 ))
                 .into_any_element(),
             Some(_) => div()
@@ -505,10 +505,7 @@ impl Render for Export {
             .iter()
             .filter_map(|file| self.sizes.get(file))
             .sum();
-        let count = match self.picked.len() {
-            1 => "1 file".to_owned(),
-            many => format!("{many} files"),
-        };
+        let count = tn!(self.picked.len(), "{n} file", "{n} files");
         div()
             .flex()
             .flex_col()
@@ -523,7 +520,7 @@ impl Render for Export {
                             .flex_col()
                             .flex_1()
                             .gap_1p5()
-                            .child(label("Name"))
+                            .child(label(t!("Name")))
                             .child(Input::new(&self.name)),
                     )
                     .child(
@@ -532,7 +529,7 @@ impl Render for Export {
                             .flex_col()
                             .w(px(200.))
                             .gap_1p5()
-                            .child(label("Version"))
+                            .child(label(t!("Version")))
                             .child(Input::new(&self.version)),
                     ),
             )
@@ -541,7 +538,7 @@ impl Render for Export {
                     .flex()
                     .flex_col()
                     .gap_1p5()
-                    .child(label("Description"))
+                    .child(label(t!("Description")))
                     .child(Textarea::new(&self.summary)),
             )
             .when_some(self.keeps.clone(), |this, version| {
@@ -550,7 +547,7 @@ impl Render for Export {
                     Checkbox::new("export-exact")
                         .cursor_pointer()
                         .checked(self.exact)
-                        .label(format!("Keep the game at {version}"))
+                        .label(t!("Keep the game at {version}", version = version))
                         .on_click(cx.listener(|this, on: &bool, _, cx| {
                             this.exact = *on;
                             cx.notify();
@@ -560,8 +557,8 @@ impl Render for Export {
                         .text_xs()
                         .text_color(theme.muted_foreground)
                         .child(match self.exact {
-                            true => "Whoever imports it plays this exact version, even after the game updates.",
-                            false => "Whoever imports it gets the newest version of the branch.",
+                            true => t!("Whoever imports it plays this exact version, even after the game updates."),
+                            false => t!("Whoever imports it gets the newest version of the branch."),
                         }),
                 ))
             })
@@ -570,12 +567,12 @@ impl Render for Export {
                     .flex()
                     .flex_col()
                     .gap_1p5()
-                    .child(label("Files"))
+                    .child(label(t!("Files")))
                     .child(
                         div()
                             .text_xs()
                             .text_color(theme.muted_foreground)
-                            .child("Workshop mods go as links to their exact version, so they don't count here."),
+                            .child(t!("Workshop mods go as links to their exact version, so they don't count here.")),
                     )
                     .child(table),
             )
@@ -595,11 +592,11 @@ impl Render for Export {
                             .child(install::size(bytes)),
                     )
                     .child(
-                        ui::secondary("export-cancel", "Cancel")
+                        ui::secondary("export-cancel", t!("Cancel"))
                             .on_click(|_, window, cx| window.close_dialog(cx)),
                     )
                     .child(
-                        FancyButton::new("export", "Export")
+                        FancyButton::new("export", t!("Export"))
                             .small()
                             .icon(IconName::Box)
                             .disabled(self.busy || self.tree.is_none())

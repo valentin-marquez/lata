@@ -28,8 +28,8 @@ pub fn open(
     cx: &mut App,
 ) {
     let title = match &found {
-        Found::Mod(_) => "Install mod",
-        Found::Collection(_) => "Install collection",
+        Found::Mod(_) => t!("Install mod"),
+        Found::Collection(_) => t!("Install collection"),
     };
     let chosen = super::preselect(&instances, crate::settings::install_target().as_deref());
     let handle = window.window_handle();
@@ -148,7 +148,7 @@ impl InstallLink {
         let names: Vec<SharedString> = self.instances.iter().map(|i| i.name.clone()).collect();
         let (label, placeholder) = match chosen {
             Some(ix) => (names[ix].clone(), false),
-            None => ("Choose an instance".into(), true),
+            None => (t!("Choose an instance").into(), true),
         };
         let muted = theme.muted_foreground;
         Button::new("link-instance")
@@ -227,10 +227,9 @@ impl Render for InstallLink {
             Found::Collection(found) => bundle_summary(found, cx),
         };
         let install = match fit {
-            Some(1) => "Install 1 mod".into(),
-            Some(count) => format!("Install {count} mods").into(),
-            None if self.already => SharedString::from("Update mod"),
-            None => "Install mod".into(),
+            Some(count) => tn!(count, "Install {n} mod", "Install {n} mods").into(),
+            None if self.already => SharedString::from(t!("Update mod")),
+            None => t!("Install mod").into(),
         };
         // What the chosen instance means for this mod: already there, the other build line,
         // or nothing of a collection fits.
@@ -241,9 +240,9 @@ impl Render for InstallLink {
                     self.already.then(|| {
                         note(
                             IconName::Check,
-                            format!(
-                                "{} already has it. Installing brings its current version.",
-                                instance.name
+                            t!(
+                                "{name} already has it. Installing brings its current version.",
+                                name = instance.name
                             ),
                             false,
                         )
@@ -251,7 +250,10 @@ impl Render for InstallLink {
                     other.map(|build| {
                         note(
                             IconName::TriangleAlert,
-                            format!("Heads up! It's for {build} only, not this instance's"),
+                            t!(
+                                "Heads up! It's for {build} only, not this instance's",
+                                build = build
+                            ),
                             true,
                         )
                     }),
@@ -262,9 +264,9 @@ impl Render for InstallLink {
             }
             (Found::Collection(_), Some(instance)) if fit == Some(0) => vec![note(
                 IconName::TriangleAlert,
-                format!(
-                    "None of its mods are made for {}'s game version.",
-                    instance.name
+                t!(
+                    "None of its mods are made for {name}'s game version.",
+                    name = instance.name
                 ),
                 true,
             )],
@@ -274,9 +276,9 @@ impl Render for InstallLink {
             note(
                 IconName::Box,
                 if collection {
-                    "No instances yet. Make one out of this collection.".into()
+                    t!("No instances yet. Make one out of this collection.").into()
                 } else {
-                    "No instances yet. Make one and this mod goes right in.".into()
+                    t!("No instances yet. Make one and this mod goes right in.").into()
                 },
                 false,
             )
@@ -289,7 +291,7 @@ impl Render for InstallLink {
                     div()
                         .text_sm()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child("Install in"),
+                        .child(t!("Install in")),
                 )
                 .child(self.picker(cx))
                 .children(notes)
@@ -307,13 +309,13 @@ impl Render for InstallLink {
                     .justify_end()
                     .gap_2()
                     .child(
-                        ui::secondary("link-cancel", "Cancel")
+                        ui::secondary("link-cancel", t!("Cancel"))
                             .on_click(|_, window, cx| window.close_dialog(cx)),
                     )
                     // A collection can always start an instance of its own instead.
                     .when(collection && !none, |this| {
                         this.child(
-                            ui::secondary("link-new", "New instance")
+                            ui::secondary("link-new", t!("New instance"))
                                 .icon(IconName::Plus)
                                 .on_click(
                                     cx.listener(|this, _, window, cx| this.create(window, cx)),
@@ -325,7 +327,7 @@ impl Render for InstallLink {
                     .map(|this| {
                         if none {
                             this.child(
-                                FancyButton::new("link-create", "New instance")
+                                FancyButton::new("link-create", t!("New instance"))
                                     .small()
                                     .icon(IconName::Plus)
                                     .on_click(
@@ -351,10 +353,7 @@ impl Render for InstallLink {
 /// The collection in brief, in the mod summary's shape: its picture, its name and how many
 /// mods it brings.
 fn bundle_summary(found: &Bundle, cx: &App) -> Div {
-    let count = match found.mods.len() {
-        1 => "1 mod".to_owned(),
-        many => format!("{many} mods"),
-    };
+    let count = tn!(found.mods.len(), "{n} mod", "{n} mods");
     div()
         .flex()
         .items_start()

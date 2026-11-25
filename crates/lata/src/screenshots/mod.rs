@@ -204,10 +204,12 @@ impl Screenshots {
                     ImageFormat::Png,
                     bytes,
                 )));
-                window.push_notification(ui::toast::done("Copied! Paste it anywhere"), cx);
+                window.push_notification(ui::toast::done(t!("Copied! Paste it anywhere")), cx);
             }
-            Err(err) => window
-                .push_notification(ui::toast::failed_because("Couldn't copy that one", err), cx),
+            Err(err) => window.push_notification(
+                ui::toast::failed_because(t!("Couldn't copy that one"), err),
+                cx,
+            ),
         }
     }
 
@@ -215,7 +217,7 @@ impl Screenshots {
         if let Err(err) = std::fs::remove_file(&path) {
             self.confirming = false;
             window.push_notification(
-                ui::toast::failed_because("That screenshot wouldn't go", err),
+                ui::toast::failed_because(t!("That screenshot wouldn't go"), err),
                 cx,
             );
             cx.notify();
@@ -259,7 +261,7 @@ impl Screenshots {
                 .find(|(i, _, _)| i == id)
                 .map(|(_, name, _)| name.clone())
                 .unwrap_or_default(),
-            None => "All instances".into(),
+            None => t!("All instances").into(),
         };
         let this = cx.entity().downgrade();
         Some(
@@ -281,7 +283,7 @@ impl Screenshots {
                         }
                     };
                     let menu = menu.item(
-                        PopupMenuItem::new(format!("All instances ({total})"))
+                        PopupMenuItem::new(t!("All instances ({total})", total = total))
                             .checked(current.is_none())
                             .on_click(pick(None)),
                     );
@@ -487,18 +489,18 @@ impl Screenshots {
                     div()
                         .text_sm()
                         .text_color(muted)
-                        .child("Delete it for good?"),
+                        .child(t!("Delete it for good?")),
                 )
                 .child(
-                    pill("shot-keep", IconName::Undo2, "Keep", window, cx).on_click(cx.listener(
-                        |this, _, _, cx| {
+                    pill("shot-keep", IconName::Undo2, t!("Keep"), window, cx).on_click(
+                        cx.listener(|this, _, _, cx| {
                             this.confirming = false;
                             cx.notify();
-                        },
-                    )),
+                        }),
+                    ),
                 )
                 .child(
-                    FancyButton::new("shot-delete-yes", "Delete")
+                    FancyButton::new("shot-delete-yes", t!("Delete"))
                         .small()
                         .danger()
                         .icon(IconName::Trash)
@@ -512,7 +514,7 @@ impl Screenshots {
                 .items_center()
                 .gap_2()
                 .child(
-                    pill("shot-copy", IconName::Copy, "Copy", window, cx).on_click(
+                    pill("shot-copy", IconName::Copy, t!("Copy"), window, cx).on_click(
                         cx.listener(move |this, _, window, cx| this.copy(copy.clone(), window, cx)),
                     ),
                 )
@@ -520,14 +522,14 @@ impl Screenshots {
                     pill(
                         "shot-folder",
                         IconName::FolderOpen,
-                        "Open folder",
+                        t!("Open folder"),
                         window,
                         cx,
                     )
                     .on_click(move |_, _, cx| cx.open_with_system(&folder)),
                 )
                 .child(
-                    pill("shot-delete", IconName::Trash, "Delete", window, cx).on_click(
+                    pill("shot-delete", IconName::Trash, t!("Delete"), window, cx).on_click(
                         cx.listener(|this, _, _, cx| {
                             this.confirming = true;
                             cx.notify();
@@ -593,8 +595,12 @@ impl Screenshots {
                                     .gap_4()
                                     .text_xs()
                                     .text_color(muted)
-                                    .child(shot.taken.format("%b %-d, %Y at %H:%M").to_string())
-                                    .child(format!("{} of {total}", ix + 1)),
+                                    .child(t!(
+                                        "{date} at {time}",
+                                        date = shot.taken.format("%b %-d, %Y"),
+                                        time = shot.taken.format("%H:%M")
+                                    ))
+                                    .child(t!("{n} of {total}", n = ix + 1, total = total)),
                             ),
                     )
                     .child(actions),
@@ -664,9 +670,9 @@ fn glass(id: &'static str, enabled: bool, window: &mut Window, cx: &mut App) -> 
 fn day(date: NaiveDate) -> String {
     let today = Local::now().date_naive();
     if date == today {
-        "Today".into()
+        t!("Today").into()
     } else if today.pred_opt() == Some(date) {
-        "Yesterday".into()
+        t!("Yesterday").into()
     } else {
         date.format("%b %-d, %Y").to_string()
     }
@@ -688,7 +694,7 @@ impl Render for Screenshots {
                 div()
                     .text_xl()
                     .font_weight(FontWeight::BOLD)
-                    .child("Screenshots"),
+                    .child(t!("Screenshots")),
             )
             .when(!shown.is_empty(), |this| {
                 this.child(
@@ -705,8 +711,8 @@ impl Render for Screenshots {
             None => div(),
             Some(all) if all.is_empty() => div().flex().flex_1().child(Empty::new(
                 IconName::Image,
-                "No screenshots yet",
-                "Screenshots you take in the game show up here, from every instance.",
+                t!("No screenshots yet"),
+                t!("Screenshots you take in the game show up here, from every instance."),
             )),
             Some(_) => {
                 let mut days = div().flex().flex_col().gap_5();

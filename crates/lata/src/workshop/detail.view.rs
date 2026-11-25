@@ -69,9 +69,9 @@ enum Tab {
 impl Tab {
     fn label(self) -> &'static str {
         match self {
-            Tab::Description => "Description",
-            Tab::Gallery => "Gallery",
-            Tab::Changelog => "Changelog",
+            Tab::Description => t!("Description"),
+            Tab::Gallery => t!("Gallery"),
+            Tab::Changelog => t!("Changelog"),
         }
     }
 }
@@ -358,7 +358,7 @@ impl Detail {
                             .children(self.author.clone().map(|name| {
                                 div()
                                     .text_color(theme.muted_foreground)
-                                    .child(format!("by {name}"))
+                                    .child(t!("by {name}", name = name))
                             })),
                     )
                     .when(!summary.is_empty(), |this| {
@@ -379,23 +379,30 @@ impl Detail {
                             .pt_1()
                             .child(Meta::new(
                                 IconName::CircleUser,
-                                format!(
-                                    "{} subscribers",
-                                    crate::discover::compact(item.subscriptions)
+                                tn!(
+                                    item.subscriptions,
+                                    "{count} subscribers",
+                                    "{count} subscribers",
+                                    count = crate::discover::compact(item.subscriptions)
                                 ),
                             ))
                             .children(favorited.map(|n| {
                                 Meta::new(
                                     Icon::empty().path("icons/heart.svg"),
-                                    format!("{} favorites", crate::discover::compact(n)),
+                                    tn!(
+                                        n,
+                                        "{count} favorites",
+                                        "{count} favorites",
+                                        count = crate::discover::compact(n)
+                                    ),
                                 )
                             }))
                             .children(item.updated.map(|at| {
                                 Meta::new(
                                     IconName::Clock,
-                                    format!(
-                                        "Updated {}",
-                                        crate::instance::ago(
+                                    t!(
+                                        "Updated {when}",
+                                        when = crate::instance::ago(
                                             crate::instance::store::now()
                                                 .saturating_sub(u64::from(at)),
                                         )
@@ -411,7 +418,7 @@ impl Detail {
                     .items_center()
                     .gap_2()
                     .child(
-                        FancyButton::new("workshop-detail-add", "Install")
+                        FancyButton::new("workshop-detail-add", t!("Install"))
                             .icon(IconName::Download)
                             .on_click(move |_, window, cx| {
                                 crate::discover::pick(
@@ -434,12 +441,12 @@ impl Detail {
                             .dropdown_menu(move |menu, _, _| {
                                 let (open, copy) = (url.clone(), url.clone());
                                 menu.item(
-                                    PopupMenuItem::new("Open its Workshop page")
+                                    PopupMenuItem::new(t!("Open its Workshop page"))
                                         .icon(IconName::ExternalLink)
                                         .on_click(move |_, _, cx| cx.open_url(&open)),
                                 )
                                 .item(
-                                    PopupMenuItem::new("Copy link")
+                                    PopupMenuItem::new(t!("Copy link"))
                                         .icon(IconName::Copy)
                                         .on_click(move |_, _, cx| {
                                             cx.write_to_clipboard(ClipboardItem::new_string(
@@ -535,11 +542,11 @@ impl Detail {
                     .child(
                         Empty::new(
                             IconName::TriangleAlert,
-                            "Couldn't open this mod",
+                            t!("Couldn't open this mod"),
                             why.clone(),
                         )
                         .action(
-                            ui::secondary("workshop-detail-retry", "Try again")
+                            ui::secondary("workshop-detail-retry", t!("Try again"))
                                 .on_click(cx.listener(|this, _, _, cx| this.load(cx))),
                         ),
                     )
@@ -550,7 +557,7 @@ impl Detail {
         match self.tab {
             Tab::Description if loaded.about.description.trim().is_empty() => card
                 .text_color(theme.muted_foreground)
-                .child("Its author didn't write a description.")
+                .child(t!("Its author didn't write a description."))
                 .into_any_element(),
             Tab::Description => {
                 let images = self.images.clone();
@@ -597,7 +604,7 @@ impl Detail {
                         .overflow_hidden()
                         .bg(theme.muted)
                         .cursor_pointer()
-                        .tooltip(|window, cx| Tooltip::new("Open full size").build(window, cx))
+                        .tooltip(|window, cx| Tooltip::new(t!("Open full size")).build(window, cx))
                         .on_click(move |_, _, cx| cx.open_url(&open))
                         .child(match path {
                             Some(path) => img(path)
@@ -625,7 +632,7 @@ impl Detail {
                             div()
                                 .text_sm()
                                 .text_color(theme.muted_foreground)
-                                .child("No notes for this one.")
+                                .child(t!("No notes for this one."))
                                 .into_any_element()
                         } else {
                             TextView::html(
@@ -687,20 +694,20 @@ impl Detail {
                 .gap_1p5()
                 .children(tags.into_iter().map(chip))
         };
-        let compatibility = section("Compatibility").child(if builds.is_empty() {
+        let compatibility = section(t!("Compatibility")).child(if builds.is_empty() {
             div()
                 .text_sm()
                 .text_color(theme.muted_foreground)
-                .child("Its author didn't say which build it's for.")
+                .child(t!("Its author didn't say which build it's for."))
                 .into_any_element()
         } else {
             chips(builds).into_any_element()
         });
         let categories =
-            (!categories.is_empty()).then(|| section("Categories").child(chips(categories)));
+            (!categories.is_empty()).then(|| section(t!("Categories")).child(chips(categories)));
         let requires = match &self.loaded {
             None if !item.requires.is_empty() => Some(
-                section("Requires")
+                section(t!("Requires"))
                     .children(item.requires.iter().map(|_| {
                         div()
                             .flex()
@@ -715,7 +722,7 @@ impl Detail {
             // It only shows once the page is in: it fades in rather than popping.
             Some(Ok(loaded)) if !loaded.requires.is_empty() => Some(
                 ui::enter_nth(
-                    section("Requires").children(loaded.requires.iter().map(|req| {
+                    section(t!("Requires")).children(loaded.requires.iter().map(|req| {
                         let id = req.id;
                         let picture = req.preview.as_ref().and_then(|url| self.images.get(url));
                         div()
@@ -766,7 +773,7 @@ impl Detail {
             Some(Ok(loaded)) => loaded.about.created,
             _ => None,
         };
-        let details = section("Details")
+        let details = section(t!("Details"))
             // The publish date comes with the page; its line holds the place meanwhile.
             .when(self.loaded.is_none(), |this| {
                 this.child(Skeleton::new().w(px(170.)).h(px(18.)))
@@ -774,13 +781,13 @@ impl Detail {
             .children(created.map(|at| {
                 Meta::new(
                     IconName::Calendar,
-                    format!("Published {}", branches::date(u64::from(at))),
+                    t!("Published {date}", date = branches::date(u64::from(at))),
                 )
             }))
             .children(item.updated.map(|at| {
                 Meta::new(
                     IconName::Clock,
-                    format!("Updated {}", branches::date(u64::from(at))),
+                    t!("Updated {date}", date = branches::date(u64::from(at))),
                 )
             }))
             .when(item.size > 0, |this| {
@@ -807,17 +814,17 @@ impl Detail {
                         .text_color(theme.muted_foreground),
                 )
         };
-        let links = section("Links")
+        let links = section(t!("Links"))
             .child(link(
                 "workshop-detail-page",
-                "Workshop page".to_owned(),
+                t!("Workshop page").to_owned(),
                 self.page_url(),
             ))
             .child(link(
                 "workshop-detail-author",
                 match &self.author {
-                    Some(name) => format!("More by {name}"),
-                    None => "More by its author".to_owned(),
+                    Some(name) => t!("More by {name}", name = name),
+                    None => t!("More by its author").to_owned(),
                 },
                 format!(
                     "https://steamcommunity.com/profiles/{}/myworkshopfiles/?appid={}",
@@ -891,7 +898,7 @@ impl Render for Detail {
                         .ghost()
                         .cursor_pointer()
                         .icon(IconName::ChevronLeft)
-                        .label("Workshop")
+                        .label(t!("Workshop"))
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(Event::Back))),
                 ),
             )

@@ -98,11 +98,11 @@ impl Sort {
 
     fn label(self) -> &'static str {
         match self {
-            Sort::Relevance => "Relevance",
-            Sort::Trending => "Trending",
-            Sort::Popular => "Most subscribed",
-            Sort::Newest => "Newest",
-            Sort::Updated => "Recently updated",
+            Sort::Relevance => t!("Relevance"),
+            Sort::Trending => t!("Trending"),
+            Sort::Popular => t!("Most subscribed"),
+            Sort::Newest => t!("Newest"),
+            Sort::Updated => t!("Recently updated"),
         }
     }
 
@@ -170,7 +170,8 @@ pub struct Workshop {
 
 impl Workshop {
     pub fn new(shell: WeakEntity<Shell>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search the Workshop"));
+        let search =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("Search the Workshop")));
         let on_search = cx.subscribe(&search, |this: &mut Self, _, event: &InputEvent, cx| {
             if let InputEvent::Change = event {
                 this.run(Fetch::Typed, cx);
@@ -358,7 +359,7 @@ impl Workshop {
         let (this, sort) = (cx.entity().downgrade(), self.sort);
         // Relevance with nothing typed ranks by trend: say what the order really is.
         let shown_sort = match sort {
-            Sort::Relevance if self.search.read(cx).value().trim().is_empty() => "Trending",
+            Sort::Relevance if self.search.read(cx).value().trim().is_empty() => t!("Trending"),
             sort => sort.label(),
         };
         div()
@@ -417,8 +418,8 @@ impl Workshop {
     fn filters_menu(&self, cx: &mut Context<Self>) -> AnyElement {
         let (this, build, tags) = (cx.entity().downgrade(), self.build, self.tags.clone());
         let label = match tags.len() + self.excluded.len() {
-            0 => "Filters".to_owned(),
-            many => format!("Filters ({many})"),
+            0 => t!("Filters").to_owned(),
+            many => t!("Filters ({many})", many = many),
         };
         Button::new("workshop-filters-menu")
             .outline()
@@ -432,11 +433,11 @@ impl Workshop {
                     // Groups with headings: it opens at the top, not on the checked version.
                     .scroll_to_checked(false)
                     .max_h(window.viewport_size().height - px(160.))
-                    .label("Game version");
+                    .label(t!("Game version"));
                 for option in [None, Some(BUILDS[0]), Some(BUILDS[1])] {
                     let this = this.clone();
                     menu = menu.item(
-                        PopupMenuItem::new(option.unwrap_or("Any version"))
+                        PopupMenuItem::new(option.unwrap_or(t!("Any version")))
                             .checked(option == build)
                             .on_click(move |_, _, cx| {
                                 let _ = this.update(cx, |this, cx| {
@@ -446,7 +447,7 @@ impl Workshop {
                             }),
                     );
                 }
-                menu = menu.separator().label("Categories");
+                menu = menu.separator().label(t!("Categories"));
                 for tag in TAGS {
                     let this = this.clone();
                     menu = menu.item(
@@ -506,7 +507,7 @@ impl Workshop {
     /// The filters: which build, then the categories (any number, all required).
     fn sidebar(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let builds = [None, Some(BUILDS[0]), Some(BUILDS[1])].map(|build| {
-            let label = build.unwrap_or("Any version");
+            let label = build.unwrap_or(t!("Any version"));
             choice(label, label, self.build == build, false, window, cx)
                 .0
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -529,7 +530,7 @@ impl Workshop {
                 .text_color(theme.primary)
                 .cursor_pointer()
                 .hover(|style| style.bg(theme.muted))
-                .child(format!("Clear {picked}"))
+                .child(t!("Clear {picked}", picked = picked))
                 .on_click(cx.listener(|this, _, _, cx| {
                     // Clearing sits in the title, which folds the group otherwise.
                     cx.stop_propagation();
@@ -546,8 +547,8 @@ impl Workshop {
             .w(SIDEBAR)
             .gap_3()
             .overflow_y_scroll()
-            .child(self.section("Game version", None, builds, cx))
-            .child(self.section("Categories", clear, tags, cx))
+            .child(self.section(t!("Game version"), None, builds, cx))
+            .child(self.section(t!("Categories"), clear, tags, cx))
             .into_any_element()
     }
 
@@ -579,7 +580,12 @@ impl Workshop {
             .cursor_pointer()
             .hover(|style| style.bg(theme.muted))
             .tooltip(move |window, cx| {
-                Tooltip::new(if out { "Let it back" } else { "Leave it out" }).build(window, cx)
+                Tooltip::new(if out {
+                    t!("Let it back")
+                } else {
+                    t!("Leave it out")
+                })
+                .build(window, cx)
             })
             .child(Icon::empty().path("icons/ban.svg").size_4())
             .on_click(cx.listener(move |this, _, _, cx| {
@@ -774,7 +780,7 @@ impl Workshop {
                                     .flex_none()
                                     .text_sm()
                                     .text_color(theme.muted_foreground)
-                                    .child(format!("by {name}"))
+                                    .child(t!("by {name}", name = name))
                             })),
                     )
                     .when(!summary.is_empty(), |this| {
@@ -800,7 +806,7 @@ impl Workshop {
                                         .py_0p5()
                                         .text_xs()
                                         .text_color(theme.muted_foreground)
-                                        .child(format!("{more} more")),
+                                        .child(t!("{more} more", more = more)),
                                 )
                             }),
                     ),
@@ -823,7 +829,7 @@ impl Workshop {
                                 div()
                                     .id(("workshop-subscribers", ix))
                                     .tooltip(|window, cx| {
-                                        Tooltip::new("Subscribers").build(window, cx)
+                                        Tooltip::new(t!("Subscribers")).build(window, cx)
                                     })
                                     .child(Meta::new(
                                         IconName::CircleUser,
@@ -835,8 +841,11 @@ impl Workshop {
                                 div()
                                     .id(("workshop-updated", ix))
                                     .tooltip(move |window, cx| {
-                                        Tooltip::new(format!("Updated {}", branches::date(at)))
-                                            .build(window, cx)
+                                        Tooltip::new(t!(
+                                            "Updated {date}",
+                                            date = branches::date(at)
+                                        ))
+                                        .build(window, cx)
                                     })
                                     .child(Meta::new(
                                         IconName::Clock,
@@ -847,7 +856,7 @@ impl Workshop {
                             })),
                     )
                     .child(
-                        FancyButton::new(("workshop-add", ix), "Install")
+                        FancyButton::new(("workshop-add", ix), t!("Install"))
                             .small()
                             .icon(IconName::Download)
                             .on_click(move |_, window, cx| {
@@ -888,9 +897,9 @@ impl Workshop {
                         .py_2()
                         .text_sm()
                         .text_color(cx.theme().muted_foreground)
-                        .child(format!("Couldn't load more mods: {why}"))
+                        .child(t!("Couldn't load more mods: {why}", why = why))
                         .child(
-                            ui::secondary("workshop-more-retry", "Try again")
+                            ui::secondary("workshop-more-retry", t!("Try again"))
                                 .on_click(cx.listener(|this, _, _, cx| this.run(Fetch::More, cx))),
                         )
                         .into_any_element(),
@@ -900,11 +909,11 @@ impl Workshop {
                 return Some(
                     Empty::new(
                         IconName::TriangleAlert,
-                        "Steam didn't answer that one",
+                        t!("Steam didn't answer that one"),
                         why.clone(),
                     )
                     .action(
-                        FancyButton::new("workshop-retry", "Try again")
+                        FancyButton::new("workshop-retry", t!("Try again"))
                             .small()
                             .on_click(cx.listener(|this, _, _, cx| this.run(Fetch::Fresh, cx))),
                     )
@@ -933,11 +942,11 @@ impl Workshop {
             return Some(
                 Empty::new(
                     IconName::Search,
-                    "No mods match",
-                    "Try other words, or fewer categories.",
+                    t!("No mods match"),
+                    t!("Try other words, or fewer categories."),
                 )
                 .action(
-                    ui::secondary("workshop-reset", "Reset filters")
+                    ui::secondary("workshop-reset", t!("Reset filters"))
                         .on_click(cx.listener(|this, _, window, cx| this.reset(window, cx))),
                 )
                 .into_any_element(),
@@ -950,7 +959,7 @@ impl Workshop {
                 .justify_center()
                 .py_2()
                 .child(
-                    ui::secondary("workshop-more", "Load more")
+                    ui::secondary("workshop-more", t!("Load more"))
                         .loading(self.loading)
                         .disabled(self.loading)
                         .on_click(cx.listener(|this, _, _, cx| this.run(Fetch::More, cx))),
@@ -963,11 +972,11 @@ impl Workshop {
         let shell = self.shell.clone();
         Empty::new(
             IconName::Compass,
-            "Sign in to browse the Workshop",
-            "lata searches it with your Steam account, so you see who made each mod.",
+            t!("Sign in to browse the Workshop"),
+            t!("lata searches it with your Steam account, so you see who made each mod."),
         )
         .action(
-            FancyButton::new("workshop-sign-in", "Sign in with Steam")
+            FancyButton::new("workshop-sign-in", t!("Sign in with Steam"))
                 .small()
                 .on_click(move |_, window, cx| Shell::open_account(shell.clone(), window, cx)),
         )
@@ -1179,8 +1188,12 @@ impl Render for Workshop {
         let sidebar = wide.then(|| self.sidebar(window, cx));
         let count = match (self.results.is_empty(), self.total) {
             (true, _) => None,
-            (false, 1) => Some("1 mod".to_owned()),
-            (false, many) => Some(format!("{} mods", crate::discover::compact(many))),
+            (false, many) => Some(tn!(
+                many,
+                "{count} mod",
+                "{count} mods",
+                count = crate::discover::compact(many)
+            )),
         };
         let footer = self.footer(cx);
         page.gap_4()
@@ -1194,7 +1207,7 @@ impl Render for Workshop {
                         div()
                             .text_2xl()
                             .font_weight(FontWeight::BOLD)
-                            .child("Workshop"),
+                            .child(t!("Workshop")),
                     )
                     .children(count.map(|count| {
                         div()
