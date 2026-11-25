@@ -237,7 +237,7 @@ impl Instance {
 
     pub fn played(&self) -> String {
         match self.last_played {
-            Some(at) => format!("Played {}", ago(store::now().saturating_sub(at))),
+            Some(at) => t!("Played {when}", when = ago(store::now().saturating_sub(at))),
             None => "Never played".into(),
         }
     }
@@ -283,27 +283,19 @@ pub fn bar(id: &SharedString, status: Status, cx: &App) -> Option<impl IntoEleme
 
 /// "just now", "5 minutes ago", "yesterday", "3 weeks ago"...
 pub(crate) fn ago(secs: u64) -> String {
-    const UNITS: [(u64, &str); 5] = [
-        (60, "minute"),
-        (3600, "hour"),
-        (86_400, "day"),
-        (604_800, "week"),
-        (2_592_000, "month"),
-    ];
     if secs < 60 {
-        return "just now".into();
+        return t!("just now").into();
     }
     if (86_400..172_800).contains(&secs) {
-        return "yesterday".into();
+        return t!("yesterday").into();
     }
-    let (unit, name) = UNITS
-        .iter()
-        .rev()
-        .find(|(unit, _)| secs >= *unit)
-        .copied()
-        .expect("secs >= 60");
-    let n = secs / unit;
-    format!("{n} {name}{} ago", if n == 1 { "" } else { "s" })
+    match secs {
+        ..3600 => tn!(secs / 60, "{n} minute ago", "{n} minutes ago"),
+        ..86_400 => tn!(secs / 3600, "{n} hour ago", "{n} hours ago"),
+        ..604_800 => tn!(secs / 86_400, "{n} day ago", "{n} days ago"),
+        ..2_592_000 => tn!(secs / 604_800, "{n} week ago", "{n} weeks ago"),
+        _ => tn!(secs / 2_592_000, "{n} month ago", "{n} months ago"),
+    }
 }
 
 #[cfg(test)]

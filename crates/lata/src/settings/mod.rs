@@ -29,6 +29,8 @@ use crate::ui::FancyButton;
 pub struct Saved {
     #[serde(default)]
     pub theme: Mode,
+    #[serde(default, skip_serializing_if = "crate::i18n::Language::is_system")]
+    pub language: crate::i18n::Language,
     /// The id of the instance a mod was last installed into from a link.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install_target: Option<String>,

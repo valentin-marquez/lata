@@ -2,6 +2,8 @@
 // a terminal opens next to lata every time.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+#[macro_use]
+mod i18n;
 mod account;
 mod assets;
 mod characters;
@@ -50,6 +52,7 @@ fn main() {
         return;
     }
     instance::store::adopt_old_name();
+    i18n::init();
     let started_with = link::from_args(args.iter().cloned());
     // Only one lata per data folder: a second one hands its links over (or asks the first to
     // show itself) and leaves, instead of opening another window. Not when a lata started
