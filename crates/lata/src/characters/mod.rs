@@ -17,6 +17,8 @@ mod model;
 mod page;
 #[path = "presets.model.rs"]
 pub mod presets;
+#[path = "preview.view.rs"]
+mod preview;
 #[path = "render.model.rs"]
 mod render;
 

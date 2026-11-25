@@ -15,11 +15,13 @@ use gpui_kit::*;
 
 use super::catalog::{Catalog, Choice};
 use super::character::{self, Build, Character, Look, Rgb};
+use super::preview::Preview;
 use crate::ui::{self, FancyButton};
 
-const WIDTH: f32 = 780.;
+const WIDTH: f32 = 1080.;
 const HEIGHT: f32 = 560.;
 const NAV: f32 = 200.;
+const PREVIEW: f32 = 300.;
 
 /// What happens on Save: the character, and its name before (`None` for a new one).
 type Saved = Rc<dyn Fn(Character, Option<String>, &mut Window, &mut App)>;
@@ -143,6 +145,7 @@ struct Editor {
     hair: Option<Entity<SelectState<Vec<Pick>>>>,
     beard: Option<Entity<SelectState<Vec<Pick>>>>,
     profession: Option<Entity<SelectState<Vec<Pick>>>>,
+    preview: Entity<Preview>,
     saved: Saved,
     _subscriptions: Vec<Subscription>,
 }
@@ -178,6 +181,13 @@ impl Editor {
                         .default_value(value)
                 })
             };
+        let preview = cx.new(|_| {
+            Preview::new(
+                catalog.media.clone(),
+                catalog.skins.clone(),
+                size(px(PREVIEW), px(HEIGHT)),
+            )
+        });
         let mut editor = Self {
             name: input(character.name.clone(), t!("Kate the nurse"), window, cx),
             first: input(first, t!("Kate"), window, cx),
@@ -191,6 +201,7 @@ impl Editor {
             hair: None,
             beard: None,
             profession: None,
+            preview,
             saved,
             _subscriptions: Vec::new(),
         };
@@ -740,13 +751,24 @@ impl Render for Editor {
             Section::Profession => self.profession(cx),
             Section::Traits => self.traits(cx),
         };
-        let border = cx.theme().border;
+        let look = self.look.clone();
+        self.preview.update(cx, |p, _| p.show(look.as_ref()));
+        let theme = cx.theme();
+        let (border, well) = (theme.border, theme.muted);
         div()
             .flex()
             .h(px(HEIGHT))
             .border_t_1()
             .border_color(border)
             .child(self.nav(cx))
+            .child(
+                div()
+                    .flex_none()
+                    .bg(well)
+                    .border_r_1()
+                    .border_color(border)
+                    .child(self.preview.clone()),
+            )
             .child(
                 div()
                     .flex()
