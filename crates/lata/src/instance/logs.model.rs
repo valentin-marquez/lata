@@ -59,7 +59,7 @@ pub struct Session {
     pub live: bool,
 }
 
-/// The live console first, then saved sessions, newest first.
+/// The live console first, then a hosted server's, then saved sessions, newest first.
 pub fn sessions(cachedir: &Path) -> Vec<Session> {
     let mut saved: Vec<(String, PathBuf)> = Vec::new();
     let logs = cachedir.join("Logs");
@@ -84,6 +84,15 @@ pub fn sessions(cachedir: &Path) -> Vec<Session> {
         path: cachedir.join("console.txt"),
         live: true,
     }];
+    // A hosted coop server writes its console here, admin command replies included.
+    let server = cachedir.join("coop-console.txt");
+    if server.is_file() {
+        all.push(Session {
+            name: "Coop server".into(),
+            path: server,
+            live: true,
+        });
+    }
     all.extend(saved.into_iter().map(|(stamp, path)| Session {
         name: session_name(&stamp).into(),
         path,
@@ -375,13 +384,20 @@ COMMAND QUEUE stallCount = 0 peakUsage = 352
             "Logs/logs_11-11/11-11-26_22-41-03_DebugLog.txt",
             "Logs/logs_11-11/12-11-26_19-58-47_DebugLog.txt",
             "Logs/12-11-26_20-07-52_other.txt",
+            "coop-console.txt",
         ] {
             std::fs::write(dir.join(file), "").unwrap();
         }
         let names: Vec<String> = sessions(&dir).iter().map(|s| s.name.to_string()).collect();
         assert_eq!(
             names,
-            ["Live", "Nov 12 20:07", "Nov 12 19:58", "Nov 11 22:41"]
+            [
+                "Live",
+                "Coop server",
+                "Nov 12 20:07",
+                "Nov 12 19:58",
+                "Nov 11 22:41"
+            ]
         );
         std::fs::remove_dir_all(&dir).unwrap();
     }
