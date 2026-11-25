@@ -231,7 +231,10 @@ pub fn command(instance: &Instance, name: &str) -> io::Result<Command> {
             root.clone(),
             root.join("jre64/lib"),
         ];
-        libs.extend(std::env::var_os("LD_LIBRARY_PATH").map(PathBuf::from));
+        // Kept after ours, entry by entry: as one path its `:` would make joining fail.
+        if let Some(inherited) = std::env::var_os("LD_LIBRARY_PATH") {
+            libs.extend(std::env::split_paths(&inherited));
+        }
         command.env(
             "LD_LIBRARY_PATH",
             std::env::join_paths(libs).map_err(io::Error::other)?,
