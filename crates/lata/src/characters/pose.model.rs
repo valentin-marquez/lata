@@ -4,7 +4,7 @@
 use super::model::{Clip, IDENTITY, Matrix, Mesh, Track, multiply, normalize, transform};
 
 /// Sets the triangles of `mesh` to its pose `time` seconds into `clip`. Joints the clip
-/// doesn't move keep their bind transform; a mesh without skin stays as it is.
+/// doesn't move keep the transform their file saved; a mesh without skin stays as it is.
 pub fn pose(mesh: &mut Mesh, clip: &Clip, time: f32) {
     let Mesh {
         triangles, skin, ..
@@ -17,7 +17,7 @@ pub fn pose(mesh: &mut Mesh, clip: &Clip, time: f32) {
         let local = clip
             .tracks
             .get(&joint.name)
-            .map_or(joint.local, |track| sample(track, time));
+            .map_or(joint.local, |track| sample(track, time, &joint.local));
         let parent = joint.parent.map_or(IDENTITY, |p| world[p]);
         world.push(multiply(&local, &parent));
     }
@@ -26,7 +26,7 @@ pub fn pose(mesh: &mut Mesh, clip: &Clip, time: f32) {
         .iter()
         .map(|(joint, offset)| multiply(offset, &world[*joint]))
         .collect();
-    // One blended matrix per vertex; a vertex no bone holds stays where it rests.
+    // One blended matrix per vertex; a vertex no bone holds keeps where the file put it.
     let blended: Vec<Option<Matrix>> = skin
         .weights
         .iter()
@@ -45,23 +45,30 @@ pub fn pose(mesh: &mut Mesh, clip: &Clip, time: f32) {
         .collect();
     for ((out, rest), corners) in triangles.iter_mut().zip(&skin.rest).zip(&skin.corners) {
         for k in 0..3 {
-            let mut v = rest[k];
+            // ponytail: normals go through the bone matrix as is, right while the clips scale
+            // uniformly (the game's all keep scale 1); the inverse transpose if one doesn't.
             if let Some(m) = blended.get(corners[k]).copied().flatten() {
-                v.pos = transform(v.pos, 1., &m);
-                v.normal = normalize(transform(v.normal, 0., &m));
+                out[k].pos = transform(rest[k].pos, 1., &m);
+                out[k].normal = normalize(transform(rest[k].normal, 0., &m));
             }
-            out[k] = v;
         }
     }
 }
 
 /// The joint's transform at `time`: scale, then rotation, then position, for row vectors.
-fn sample(track: &Track, time: f32) -> Matrix {
+/// What the track has no keys for comes from `saved`, the file's own transform (a missing
+/// scale is taken as 1).
+fn sample(track: &Track, time: f32, saved: &Matrix) -> Matrix {
+    let [px, py, pz] = lerp(&track.position, time, [saved[12], saved[13], saved[14]]);
+    if track.rotation.is_empty() && track.scale.is_empty() {
+        let mut m = *saved;
+        m[12..15].copy_from_slice(&[px, py, pz]);
+        return m;
+    }
     let [sx, sy, sz] = lerp(&track.scale, time, [1.; 3]);
-    let [px, py, pz] = lerp(&track.position, time, [0.; 3]);
     let [w, x, y, z] = rotation(&track.rotation, time);
     // The game's files store the conjugate of what Direct3D's `D3DXMatrixRotationQuaternion`
-    // expects (checked against their bind frames), so this is that matrix with x, y, z negated.
+    // expects (checked against their frames), so this is that matrix with x, y, z negated.
     let r = [
         [
             1. - 2. * (y * y + z * z),
@@ -136,6 +143,30 @@ mod tests {
         std::fs::read_to_string(std::path::Path::new(MEDIA).join(rel)).ok()
     }
 
+    #[test]
+    fn a_track_keeps_what_it_has_no_keys_for() {
+        // Turned a quarter around Z and 2 along X; the track only moves it along Y.
+        let saved = [
+            0., 1., 0., 0., -1., 0., 0., 0., 0., 0., 1., 0., 2., 0., 0., 1.,
+        ];
+        let track = Track {
+            position: vec![(0., [2., 0., 0.]), (1., [2., 4., 0.])],
+            ..Track::default()
+        };
+        let m = sample(&track, 0.5, &saved);
+        assert_eq!(&m[..12], &saved[..12], "the turn stays");
+        assert_eq!(&m[12..15], &[2., 2., 0.]);
+        let turned = sample(
+            &Track {
+                rotation: vec![(0., [1., 0., 0., 0.])],
+                ..Track::default()
+            },
+            0.,
+            &saved,
+        );
+        assert_eq!(&turned[12..15], &[2., 0., 0.], "the place stays");
+    }
+
     /// The hair, skinned in its own file, stays on the body's head through the walk. The
     /// files' frames hold a walk pose, not the bind pose the offsets were taken in, so this
     /// checks the offsets and the keys together.
@@ -198,7 +229,7 @@ mod tests {
         let skin = meshes.iter().find_map(|m| m.skin.as_ref()).unwrap();
         // The rotation and position keys rebuild the frame the model file saved for the hips.
         let hips = skin.joints.iter().find(|j| j.name == "Bip01").unwrap();
-        let m = sample(&walk.tracks["Bip01"], 0.);
+        let m = sample(&walk.tracks["Bip01"], 0., &IDENTITY);
         assert!(
             m.iter().zip(hips.local).all(|(a, b)| (a - b).abs() < 1e-3),
             "{m:?}"
