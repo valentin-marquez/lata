@@ -103,6 +103,8 @@ impl Characters {
             return;
         };
         self.build = Some(build);
+        // No editing with the last version's lists while this one's load.
+        self.catalog = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
             let catalog = crate::runtime::blocking(move || Catalog::load(&game))
