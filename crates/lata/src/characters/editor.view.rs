@@ -973,12 +973,18 @@ impl Render for Editor {
                     .flex()
                     .items_end()
                     .gap_4()
-                    .child(div().w(px(320.)).flex_none().child(required_field(
-                        t!("Preset name"),
-                        "",
-                        Input::new(&self.name),
-                        cx,
-                    )))
+                    .child(
+                        div()
+                            .flex_1()
+                            .max_w(px(320.))
+                            .min_w_0()
+                            .child(required_field(
+                                t!("Preset name"),
+                                "",
+                                Input::new(&self.name),
+                                cx,
+                            )),
+                    )
                     .child(div().flex_1().min_w_0().pb_1().children(note)),
             )
             .child(
