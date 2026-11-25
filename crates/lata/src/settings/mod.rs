@@ -852,7 +852,7 @@ impl Settings {
             .child(div().h_2())
             .child(heading(
                 t!("Language"),
-                t!("System follows your system's language when lata speaks it."),
+                t!("System language is your system's, when lata speaks it, and English otherwise."),
                 cx,
             ))
             .child(div().flex().flex_wrap().gap_3().children(languages))

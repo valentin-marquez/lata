@@ -73,7 +73,7 @@ impl Language {
     /// Each language by its own name, so anyone finds theirs whatever is showing now.
     pub fn label(self) -> &'static str {
         match self {
-            Language::System => t!("System"),
+            Language::System => t!("System language"),
             Language::English => "English",
             Language::Chinese => "简体中文",
             Language::Russian => "Русский",
