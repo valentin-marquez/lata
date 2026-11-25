@@ -251,7 +251,8 @@ mod tests {
                 '\\' => match chars.next()?.1 {
                     'n' => out.push('\n'),
                     't' => out.push('\t'),
-                    '\n' => {
+                    // `\r` too: a Windows checkout has CRLF line ends.
+                    '\n' | '\r' => {
                         // A line continuation skips the next line's indentation.
                         let rest = chars.as_str();
                         let trimmed = rest.trim_start();
@@ -324,6 +325,13 @@ mod tests {
             rest = &rest[open + close + 1..];
         }
         found
+    }
+
+    #[test]
+    fn a_continued_literal_reads_the_same_with_crlf() {
+        let key = |text| literal(text).unwrap().0;
+        assert_eq!(key("a \\\n    b\""), "a b");
+        assert_eq!(key("a \\\r\n    b\""), "a b");
     }
 
     #[test]
