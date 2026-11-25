@@ -115,10 +115,10 @@ pub fn clip(text: &str) -> Option<Clip> {
                 let (Some(&time), Some(&count)) = (d.get(at), d.get(at + 1)) else {
                     break;
                 };
-                let Some(v) = d.get(at + 2..at + 2 + count as usize) else {
+                let Some(v) = d.get(at + 2..at + 2 + fit(count, d)) else {
                     break;
                 };
-                at += 2 + count as usize;
+                at += 2 + fit(count, d);
                 let time = time / ticks;
                 clip.length = clip.length.max(time);
                 match (kind as u32, v) {
@@ -291,13 +291,19 @@ fn walk(node: &Node, root: &Node, skeleton: &[Joint], parent: Matrix, meshes: &m
     }
 }
 
+/// A count read from `d`, no bigger than `d` is: a broken file's huge count would otherwise
+/// overflow the arithmetic of the ranges it marks out.
+fn fit(count: f32, d: &[f32]) -> usize {
+    (count as usize).min(d.len())
+}
+
 /// `n` vectors of `size` floats, then `n` faces (`count; index, index...`), from `at`.
 fn faces(d: &[f32], at: &mut usize) -> Option<Vec<Vec<usize>>> {
-    let n = *d.get(*at)? as usize;
+    let n = fit(*d.get(*at)?, d);
     *at += 1;
     (0..n)
         .map(|_| {
-            let count = *d.get(*at)? as usize;
+            let count = fit(*d.get(*at)?, d);
             let face = d.get(*at + 1..*at + 1 + count)?;
             *at += 1 + count;
             Some(face.iter().map(|&i| i as usize).collect())
@@ -306,7 +312,7 @@ fn faces(d: &[f32], at: &mut usize) -> Option<Vec<Vec<usize>>> {
 }
 
 fn vectors(d: &[f32], at: &mut usize, size: usize) -> Option<Vec<Vec<f32>>> {
-    let n = *d.get(*at)? as usize;
+    let n = fit(*d.get(*at)?, d);
     let list = d.get(*at + 1..*at + 1 + n * size)?;
     *at += 1 + n * size;
     Some(list.chunks(size).map(<[f32]>::to_vec).collect())
@@ -386,8 +392,8 @@ fn skin(node: &Node, skeleton: &[Joint], count: usize) -> Option<Skin> {
         let (Some(name), Some(&n)) = (weights.words.first(), weights.data.first()) else {
             continue;
         };
-        let n = n as usize;
         let d = &weights.data;
+        let n = fit(n, d);
         let (Some(indices), Some(amounts), Some(offset)) = (
             d.get(1..1 + n),
             d.get(1 + n..1 + 2 * n),
