@@ -71,7 +71,15 @@ fn parse(folder: &str) -> Option<(&str, u16, &str)> {
     let mut parts = folder.rsplitn(3, '_');
     let user = parts.next()?;
     let port = parts.next()?.parse().ok()?;
-    let host = parts.next().filter(|host| !host.is_empty())?;
+    // A host name or an IP and nothing else: it goes to the game's command line after
+    // `+connect`, where a leading `-` would read as an option.
+    let host = parts.next().filter(|host| {
+        !host.is_empty()
+            && !host.starts_with('-')
+            && host
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    })?;
     Some((host, port, user))
 }
 
@@ -277,6 +285,8 @@ mod tests {
         // A coop host's own copy, `<server name>_player`.
         assert_eq!(parse("servertest_player"), None);
         assert_eq!(parse("_16261_abc"), None);
+        assert_eq!(parse("-debug_16261_abc"), None, "an option, not a host");
+        assert_eq!(parse("a b;c_16261_abc"), None);
         assert_eq!(md5("bob"), "9f9d51bc70ef21ca5c14f307980a29d8");
     }
 
