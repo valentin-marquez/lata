@@ -273,7 +273,7 @@ mod imp {
             .into_rgba8();
         let (width, height) = png.dimensions();
         let mut data = png.into_raw();
-        for pixel in data.chunks_exact_mut(4) {
+        for pixel in data.as_chunks_mut::<4>().0 {
             pixel.rotate_right(1);
         }
         Some(ksni::Icon {
