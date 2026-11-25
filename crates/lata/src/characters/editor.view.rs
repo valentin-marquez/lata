@@ -619,32 +619,6 @@ impl Editor {
                 .children(about),
             cx,
         );
-        let balance = self.points().map(|left| {
-            let (text, color) = if left < 0 {
-                (
-                    tn!(
-                        -left,
-                        "{n} points short, the game won't start it like this",
-                        "{n} points short, the game won't start it like this"
-                    ),
-                    ui::warning_text(cx),
-                )
-            } else {
-                (
-                    tn!(left, "{n} point left", "{n} points left"),
-                    theme.foreground,
-                )
-            };
-            div()
-                .px_3()
-                .py_2()
-                .rounded(theme.radius)
-                .bg(theme.muted)
-                .text_sm()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(color)
-                .child(text)
-        });
         let has = |id: &str| build.traits.iter().any(|t| t.eq_ignore_ascii_case(id));
         let ruled = self.ruled_out();
         let free = |id: &str| !ruled.iter().any(|r| r.eq_ignore_ascii_case(id));
@@ -714,10 +688,40 @@ impl Editor {
             .flex_col()
             .gap_5()
             .child(profession)
-            .children(balance)
             .child(group(t!("Good traits"), true, cx))
             .child(group(t!("Bad traits"), false, cx))
             .children(others)
+    }
+
+    /// Points left, kept in view above the traits while they scroll.
+    fn balance(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let theme = cx.theme().clone();
+        self.points().map(|left| {
+            let (text, color) = if left < 0 {
+                (
+                    tn!(
+                        -left,
+                        "{n} points short, the game won't start it like this",
+                        "{n} points short, the game won't start it like this"
+                    ),
+                    ui::warning_text(cx),
+                )
+            } else {
+                (
+                    tn!(left, "{n} point left", "{n} points left"),
+                    theme.foreground,
+                )
+            };
+            div()
+                .px_3()
+                .py_2()
+                .rounded(theme.radius)
+                .bg(theme.muted)
+                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(color)
+                .child(text)
+        })
     }
 
     /// Traits the profession's own traits rule out (a veteran can't be brave).
@@ -777,6 +781,9 @@ impl Editor {
             .p_3()
             .gap_3()
             .child(ui::tab_tray(tabs, cx))
+            .when(self.section == Section::Build, |this| {
+                this.children(self.balance(cx))
+            })
             .child(
                 div()
                     .id("character-section")
