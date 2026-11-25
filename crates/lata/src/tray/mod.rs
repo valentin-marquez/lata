@@ -101,7 +101,13 @@ mod imp {
     }
 
     pub fn create(cx: &mut App) {
-        match build() {
+        // The scale of the first window; the icon is made once, at the scale lata started on.
+        let scale = cx
+            .windows()
+            .first()
+            .and_then(|window| window.update(cx, |_, window, _| window.scale_factor()).ok())
+            .unwrap_or(1.0);
+        match build(scale) {
             Ok(icon) => cx.set_global(Held(Some(icon))),
             Err(err) => eprintln!("couldn't put lata in the tray: {err}"),
         }
@@ -111,12 +117,31 @@ mod imp {
         cx.set_global(Held(None));
     }
 
-    fn build() -> Result<TrayIcon, String> {
-        let png = image::load_from_memory_with_format(PNG, image::ImageFormat::Png)
-            .map_err(|err| err.to_string())?
-            .into_rgba8();
-        let (width, height) = png.dimensions();
-        let icon = Icon::from_rgba(png.into_raw(), width, height).map_err(|err| err.to_string())?;
+    /// The tray draws a 16 px icon at 100% scaling. Windows picks the closest frame of the exe's
+    /// multi-size icon (resource 1, see lata.rc) when asked for the real size, which a single 32 px
+    /// PNG scaled down by the shell can't match.
+    #[cfg(windows)]
+    fn native_icon(scale: f32) -> Option<Icon> {
+        let side = (16.0 * scale).round().clamp(16.0, 64.0) as u32;
+        Icon::from_resource(1, Some((side, side))).ok()
+    }
+
+    #[cfg(not(windows))]
+    fn native_icon(_: f32) -> Option<Icon> {
+        None
+    }
+
+    fn build(scale: f32) -> Result<TrayIcon, String> {
+        let icon = match native_icon(scale) {
+            Some(icon) => icon,
+            None => {
+                let png = image::load_from_memory_with_format(PNG, image::ImageFormat::Png)
+                    .map_err(|err| err.to_string())?
+                    .into_rgba8();
+                let (width, height) = png.dimensions();
+                Icon::from_rgba(png.into_raw(), width, height).map_err(|err| err.to_string())?
+            }
+        };
         let show = MenuItem::with_id(SHOW, t!("Show lata"), true, None);
         let quit = MenuItem::with_id(QUIT, t!("Quit"), true, None);
         let menu = Menu::with_items(&[&show, &PredefinedMenuItem::separator(), &quit])
