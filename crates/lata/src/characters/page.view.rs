@@ -1,5 +1,5 @@
 //! The Characters page: every shared character as a card, and the editor to make and change
-//! them. The lists the editor offers come from one installed game version, picked here.
+//! them, which takes the page's place while it is open. The lists the editor offers come from one installed game version, picked here.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,7 +15,7 @@ use gpui_kit::*;
 
 use super::catalog::Catalog;
 use super::character::{self, Character};
-use super::editor;
+use super::editor::{self, Editor, Panel};
 use super::presets::Kind;
 use crate::instance::Instance;
 use crate::ui::{self, Empty, FancyButton, Meta};
@@ -40,6 +40,8 @@ pub struct Characters {
     /// The one the lists come from.
     build: Option<u32>,
     catalog: Option<Arc<Catalog>>,
+    /// The character being edited, and the controls it puts in the shell's right panel.
+    editor: Option<(Entity<Editor>, Entity<Panel>)>,
 }
 
 impl Characters {
@@ -49,6 +51,7 @@ impl Characters {
             versions: Vec::new(),
             build: None,
             catalog: None,
+            editor: None,
         };
         this.reload(instances, cx);
         this
@@ -130,7 +133,7 @@ impl Characters {
     }
 
     /// Opens the editor on `character` (a new one when `None`).
-    fn edit(&self, character: Option<Character>, window: &mut Window, cx: &mut Context<Self>) {
+    fn edit(&mut self, character: Option<Character>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(catalog) = self.catalog.clone() else {
             return;
         };
@@ -142,22 +145,84 @@ impl Characters {
             .filter(|name| Some(name) != editing.as_ref())
             .collect();
         let this = cx.entity().downgrade();
-        editor::open(
-            character,
-            taken,
-            catalog,
-            move |character, old, window, cx| {
-                let _ = this.update(cx, |this, cx| {
-                    this.save(&character, old.as_deref(), window, cx)
-                });
-            },
-            window,
-            cx,
-        );
+        let editor = cx.new(|cx| Editor::new(this, character, taken, catalog, window, cx));
+        let panel = cx.new(|cx| Panel::new(editor.clone(), cx));
+        self.editor = Some((editor, panel));
+        cx.notify();
+    }
+
+    /// The editor's controls for the shell's right panel, while one is open.
+    pub fn panel(&self) -> Option<AnyView> {
+        self.editor.as_ref().map(|(_, panel)| panel.clone().into())
+    }
+
+    /// Leaves the open editor, asking first when it has changes, and then runs `then`.
+    /// Returns false, without running `then`, when no editor is open.
+    pub fn leave(
+        &self,
+        then: impl FnOnce(&mut Window, &mut App) + 'static,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> bool {
+        let Some((editor, _)) = &self.editor else {
+            return false;
+        };
+        editor::leave(editor.clone(), then, window, cx);
+        true
+    }
+
+    /// Back to the grid.
+    pub(super) fn close(&mut self, cx: &mut Context<Self>) {
+        self.editor = None;
+        cx.notify();
+    }
+
+    /// Saves what the editor made, in place of `old`, and closes it. On failure the editor
+    /// stays open, and the error says why.
+    pub(super) fn commit(
+        &mut self,
+        character: &Character,
+        old: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        // Checked against the store as it is now: a game may have saved one by that name
+        // since the editor opened.
+        self.read(cx);
+        if old != Some(character.name.as_str())
+            && self.all().iter().any(|c| c.name == character.name)
+        {
+            return Err(t!("Another character already has that name").to_owned());
+        }
+        self.write(character, old, cx)
+            .map_err(|err| err.to_string())?;
+        self.close(cx);
+        Ok(())
     }
 
     /// Writes `character` into the store, in place of `old`. Read fresh first: a game that
     /// exited since may have saved others.
+    fn write(
+        &mut self,
+        character: &Character,
+        old: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> std::io::Result<()> {
+        let written = super::shared(Kind::Outfits).and_then(|mut outfits| {
+            let mut builds = super::shared(Kind::Builds)?;
+            let before = outfits.clone();
+            character.save(old, &mut outfits, &mut builds);
+            super::keep(&outfits)?;
+            // Half a character written would be in the way of trying again under its name:
+            // the looks go back to how they were.
+            super::keep(&builds).inspect_err(|_| {
+                let _ = super::keep(&before);
+            })
+        });
+        self.read(cx);
+        written
+    }
+
+    /// [`Self::write`], telling of a failure in a toast.
     fn save(
         &mut self,
         character: &Character,
@@ -165,19 +230,12 @@ impl Characters {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let written = super::shared(Kind::Outfits).and_then(|mut outfits| {
-            let mut builds = super::shared(Kind::Builds)?;
-            character.save(old, &mut outfits, &mut builds);
-            super::keep(&outfits)?;
-            super::keep(&builds)
-        });
-        if let Err(err) = written {
+        if let Err(err) = self.write(character, old, cx) {
             window.push_notification(
                 ui::toast::failed_because(t!("Hmm, that character didn't save"), err),
                 cx,
             );
         }
-        self.read(cx);
     }
 
     fn duplicate(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -504,6 +562,9 @@ fn edit_item(this: WeakEntity<Characters>, character: Character) -> PopupMenuIte
 
 impl Render for Characters {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some((editor, _)) = &self.editor {
+            return editor.clone().into_any_element();
+        }
         let theme = cx.theme().clone();
         let count = self.all().len();
         let editable = self.catalog.is_some();
@@ -578,5 +639,6 @@ impl Render for Characters {
             .overflow_y_scroll()
             .child(div().flex().flex_col().gap_1().child(header).child(about))
             .child(ui::enter(body, "characters-body"))
+            .into_any_element()
     }
 }
