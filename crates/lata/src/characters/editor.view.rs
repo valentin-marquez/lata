@@ -123,17 +123,18 @@ impl SearchableListItem for Pick {
     }
 
     fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        let muted = cx.theme().muted_foreground;
+        let theme = cx.theme();
         div()
             .flex()
             .w_full()
             .justify_between()
             .gap_4()
             .child(self.name.clone())
-            .children(
-                self.cost
-                    .map(|cost| div().text_color(muted).child(points(cost))),
-            )
+            .children(self.cost.map(|cost| {
+                div()
+                    .text_color(points_color(cost, theme))
+                    .child(points(cost))
+            }))
     }
 
     fn value(&self) -> &String {
@@ -291,8 +292,13 @@ impl Editor {
                 });
             }) as Hover
         });
+        let mut list: Vec<&Choice> = list.iter().collect();
+        if costs {
+            // By the number shown, the most points first; the order it came in breaks ties.
+            list.sort_by_key(|c| std::cmp::Reverse(c.cost));
+        }
         let picks: Vec<Pick> = list
-            .iter()
+            .into_iter()
             .map(|choice| Pick {
                 id: choice.id.clone(),
                 name: choice.name.clone().into(),
@@ -453,7 +459,7 @@ impl Editor {
                 |(id, label, value)| {
                     chip(
                         SharedString::from(id),
-                        label.into(),
+                        SharedString::from(label),
                         female == value,
                         &theme,
                         cx,
@@ -664,16 +670,23 @@ impl Editor {
         let ruled = self.ruled_out();
         let free = |id: &str| !ruled.iter().any(|r| r.eq_ignore_ascii_case(id));
         let group = |title: &'static str, good: bool, cx: &mut Context<Self>| {
-            let chips = self
+            let mut shown: Vec<_> = self
                 .catalog
                 .traits
                 .iter()
                 .filter(|t| (t.cost >= 0) == good)
+                .collect();
+            // Cheapest first, as the game lists them; the order it came in breaks ties.
+            shown.sort_by_key(|t| t.cost.abs());
+            let chips = shown
+                .into_iter()
                 .map(|t| {
                     let id = t.id.clone();
                     let chip = chip(
                         SharedString::from(format!("trait-{id}")),
-                        format!("{} {}", t.name, points(-t.cost)).into(),
+                        div()
+                            .text_color(points_color(-t.cost, &theme))
+                            .child(format!("{} {}", t.name, points(-t.cost))),
                         has(&id),
                         &theme,
                         cx,
@@ -714,7 +727,7 @@ impl Editor {
                     .children(unknown.into_iter().map(|id| {
                         chip(
                             SharedString::from(format!("unknown-{id}")),
-                            id.clone().into(),
+                            SharedString::from(id.clone()),
                             true,
                             &theme,
                             cx,
@@ -900,6 +913,16 @@ fn points(n: i32) -> String {
     }
 }
 
+/// As the game paints them: green for what costs points (the good), red for what gives them
+/// (the bad), muted for none.
+fn points_color(n: i32, theme: &gpui_kit::component::Theme) -> Hsla {
+    match n.signum() {
+        1 => theme.danger,
+        -1 => theme.success,
+        _ => theme.muted_foreground,
+    }
+}
+
 pub fn color(rgb: Rgb) -> Hsla {
     Rgba {
         r: rgb[0],
@@ -971,7 +994,7 @@ fn swatches(
 /// A choice that is on or off, like the channel chips of Create instance.
 fn chip(
     id: SharedString,
-    label: SharedString,
+    label: impl IntoElement,
     selected: bool,
     theme: &gpui_kit::component::Theme,
     cx: &App,
