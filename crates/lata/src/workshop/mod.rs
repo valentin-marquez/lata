@@ -1150,6 +1150,7 @@ fn shown_tag(tag: &str) -> String {
 impl Render for Workshop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         ui::smooth_scroll("workshop-scroll", &self.scroll, window, cx);
+        crate::ui::placeholder(&self.search, t!("Search the Workshop"), window, cx);
         let page = div().id("workshop").flex().flex_col().size_full().p_6();
         let Some(account) = self.account(cx) else {
             self.who = None;

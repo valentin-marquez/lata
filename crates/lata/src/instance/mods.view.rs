@@ -1229,6 +1229,7 @@ impl Render for Mods {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let base = self.scroll.0.borrow().base_handle.clone();
         ui::smooth_scroll("mods-scroll", &base, window, cx);
+        crate::ui::placeholder(&self.search, t!("Search mods"), window, cx);
         // Still reading: the shell's bar shows it, and "No mods yet" would be a lie.
         if self.stamp.is_none() {
             return div().flex_1().into_any_element();

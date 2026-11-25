@@ -29,6 +29,19 @@ pub fn danger_item(label: &'static str, icon: IconName, color: Hsla) -> PopupMen
         .icon(Icon::new(icon).text_color(color))
 }
 
+/// Keeps a kept input's placeholder in the current language: `InputState` holds the text it
+/// was made with, so a view that outlives a language change calls this as it renders.
+pub fn placeholder(
+    input: &gpui_kit::Entity<gpui_kit::component::input::InputState>,
+    text: &'static str,
+    window: &mut gpui_kit::Window,
+    cx: &mut App,
+) {
+    if input.read(cx).presentation().placeholder() != text {
+        input.update(cx, |input, cx| input.set_placeholder(text, window, cx));
+    }
+}
+
 /// Default motion for anything that reacts to the user: critically damped, no overshoot.
 /// Interactions animate with springs, never with linear timing.
 pub const SPRING: Spring = Spring::new(Duration::from_millis(300));

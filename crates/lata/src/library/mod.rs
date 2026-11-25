@@ -636,6 +636,7 @@ fn banner(total: usize, hero: Option<Option<std::path::PathBuf>>, cx: &App) -> D
 impl Render for Library {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         ui::smooth_scroll("library-scroll", &self.scroll, window, cx);
+        ui::placeholder(&self.search, t!("Search"), window, cx);
         let shown = self.shown(cx);
         let total = self
             .shell

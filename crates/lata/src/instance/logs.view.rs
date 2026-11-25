@@ -474,7 +474,8 @@ impl Logs {
 }
 
 impl Render for Logs {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::ui::placeholder(&self.search, t!("Search"), window, cx);
         let theme = cx.theme().clone();
         let list = if self.shown.is_empty() {
             self.empty(cx).into_any_element()
