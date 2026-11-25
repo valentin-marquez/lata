@@ -68,6 +68,16 @@ pub fn command(instance: &Instance, connect: Option<&str>) -> io::Result<Command
     if let Some(address) = connect {
         command.args(["+connect", address]);
     }
+    // A Java agent typed by hand (PZ Optimization's, say) loads `instrument.dll` before the
+    // game's Java is up, and on Windows that DLL finds `java.dll` and `jli.dll` only on PATH.
+    if cfg!(windows) {
+        let jre = game.join("jre64").join("bin");
+        let inherited = std::env::var_os("PATH").unwrap_or_default();
+        let paths = std::iter::once(jre).chain(std::env::split_paths(&inherited));
+        if let Ok(path) = std::env::join_paths(paths) {
+            command.env("PATH", path);
+        }
+    }
     Ok(command)
 }
 
