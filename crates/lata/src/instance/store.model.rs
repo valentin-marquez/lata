@@ -272,8 +272,8 @@ pub fn duplicate(
     let base = manifest.name.clone();
     manifest.name = (1..)
         .map(|n| match n {
-            1 => format!("{base} (copy)"),
-            n => format!("{base} (copy {n})"),
+            1 => t!("{base} (copy)", base = base),
+            n => t!("{base} (copy {n})", base = base, n = n),
         })
         .find(|name| !names.contains(name))
         .expect("an unused name exists");
@@ -363,7 +363,7 @@ pub fn configure(dir: &Path, settings: &Settings) -> io::Result<()> {
     if name.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "the name is empty",
+            t!("the name is empty"),
         ));
     }
     let path = dir.join(FILE);
@@ -383,7 +383,7 @@ pub fn delete(root: &Path, dir: &Path, mut progress: impl FnMut(u64, u64)) -> io
     if dir.parent() != Some(root) || !dir.join(FILE).is_file() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "not an instance folder",
+            t!("not an instance folder"),
         ));
     }
     // The manifest goes first: from then on the instance is no longer listed, however long

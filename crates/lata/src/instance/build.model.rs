@@ -173,9 +173,9 @@ pub fn name(build: u32, game: Option<&Path>, branch: Option<&Branch>) -> String 
 /// The update channel a branch is: the part of its name players care about.
 pub fn channel(branch: &str) -> String {
     match branch {
-        "public" => "Stable".into(),
-        "pre-release" => "Pre-release".into(),
-        "unstable" => "Unstable".into(),
+        "public" => n!("Stable").into(),
+        "pre-release" => n!("Pre-release").into(),
+        "unstable" => n!("Unstable").into(),
         other => other.to_owned(),
     }
 }

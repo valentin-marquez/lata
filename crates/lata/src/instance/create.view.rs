@@ -90,7 +90,7 @@ pub fn open(
         // Fades in settling from just above, and back out (the default drops from the window top).
         let dialog = dialog.entrance(DialogEntrance::FadeSlide);
         dialog
-            .title("Create instance")
+            .title(t!("Create instance"))
             .centered()
             .w(px(620.))
             .child(view.clone())
@@ -173,7 +173,7 @@ impl Create {
             self.collection = if typed.trim().is_empty() {
                 Lookup::Empty
             } else {
-                Lookup::Failed("Hmm, that doesn't look like a Workshop link".into())
+                Lookup::Failed(t!("Hmm, that doesn't look like a Workshop link").into())
             };
             return cx.notify();
         };
@@ -356,7 +356,7 @@ impl Create {
                 (self.created)(instance, mods, window, cx);
             }
             Err(err) => window.push_notification(
-                crate::ui::toast::failed_because("Well, that instance didn't happen", err),
+                crate::ui::toast::failed_because(t!("Well, that instance didn't happen"), err),
                 cx,
             ),
         }
@@ -368,15 +368,15 @@ impl Create {
             (
                 Step::Custom,
                 IconName::Box,
-                "Custom setup",
-                "Start from scratch with a game version you pick.",
+                t!("Custom setup"),
+                t!("Start from scratch with a game version you pick."),
                 true,
             ),
             (
                 Step::Collection,
                 IconName::Compass,
-                "From a Workshop collection",
-                "Paste a collection link and get its mods installed.",
+                t!("From a Workshop collection"),
+                t!("Paste a collection link and get its mods installed."),
                 true,
             ),
         ];
@@ -389,8 +389,8 @@ impl Create {
                 option(
                     options.len(),
                     IconName::Globe,
-                    "From the game you already play",
-                    "Bring your worlds, their mods and your settings over.",
+                    t!("From the game you already play"),
+                    t!("Bring your worlds, their mods and your settings over."),
                     true,
                     cx,
                 )
@@ -404,8 +404,8 @@ impl Create {
         let pack = option(
             options.len() + 1,
             IconName::Download,
-            "Import a .lata",
-            "Open a shared pack with its build, mods and settings.",
+            t!("Import a .lata"),
+            t!("Open a shared pack with its build, mods and settings."),
             true,
             cx,
         )
@@ -431,7 +431,7 @@ impl Create {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Import".into()),
+            prompt: Some(t!("Import").into()),
         });
         cx.spawn_in(window, async move |this, cx| {
             let Ok(Ok(Some(paths))) = picked.await else {
@@ -460,13 +460,13 @@ impl Create {
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .child(label("Game version"))
+                    .child(label(t!("Game version")))
                     .child(Loader)
                     .child(
                         div()
                             .text_sm()
                             .text_color(theme.muted_foreground)
-                            .child("Loading versions from Steam"),
+                            .child(t!("Loading versions from Steam")),
                     );
             }
             Some(Err(err)) => {
@@ -480,10 +480,10 @@ impl Create {
                             div()
                                 .flex_1()
                                 .text_color(theme.muted_foreground)
-                                .child(format!("Couldn't reach Steam: {err}")),
+                                .child(t!("Couldn't reach Steam: {err}", err = err)),
                         )
                         .child(
-                            ui::secondary("retry", "Retry")
+                            ui::secondary("retry", t!("Retry"))
                                 .on_click(cx.listener(|this, _, window, cx| this.load(window, cx))),
                         ),
                 );
@@ -524,7 +524,7 @@ impl Create {
                 .when(selected, |this| {
                     this.child(Glyph::new(IconName::Check).size_4())
                 })
-                .child(channel.to_owned())
+                .child(crate::i18n::tr(channel).to_owned())
                 .on_click(cx.listener(move |this, _, window, cx| {
                     if this.channel != pick {
                         this.pick_channel(pick.clone(), window, cx);
@@ -536,19 +536,19 @@ impl Create {
                 div()
                     .text_sm()
                     .text_color(theme.muted_foreground)
-                    .child("Steam has no versions to offer right now"),
+                    .child(t!("Steam has no versions to offer right now")),
             );
         };
         let live = list.iter().find(|b| b.name == chosen.branch);
         // What the pick means for updates, in a line under the dropdown.
         let about = match (&chosen.target, live) {
-            (Some(_), _) => "An older version. lata lets you know when a newer one is out, updating is up to you.".to_owned(),
+            (Some(_), _) => t!("An older version. lata lets you know when a newer one is out, updating is up to you.").to_owned(),
             (None, Some(b)) if branches::fallback(&b.name) => {
-                "Steam keeps this one on its own branch, so it won't get updates.".to_owned()
+                t!("Steam keeps this one on its own branch, so it won't get updates.").to_owned()
             }
             (None, Some(b)) => match &b.description {
                 Some(text) if branches::described(text).is_none() => text.clone(),
-                _ if b.name == "public" => "Current release".to_owned(),
+                _ if b.name == "public" => t!("Current release").to_owned(),
                 _ => String::new(),
             },
             (None, None) => String::new(),
@@ -578,16 +578,15 @@ impl Create {
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .child(label("Channel"))
+                    .child(label(t!("Channel")))
                     .child(div().flex().flex_wrap().gap_2().children(chips))
                     .children(self.made_for.as_ref().map(|(title, modern)| {
                         let build = if *modern { "Build 42" } else { "Build 41" };
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(format!(
-                                "Only {build} versions here: {title} runs on that one."
-                            ))
+                        div().text_xs().text_color(theme.muted_foreground).child(t!(
+                            "Only {build} versions here: {title} runs on that one.",
+                            build = build,
+                            title = title
+                        ))
                     })),
             )
             .child(
@@ -595,11 +594,11 @@ impl Create {
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .child(label("Game version"))
+                    .child(label(t!("Game version")))
                     .children(self.select.as_ref().map(|state| {
                         Select::new(state)
                             .menu_max_h(px(280.))
-                            .accessibility_label("Game version")
+                            .accessibility_label(t!("Game version"))
                     }))
                     .child(note),
             )
@@ -636,7 +635,7 @@ impl Create {
                 .items_center()
                 .child(note(
                     IconName::Link,
-                    "Paste a collection link and what's in it shows up here".into(),
+                    t!("Paste a collection link and what's in it shows up here").into(),
                     theme.muted_foreground,
                 ))
                 .into_any_element(),
@@ -644,7 +643,7 @@ impl Create {
                 .items_center()
                 .child(note(
                     IconName::Search,
-                    "Asking Steam what's in it".into(),
+                    t!("Asking Steam what's in it").into(),
                     theme.muted_foreground,
                 ))
                 .child(div().w(px(160.)).child(Loader))
@@ -671,16 +670,13 @@ impl Create {
                         if fit.is_empty() {
                             this.child(note(
                                 IconName::TriangleAlert,
-                                "Nothing in it runs on this version".into(),
+                                t!("Nothing in it runs on this version").into(),
                                 theme.danger,
                             ))
                         } else {
                             this.child(Meta::new(
                                 IconName::Puzzle,
-                                match fit.len() {
-                                    1 => "1 mod".to_owned(),
-                                    n => format!("{n} mods"),
-                                },
+                                tn!(fit.len(), "{n} mod", "{n} mods"),
                             ))
                             .child(Meta::new(IconName::Download, size(total)))
                         }
@@ -708,12 +704,12 @@ impl Create {
             .flex()
             .justify_between()
             .child(
-                ui::secondary("back", "Back")
+                ui::secondary("back", t!("Back"))
                     .icon(IconName::ChevronLeft)
                     .on_click(cx.listener(|this, _, _, cx| this.go(Step::Choose, cx))),
             )
             .child(
-                FancyButton::new("create", "Create instance")
+                FancyButton::new("create", t!("Create instance"))
                     .small()
                     .icon(IconName::Plus)
                     .disabled(!ready)
@@ -810,7 +806,11 @@ fn left_out(other: &[&steam::workshop::Item], build: &'static str, cx: &App) -> 
                 .text_color(color)
                 .cursor_pointer()
                 .child(Glyph::new(IconName::TriangleAlert).size_4())
-                .child(div().underline().child(format!("{count} left out"))),
+                .child(
+                    div()
+                        .underline()
+                        .child(tn!(count, "{n} left out", "{n} left out")),
+                ),
         )
         .content(move |_, _, cx| {
             let theme = cx.theme();
@@ -846,7 +846,7 @@ fn left_out(other: &[&steam::workshop::Item], build: &'static str, cx: &App) -> 
                         .pb_1()
                         .text_xs()
                         .text_color(theme.muted_foreground)
-                        .child(format!("For {build} only, so they stay out")),
+                        .child(t!("For {build} only, so they stay out", build = build)),
                 )
                 .child(
                     div()
@@ -866,7 +866,7 @@ fn titled(content: Div) -> Div {
         .flex()
         .flex_col()
         .gap_2()
-        .child(label("Game version"))
+        .child(label(t!("Game version")))
         .child(content)
 }
 
@@ -898,7 +898,7 @@ impl Render for Create {
                                 .flex()
                                 .flex_col()
                                 .gap_2()
-                                .child(label("Collection link"))
+                                .child(label(t!("Collection link")))
                                 .child(Input::new(&self.link))
                                 .child(self.summary(cx)),
                         )
@@ -938,7 +938,7 @@ impl Row {
             .font_weight(FontWeight::MEDIUM)
             .bg(self.accent.opacity(0.15))
             .text_color(self.accent)
-            .child("Latest")
+            .child(t!("Latest"))
     }
 }
 
@@ -947,7 +947,7 @@ impl SearchableListItem for Row {
 
     fn title(&self) -> SharedString {
         match self.latest {
-            true => format!("{} (latest)", self.name).into(),
+            true => t!("{name} (latest)", name = self.name).into(),
             false => self.name.clone(),
         }
     }

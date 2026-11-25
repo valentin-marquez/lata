@@ -61,7 +61,7 @@ impl Picker {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Use as icon".into()),
+            prompt: Some(t!("Use as icon").into()),
         });
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(paths))) = picked.await else {
@@ -103,9 +103,9 @@ impl Picker {
                 .icon(icon)
                 .label(label)
         };
-        let upload = button("icon-upload", IconName::Download, "Upload")
+        let upload = button("icon-upload", IconName::Download, t!("Upload"))
             .on_click(cx.listener(|this, _, _, cx| this.upload(cx)));
-        let random = button("icon-random", IconName::LoaderCircle, "Randomize").on_click(
+        let random = button("icon-random", IconName::LoaderCircle, t!("Randomize")).on_click(
             cx.listener(|this, _, _, cx| {
                 this.icon = Icon::picked(&seed());
                 cx.notify();
@@ -131,7 +131,7 @@ impl Picker {
         };
         let picker = cx.entity();
         let customize = Popover::new("icon-customize")
-            .trigger(button("icon-customize", IconName::Palette, "Customize").w_full())
+            .trigger(button("icon-customize", IconName::Palette, t!("Customize")).w_full())
             .trigger_style(StyleRefinement::default().flex_1())
             .content(move |_, _, cx| {
                 // Rendered on every frame it is open, so picks show at once.
@@ -155,7 +155,7 @@ impl Picker {
                             div()
                                 .text_sm()
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .child("Name"),
+                                .child(t!("Name")),
                         )
                         .child(Input::new(&name)),
                 )
@@ -185,7 +185,7 @@ impl Picker {
             .children(
                 crate::game::THEMES
                     .iter()
-                    .map(|(name, _)| Tab::new().label(*name).cursor_pointer()),
+                    .map(|(name, _)| Tab::new().label(theme_label(name)).cursor_pointer()),
             )
             .on_click(cx.listener(|this, ix: &usize, _, cx| {
                 this.theme = *ix;
@@ -323,4 +323,17 @@ pub fn keep(icon: &Icon, dir: &Path) -> std::io::Result<Icon> {
     let name = format!("icon.{ext}");
     std::fs::copy(from, dir.join(&name))?;
     Ok(Icon::Image { file: name })
+}
+
+/// A `game::THEMES` name in the current language (the list is a macro of literals).
+fn theme_label(name: &'static str) -> &'static str {
+    match name {
+        "Weapons" => t!("Weapons"),
+        "Tools" => t!("Tools"),
+        "Food" => t!("Food"),
+        "Medical" => t!("Medical"),
+        "Survival" => t!("Survival"),
+        "Everyday" => t!("Everyday"),
+        other => other,
+    }
 }

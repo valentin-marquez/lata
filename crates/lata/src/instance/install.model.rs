@@ -97,9 +97,13 @@ impl Download {
             .saturating_sub(self.done)
             .checked_div(self.speed)?;
         Some(match secs {
-            0..60 => format!("{secs} s left"),
-            60..3600 => format!("{} min left", secs.div_ceil(60)),
-            _ => format!("{} h {} min left", secs / 3600, secs % 3600 / 60),
+            0..60 => t!("{secs} s left", secs = secs),
+            60..3600 => t!("{min} min left", min = secs.div_ceil(60)),
+            _ => t!(
+                "{h} h {min} min left",
+                h = secs / 3600,
+                min = secs % 3600 / 60
+            ),
         })
     }
 
@@ -161,7 +165,9 @@ pub fn start(
                     }
                     Event::Done { fell_back }
                 }
-                Err(err) => Event::Failed(format!("installed, but couldn't record it: {err}")),
+                Err(err) => {
+                    Event::Failed(t!("installed, but couldn't record it: {err}", err = err))
+                }
             },
             Err(err) => Event::Failed(err),
         };
@@ -208,7 +214,7 @@ async fn plan(
 fn said(err: steam::Error) -> String {
     match err {
         steam::Error::Steam { code: 15, .. } => {
-            "This Steam account doesn't own Project Zomboid".to_owned()
+            t!("This Steam account doesn't own Project Zomboid").to_owned()
         }
         other => other.to_string(),
     }
@@ -284,7 +290,8 @@ async fn install(
             hosts = Some(found);
         }
     }
-    let build = build.ok_or_else(|| format!("Steam no longer has the branch {branch}"))?;
+    let build =
+        build.ok_or_else(|| t!("Steam no longer has the branch {branch}", branch = branch))?;
     let own = instance.dir.join("game");
     // An own `game/` with no recorded build is a download from before builds were shared, cut
     // short: it seeds the shared build and then goes away.
@@ -313,7 +320,11 @@ async fn install(
         false => instance.game().filter(|old| *old != game && old.is_dir()),
     };
     if depots.is_empty() {
-        return Err(format!("The {branch} branch has no files for {}", os()));
+        return Err(t!(
+            "The {branch} branch has no files for {os}",
+            branch = branch,
+            os = os()
+        ));
     }
 
     // Keys and manifests need the CM session; the files themselves come from the CDN.

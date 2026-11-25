@@ -95,22 +95,22 @@ pub struct Instance {
 
 /// Names offered for a new instance, so they don't all start as "New instance".
 const NAMES: [&str; 16] = [
-    "Last Can of Beans",
-    "Boarded Windows",
-    "One More Day",
-    "Canned Soup Club",
-    "Rooftop Garden",
-    "Sledgehammer Days",
-    "Generator Hum",
-    "Rainy Season",
-    "Borrowed Time",
-    "Cabin in the Woods",
-    "Empty Highway",
-    "Lights Out",
-    "Second Winter",
-    "Good Neighbors",
-    "Burnt Stew",
-    "Foraging Trip",
+    n!("Last Can of Beans"),
+    n!("Boarded Windows"),
+    n!("One More Day"),
+    n!("Canned Soup Club"),
+    n!("Rooftop Garden"),
+    n!("Sledgehammer Days"),
+    n!("Generator Hum"),
+    n!("Rainy Season"),
+    n!("Borrowed Time"),
+    n!("Cabin in the Woods"),
+    n!("Empty Highway"),
+    n!("Lights Out"),
+    n!("Second Winter"),
+    n!("Good Neighbors"),
+    n!("Burnt Stew"),
+    n!("Foraging Trip"),
 ];
 
 /// A name for a new instance, a different one most times it is asked.
@@ -118,7 +118,7 @@ pub fn suggest() -> &'static str {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
-    NAMES[now.subsec_nanos() as usize % NAMES.len()]
+    crate::i18n::tr(NAMES[now.subsec_nanos() as usize % NAMES.len()])
 }
 
 /// An instance's picture, stored in its `instance.json`.
@@ -223,7 +223,7 @@ impl Instance {
 
     /// The update channel of the instance's branch ("Stable").
     pub fn channel(&self) -> String {
-        build::channel(&self.branch)
+        crate::i18n::tr(&build::channel(&self.branch)).to_owned()
     }
 
     /// `latest` is the branch's newest build id, when known; without it an install is `Ready`.
@@ -238,7 +238,7 @@ impl Instance {
     pub fn played(&self) -> String {
         match self.last_played {
             Some(at) => t!("Played {when}", when = ago(store::now().saturating_sub(at))),
-            None => "Never played".into(),
+            None => t!("Never played").into(),
         }
     }
 }
@@ -246,24 +246,26 @@ impl Instance {
 impl Status {
     pub fn label(self) -> String {
         match self {
-            Status::NotInstalled => "Not installed".into(),
-            Status::Installing(pct) => format!("Installing {pct}%"),
-            Status::Bringing(pct) => format!("Bringing your game {pct}%"),
-            Status::Ready => "Ready".into(),
-            Status::Outdated => "Update available".into(),
-            Status::Running => "Running".into(),
+            Status::NotInstalled => t!("Not installed").into(),
+            Status::Installing(pct) => t!("Installing {pct}%", pct = pct),
+            Status::Bringing(pct) => t!("Bringing your game {pct}%", pct = pct),
+            Status::Ready => t!("Ready").into(),
+            Status::Outdated => t!("Update available").into(),
+            Status::Running => t!("Running").into(),
         }
     }
 
     /// The main button: label, icon, and whether it can be clicked.
     pub fn action(self) -> (String, IconName, bool) {
         match self {
-            Status::NotInstalled => ("Install".into(), IconName::Download, true),
+            Status::NotInstalled => (t!("Install").into(), IconName::Download, true),
             // Progress shows next to it (bar and download manager), so the button offers the way out.
-            Status::Installing(_) | Status::Bringing(_) => ("Cancel".into(), IconName::Close, true),
+            Status::Installing(_) | Status::Bringing(_) => {
+                (t!("Cancel").into(), IconName::Close, true)
+            }
             // Updating is its own button, after the user confirms; Play still works meanwhile.
-            Status::Ready | Status::Outdated => ("Play".into(), IconName::Play, true),
-            Status::Running => ("Stop".into(), IconName::Square, true),
+            Status::Ready | Status::Outdated => (t!("Play").into(), IconName::Play, true),
+            Status::Running => (t!("Stop").into(), IconName::Square, true),
         }
     }
 }

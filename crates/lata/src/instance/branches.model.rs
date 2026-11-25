@@ -180,7 +180,18 @@ pub async fn fetch() -> Result<Vec<Branch>, String> {
 /// "Nov 6, 2026" for a Unix time, in UTC.
 pub fn date(unix: u64) -> String {
     const MONTHS: [&str; 12] = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        n!("Jan"),
+        n!("Feb"),
+        n!("Mar"),
+        n!("Apr"),
+        n!("May"),
+        n!("Jun"),
+        n!("Jul"),
+        n!("Aug"),
+        n!("Sep"),
+        n!("Oct"),
+        n!("Nov"),
+        n!("Dec"),
     ];
     // Days to civil date (Howard Hinnant's algorithm).
     let z = (unix / 86_400) as i64 + 719_468;
@@ -192,7 +203,12 @@ pub fn date(unix: u64) -> String {
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + i64::from(month <= 2);
-    format!("{} {day}, {year}", MONTHS[(month - 1) as usize])
+    t!(
+        "{month} {day}, {year}",
+        month = crate::i18n::tr(MONTHS[(month - 1) as usize]),
+        day = day,
+        year = year
+    )
 }
 
 #[cfg(test)]

@@ -23,7 +23,7 @@ pub fn open(game: Existing, shell: WeakEntity<Shell>, window: &mut Window, cx: &
     window.open_dialog(cx, move |dialog, _, _| {
         dialog
             .entrance(DialogEntrance::FadeSlide)
-            .title("Bring your game")
+            .title(t!("Bring your game"))
             .centered()
             .w(px(620.))
             .child(view.clone())
@@ -95,7 +95,7 @@ impl Bring {
                             ))
                             .child(Meta::new(
                                 IconName::Clock,
-                                format!("Played {}", super::ago(saved)),
+                                t!("Played {when}", when = super::ago(saved)),
                             )),
                     ),
             )
@@ -119,11 +119,11 @@ impl Render for Bring {
             .flex()
             .flex_col()
             .gap_4()
-            .child(div().text_sm().text_color(theme.muted_foreground).child(
+            .child(div().text_sm().text_color(theme.muted_foreground).child(t!(
                 "Looks like you've been surviving without us. Pick what comes along: \
                          it gets its own instance here, with the mods it needs and your \
-                         settings. Your game's folder stays as it is, lata only copies.",
-            ))
+                         settings. Your game's folder stays as it is, lata only copies."
+            )))
             .when(!rows.is_empty(), |this| {
                 this.child(
                     div()
@@ -147,16 +147,18 @@ impl Render for Bring {
                     .child(Meta::new(
                         IconName::Puzzle,
                         match mods {
-                            0 => "No mods to bring".to_owned(),
-                            1 => "1 mod".to_owned(),
-                            many => format!("{many} mods"),
+                            0 => t!("No mods to bring").to_owned(),
+                            many => tn!(many, "{n} mod", "{n} mods"),
                         },
                     ))
-                    .child(Meta::new(IconName::Settings, "Settings and key bindings"))
+                    .child(Meta::new(
+                        IconName::Settings,
+                        t!("Settings and key bindings"),
+                    ))
                     .when(plans.len() > 1, |this| {
                         this.child(Meta::new(
                             IconName::Box,
-                            "Build 41 and Build 42 worlds get an instance each",
+                            t!("Build 41 and Build 42 worlds get an instance each"),
                         ))
                     }),
             )
@@ -166,11 +168,11 @@ impl Render for Bring {
                     .justify_end()
                     .gap_2()
                     .child(
-                        ui::secondary("bring-later", "Not now")
+                        ui::secondary("bring-later", t!("Not now"))
                             .on_click(|_, window, cx| window.close_dialog(cx)),
                     )
                     .child(
-                        FancyButton::new("bring", "Bring it in")
+                        FancyButton::new("bring", t!("Bring it in"))
                             .small()
                             .icon(IconName::Download)
                             .on_click(cx.listener(|this, _, window, cx| this.confirm(window, cx))),
