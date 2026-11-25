@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.12.0",
+    "date": "November 25, 2026",
+    "added": [
+      "Host a coop server right from an instance, no game menus needed. It loads the instance's mods and maps on its own, in the right order. Start it from the Worlds tab, hit Play to jump in as the host, and invite friends with their Steam ID or profile link.",
+      "The coop server's console shows up in the Logs tab while it runs.",
+      "The Worlds tab lists the servers you've played on, with how many people are on right now, the character you played there, and a Join button.",
+      "Characters you save in the game's character screen now show up in every instance, and the ones you delete stay deleted.",
+      "On Linux, lata can hide in the system tray when you close it too, on desktops that show tray icons."
+    ]
+  },
+  {
     "version": "0.11.0",
     "date": "November 22, 2026",
     "added": [
