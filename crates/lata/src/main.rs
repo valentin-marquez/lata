@@ -91,6 +91,56 @@ fn main() {
 
 /// Opens the main window, and delivers to it what reaches lata from outside.
 fn open(mut incoming: tokio::sync::mpsc::UnboundedReceiver<link::Incoming>, cx: &mut App) {
+    // With the tray on, closing the window can leave lata running without it.
+    tray::apply(cx);
+    // Held here and not only by the window: on Linux going to the tray closes the window, and
+    // the downloads, running games and the rest carry on in the shell for the next one.
+    let shell = cx.new(Shell::new);
+    let mut handle = window(&shell, cx);
+    // Once the window is up: a dialog needs its root view in place.
+    let first = shell.downgrade();
+    let _ = handle.update(cx, |_, window, cx| {
+        window.defer(cx, move |window, cx| {
+            Shell::welcome(first, window, cx);
+            // Here and not at the update splash: after an update it is this window, of the
+            // new lata, that says what changed.
+            news::start(window, cx);
+        })
+    });
+    cx.spawn(async move |cx| {
+        while let Some(message) = incoming.recv().await {
+            // The window closed when lata went to the tray (Linux): a new one opens on the same
+            // shell for a link or a Show.
+            let gone = handle.update(cx, |_, _, _| ()).is_err();
+            if gone && message != link::Incoming::Quit {
+                handle = cx.update(|cx| {
+                    shell.update(cx, |shell, cx| shell.new_window(cx));
+                    window(&shell, cx)
+                });
+            }
+            match message {
+                link::Incoming::Link(text) => {
+                    cx.update(|cx| {
+                        shell.update(cx, |shell, cx| shell.receive_link(text, handle, cx))
+                    });
+                }
+                // Also brings the window back from the tray.
+                link::Incoming::Show => {
+                    let _ = handle.update(cx, |_, window, _| window.activate_window());
+                }
+                link::Incoming::Quit => {
+                    cx.update(tray::quit);
+                }
+            }
+        }
+    })
+    .detach();
+    // Only now is the lata an update replaced let go: this one got as far as its window.
+    update::tidy();
+}
+
+/// Opens a main window on `shell`.
+fn window(shell: &Entity<Shell>, cx: &mut App) -> AnyWindowHandle {
     let options = WindowOptions {
         app_id: Some(APP_ID.into()),
         icon: window_icon(),
@@ -103,43 +153,15 @@ fn open(mut incoming: tokio::sync::mpsc::UnboundedReceiver<link::Incoming>, cx: 
         }),
         ..TitleBar::window_options()
     };
-    gpui_kit::open_window(options, cx, |window, cx| {
+    let shell = shell.clone();
+    gpui_kit::open_window(options, cx, move |window, cx| {
         theme::follow_system(window, cx);
         // With the tray on, closing the window hides it instead of quitting lata.
-        tray::apply(cx);
         window.on_window_should_close(cx, tray::close);
-        let shell = cx.new(Shell::new);
-        let (handle, weak) = (window.window_handle(), shell.downgrade());
-        cx.spawn(async move |cx| {
-            while let Some(message) = incoming.recv().await {
-                match message {
-                    link::Incoming::Link(text) => {
-                        let _ = weak.update(cx, |shell, cx| shell.receive_link(text, handle, cx));
-                    }
-                    // Also brings the window back from the tray.
-                    link::Incoming::Show => {
-                        let _ = handle.update(cx, |_, window, _| window.activate_window());
-                    }
-                    link::Incoming::Quit => {
-                        cx.update(tray::quit);
-                    }
-                }
-            }
-        })
-        .detach();
-        // Once the window is up: a dialog needs its root view in place.
-        let first = shell.downgrade();
-        window.defer(cx, move |window, cx| {
-            Shell::welcome(first, window, cx);
-            // Here and not at the update splash: after an update it is this window, of the
-            // new lata, that says what changed.
-            news::start(window, cx);
-        });
         shell
     })
-    .expect("failed to open main window");
-    // Only now is the lata an update replaced let go: this one got as far as its window.
-    update::tidy();
+    .expect("failed to open main window")
+    .0
 }
 
 #[cfg(test)]

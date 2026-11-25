@@ -1081,6 +1081,19 @@ impl Shell {
         }
     }
 
+    /// The window closed and another opens on this shell (lata came back from the tray on
+    /// Linux). Pages whose fields were bound to the old window are made again in the new one;
+    /// downloads, running games and the rest stay as they are.
+    pub fn new_window(&mut self, cx: &mut Context<Self>) {
+        self.library = None;
+        self.workshop = None;
+        // A page that was loading went with them, and so does its loader.
+        self.loading = false;
+        if let Some(detail) = &self.detail {
+            detail.update(cx, |detail, _| detail.new_window());
+        }
+    }
+
     /// Whether a game runs or anything downloads, deletes or copies: the library can't move.
     pub fn busy(&self) -> bool {
         !self.running.is_empty() || !self.installs.is_empty()

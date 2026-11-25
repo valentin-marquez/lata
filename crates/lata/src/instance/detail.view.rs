@@ -67,6 +67,13 @@ impl Detail {
         cx.notify();
     }
 
+    /// The window closed and another opens (lata came back from the tray): the views made in
+    /// the old one are made again in the new one.
+    pub fn new_window(&mut self) {
+        self.logs = None;
+        self.mods = None;
+    }
+
     pub fn show(&mut self, instance: Instance, cx: &mut Context<Self>) {
         if instance.id != self.instance.id {
             self.logs = None;
