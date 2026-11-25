@@ -114,14 +114,21 @@ impl<D: SearchableListDelegate + 'static> ListDelegate for SearchableListAdapter
             .is_item_checked(ix, item, &self.selection_snapshot, cx);
         let disabled = !self.delegate.is_item_enabled(ix, item, cx);
         let size = self.size;
+        // lata: an item that tracks the mouse hears it for the whole row.
+        let hover = item.tracks_hover().then(|| {
+            let item = item.clone();
+            move |hovered: bool, cx: &mut App| item.on_hover(hovered, cx)
+        });
 
         if let Some(el) = self.delegate.render_item(ix, item, is_checked, window, cx) {
-            return Some(
-                SearchableListItemElement::new(ix.row)
-                    .disabled(disabled)
-                    .with_size(size)
-                    .child(el),
-            );
+            let row = SearchableListItemElement::new(ix.row)
+                .disabled(disabled)
+                .with_size(size)
+                .child(el);
+            return Some(match hover {
+                Some(hover) => row.on_hover(hover),
+                None => row,
+            });
         }
 
         let check_icon = self
@@ -134,14 +141,16 @@ impl<D: SearchableListDelegate + 'static> ListDelegate for SearchableListAdapter
             .truncate()
             .child(item.render(window, cx).into_any_element());
 
-        Some(
-            SearchableListItemElement::new(ix.row)
-                .checked(is_checked)
-                .check_icon(check_icon)
-                .disabled(disabled)
-                .with_size(size)
-                .child(content.into_any_element()),
-        )
+        let row = SearchableListItemElement::new(ix.row)
+            .checked(is_checked)
+            .check_icon(check_icon)
+            .disabled(disabled)
+            .with_size(size)
+            .child(content.into_any_element());
+        Some(match hover {
+            Some(hover) => row.on_hover(hover),
+            None => row,
+        })
     }
 
     fn cancel(&mut self, window: &mut Window, cx: &mut Context<ListState<Self>>) {
@@ -175,8 +184,22 @@ impl<D: SearchableListDelegate + 'static> ListDelegate for SearchableListAdapter
         &mut self,
         ix: Option<IndexPath>,
         _: &mut Window,
-        _: &mut Context<ListState<Self>>,
+        cx: &mut Context<ListState<Self>>,
     ) {
+        // lata: the keyboard cursor over an item that tracks the mouse counts as the mouse being
+        // over it, so what is previewed under the mouse follows the arrow keys too.
+        if self.selected_index != ix {
+            if let Some(old) = self.selected_index.and_then(|at| self.delegate.item(at))
+                && old.tracks_hover()
+            {
+                old.on_hover(false, cx);
+            }
+            if let Some(new) = ix.and_then(|at| self.delegate.item(at))
+                && new.tracks_hover()
+            {
+                new.on_hover(true, cx);
+            }
+        }
         self.selected_index = ix;
     }
 

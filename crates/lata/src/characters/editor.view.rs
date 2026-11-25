@@ -89,11 +89,17 @@ pub fn open(
     });
 }
 
+/// What a dropdown row tells the editor when the mouse enters or leaves it: its id, and which.
+type Hover = Rc<dyn Fn(&str, bool, &mut App)>;
+
 /// An entry in one of the editor's dropdowns.
 #[derive(Clone)]
 struct Pick {
     id: String,
     name: SharedString,
+    /// Told when the mouse enters or leaves this row, with its id: the editor shows it before
+    /// it is chosen. Only the hair list has one.
+    hover: Option<Hover>,
     /// Points it gives (a profession), shown beside it.
     cost: Option<i32>,
 }
@@ -103,6 +109,17 @@ impl SearchableListItem for Pick {
 
     fn title(&self) -> SharedString {
         self.name.clone()
+    }
+
+    fn tracks_hover(&self) -> bool {
+        self.hover.is_some()
+    }
+
+    // The whole row, padding included (vendor/gpui-component), not only the name drawn below.
+    fn on_hover(&self, hovered: bool, cx: &mut App) {
+        if let Some(hover) = &self.hover {
+            hover(&self.id, hovered, cx);
+        }
     }
 
     fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
@@ -144,6 +161,9 @@ struct Editor {
     look: Option<Look>,
     build: Option<Build>,
     hair: Option<Entity<SelectState<Vec<Pick>>>>,
+    /// The hair style the mouse is over in the open list, shown in the preview without being
+    /// chosen. It goes away when the list closes.
+    hover_hair: Option<String>,
     beard: Option<Entity<SelectState<Vec<Pick>>>>,
     profession: Option<Entity<SelectState<Vec<Pick>>>>,
     preview: Entity<Preview>,
@@ -201,6 +221,7 @@ impl Editor {
             look: character.look,
             build: character.build,
             hair: None,
+            hover_hair: None,
             beard: None,
             profession: None,
             preview,
@@ -214,6 +235,7 @@ impl Editor {
     /// Makes the dropdowns for what the character is now: the hair styles depend on gender.
     fn lists(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self._subscriptions.clear();
+        self.hover_hair = None;
         let catalog = self.catalog.clone();
         let look = self
             .look
@@ -250,11 +272,31 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<SelectState<Vec<Pick>>> {
+        // Only the hair styles are previewed under the mouse: the others change what the
+        // preview doesn't show.
+        let hover: Option<Hover> = matches!(which, Which::Hair).then(|| {
+            let editor = cx.entity().downgrade();
+            Rc::new(move |id: &str, entered: bool, cx: &mut App| {
+                // Later, not now: the list can say so while the editor is being drawn.
+                let (editor, id) = (editor.clone(), id.to_owned());
+                cx.defer(move |cx| {
+                    let _ = editor.update(cx, |this, cx| {
+                        if entered {
+                            this.hover_hair = Some(id);
+                        } else if this.hover_hair.as_deref() == Some(id.as_str()) {
+                            this.hover_hair = None;
+                        }
+                        cx.notify();
+                    });
+                });
+            }) as Hover
+        });
         let picks: Vec<Pick> = list
             .iter()
             .map(|choice| Pick {
                 id: choice.id.clone(),
                 name: choice.name.clone().into(),
+                hover: hover.clone(),
                 cost: costs.then_some(choice.cost),
             })
             .collect();
@@ -273,12 +315,26 @@ impl Editor {
                 }
             },
         ));
+        // However the list closes (a pick, Escape, a click outside), what was only previewed
+        // goes back to what is chosen.
+        if matches!(which, Which::Hair) {
+            self._subscriptions.push(cx.subscribe_in(
+                &state,
+                window,
+                |this, _, _: &DismissEvent, _, cx| {
+                    this.hover_hair = None;
+                    cx.notify();
+                },
+            ));
+        }
         state
     }
 
     fn picked(&mut self, which: Which, id: String) {
         match which {
             Which::Hair => {
+                // What was only previewed is the choice now.
+                self.hover_hair = None;
                 if let Some(look) = &mut self.look {
                     let color = look.hair().1.unwrap_or([0., 0., 0.]);
                     look.set_hair(&id, color);
@@ -771,7 +827,13 @@ impl Render for Editor {
             Section::Profession => self.profession(cx),
             Section::Traits => self.traits(cx),
         };
-        let look = self.look.clone();
+        // The preview shows the hair style under the mouse in the open list, as the pick would
+        // set it (same color), without choosing it.
+        let mut look = self.look.clone();
+        if let (Some(look), Some(style)) = (&mut look, &self.hover_hair) {
+            let color = look.hair().1.unwrap_or([0., 0., 0.]);
+            look.set_hair(style, color);
+        }
         self.preview.update(cx, |p, _| p.show(look.as_ref()));
         let theme = cx.theme();
         let (border, well) = (theme.border, theme.muted);

@@ -48,6 +48,16 @@ pub trait SearchableListItem: Clone {
     fn disabled(&self) -> bool {
         false
     }
+
+    /// lata: whether the item wants to know when the mouse enters or leaves its whole row
+    /// (the padding included, not only what [`Self::render`] draws). Defaults to `false`.
+    fn tracks_hover(&self) -> bool {
+        false
+    }
+
+    /// lata: the mouse entered (`true`) or left (`false`) this item's row. Only called when
+    /// [`Self::tracks_hover`] is `true`.
+    fn on_hover(&self, _hovered: bool, _cx: &mut App) {}
 }
 
 /// Provides data and search behaviour to a searchable list component.

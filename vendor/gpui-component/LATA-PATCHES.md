@@ -42,3 +42,9 @@ changes on a fresh copy when upgrading.
 - `src/theme/mod.rs`, `src/root.rs`: `Theme::font_fallbacks`, set on the window root next to
   `font_family`, so characters the main font lacks (CJK for Inter) come from the families the
   app names instead of whatever the OS fallback picks.
+- `src/searchable_list/delegate.rs`, `item.rs`, `adapter.rs`: `SearchableListItem::tracks_hover`
+  and `on_hover`, and `SearchableListItemElement::on_hover`. An item that tracks the mouse hears
+  it enter and leave its whole row, padding included; an item's own `render` can only listen over
+  what it draws, which is as wide as its text. The list's keyboard cursor counts too: moving it
+  onto an item that tracks hover calls `on_hover(true)` and off it `on_hover(false)`. lata's
+  character editor previews a hair style under the mouse or the cursor with it.
