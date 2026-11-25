@@ -62,7 +62,7 @@ pub fn open(
     window.open_dialog(cx, move |dialog, _, _| {
         dialog
             .entrance(DialogEntrance::FadeSlide)
-            .title("Load order")
+            .title(t!("Load order"))
             .centered()
             .w(px(560.))
             .child(view.clone())
@@ -133,13 +133,17 @@ impl Order {
         let note = match mods::out_of_order(&refs) {
             // Mods that require each other in a circle: no order satisfies them all.
             Some((m, late)) => toast::heads_up(
-                "Couldn't sort every requirement",
-                format!("{} still needs to load before {}", late.name, m.name),
+                t!("Couldn't sort every requirement"),
+                t!(
+                    "{late} still needs to load before {name}",
+                    late = late.name,
+                    name = m.name
+                ),
             ),
             None if self.mods.iter().map(|m| &m.id).eq(before.iter()) => {
-                toast::done("Already lined up! Nothing to shuffle")
+                toast::done(t!("Already lined up! Nothing to shuffle"))
             }
-            None => toast::done("All lined up! Hit Save order to keep it"),
+            None => toast::done(t!("All lined up! Hit Save order to keep it")),
         };
         window.push_notification(note, cx);
         cx.notify();
@@ -153,14 +157,15 @@ impl Order {
             Ok(()) => {
                 window.close_dialog(cx);
                 window.push_notification(
-                    toast::done("Order saved! You're set for the next launch"),
+                    toast::done(t!("Order saved! You're set for the next launch")),
                     cx,
                 );
                 (self.saved)(window, cx);
             }
-            Err(err) => {
-                window.push_notification(toast::failed_because("That order didn't stick", err), cx)
-            }
+            Err(err) => window.push_notification(
+                toast::failed_because(t!("That order didn't stick"), err),
+                cx,
+            ),
         }
     }
 
@@ -276,13 +281,13 @@ impl Order {
                         "up",
                         IconName::ChevronUp,
                         ix.checked_sub(1),
-                        "Move up",
+                        t!("Move up"),
                     ))
                     .child(step(
                         "down",
                         IconName::ChevronDown,
                         (ix + 1 < count).then_some(ix + 1),
-                        "Move down",
+                        t!("Move down"),
                     )),
             )
             .into_any_element()
@@ -318,7 +323,7 @@ impl Order {
                             .map(|(ix, m)| {
                                 let note = match &wrong {
                                     Some((id, late)) if *id == m.id => {
-                                        (format!("Needs {late} above it").into(), true)
+                                        (t!("Needs {late} above it", late = late).into(), true)
                                     }
                                     _ => (m.id.clone().into(), false),
                                 };
@@ -381,7 +386,7 @@ impl Render for Order {
                 .map(|(ix, map)| {
                     let note = (!map.conflicts.is_empty()).then(|| {
                         let with = map.conflicts.join(", ");
-                        (format!("Shares cells with {with}").into(), true)
+                        (t!("Shares cells with {with}", with = with).into(), true)
                     });
                     (ix, SharedString::from(map.name.clone()), note)
                 })
@@ -408,21 +413,20 @@ impl Render for Order {
                 .text_sm()
                 .text_color(ui::warning_text(cx))
                 .child(Icon::new(IconName::TriangleAlert).size_4().flex_none())
-                .child(format!(
-                    "Heads up! {late} needs to load before {name}. Move it up before saving."
+                .child(t!(
+                    "Heads up! {late} needs to load before {name}. Move it up before saving.",
+                    late = late,
+                    name = name
                 ))
         });
-        let enabled = match count {
-            1 => "1 enabled mod".to_owned(),
-            many => format!("{many} enabled mods"),
-        };
+        let enabled = tn!(count, "{n} enabled mod", "{n} enabled mods");
         div()
             .flex()
             .flex_col()
             .gap_4()
-            .child(hint(
-                "The game loads from the top down. Drag mods or use the arrows to move them.",
-            ))
+            .child(hint(t!(
+                "The game loads from the top down. Drag mods or use the arrows to move them."
+            )))
             // Auto sits with the list it changes, and says what it does before it's pressed.
             .child(
                 div()
@@ -447,25 +451,25 @@ impl Render for Order {
                                     .h(px(36.))
                                     .cursor_pointer()
                                     .icon(IconName::WandSparkles)
-                                    .label("Auto")
+                                    .label(t!("Auto"))
                                     .on_click(
                                         cx.listener(|this, _, window, cx| this.auto(window, cx)),
                                     ),
                             ),
                     )
-                    .child(hint(
+                    .child(hint(t!(
                         "Auto puts each mod below the ones it needs, then honors the ones that \
                          ask to load before or after others where it can. The rest go in \
-                         alphabetical order.",
-                    )),
+                         alphabetical order."
+                    ))),
             )
             .children(warning)
             .child(mods_list)
             .when(maps_matter, |this| {
-                this.child(hint(
+                this.child(hint(t!(
                     "Some of your maps want the same spot. Where they overlap, the one on \
-                     top wins. Auto sorts mods only, so your map order stays put.",
-                ))
+                     top wins. Auto sorts mods only, so your map order stays put."
+                )))
                 .child(self.list("order-maps", maps, px(240.), cx))
             })
             .child(
@@ -474,11 +478,11 @@ impl Render for Order {
                     .justify_end()
                     .gap_2()
                     .child(
-                        ui::secondary("order-cancel", "Cancel")
+                        ui::secondary("order-cancel", t!("Cancel"))
                             .on_click(|_, window, cx| window.close_dialog(cx)),
                     )
                     .child(
-                        FancyButton::new("order-save", "Save order")
+                        FancyButton::new("order-save", t!("Save order"))
                             .small()
                             .icon(IconName::Check)
                             .disabled(wrong.is_some())

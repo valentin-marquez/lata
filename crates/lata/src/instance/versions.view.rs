@@ -258,8 +258,10 @@ impl Versions {
                         )
                     }),
             )
-            .when(newest, |this| this.child(tag("Newest".into(), false)))
-            .when(installed, |this| this.child(tag("Installed".into(), true)))
+            .when(newest, |this| this.child(tag(t!("Newest").into(), false)))
+            .when(installed, |this| {
+                this.child(tag(t!("Installed").into(), true))
+            })
             .when_some(other.clone(), |this, other| {
                 this.child(tag(other.into(), false))
             })
@@ -318,17 +320,25 @@ impl Render for Versions {
         let status = self.game.filter(|_| total > 0).map(|v| {
             let game = format!("{}.{}", v.build, v.major);
             match (self.checking, total - hidden) {
-                (true, _) => format!("Checking which versions run on {game}"),
-                (false, fit) if fit == total && total == 1 => format!("It runs on {game}"),
-                (false, fit) if fit == total => format!("All of them run on {game}"),
-                (false, fit) => format!("{fit} of {total} run on {game}"),
+                (true, _) => t!("Checking which versions run on {game}", game = game),
+                (false, fit) if fit == total && total == 1 => t!("It runs on {game}", game = game),
+                (false, fit) if fit == total => t!("All of them run on {game}", game = game),
+                (false, fit) => t!(
+                    "{fit} of {total} run on {game}",
+                    fit = fit,
+                    total = total,
+                    game = game
+                ),
             }
         });
         let toggle = (hidden > 0).then(|| {
             let label = match (self.show_all, hidden) {
-                (true, _) => "Hide versions for other games".to_owned(),
-                (false, 1) => "Show 1 for another game version".to_owned(),
-                (false, n) => format!("Show {n} for other game versions"),
+                (true, _) => t!("Hide versions for other games").to_owned(),
+                (false, n) => tn!(
+                    n,
+                    "Show {n} for another game version",
+                    "Show {n} for other game versions"
+                ),
             };
             Button::new("other-versions")
                 .ghost()
@@ -345,14 +355,14 @@ impl Render for Versions {
             History::Loading => div().py_6().child(Loader).into_any_element(),
             History::Failed => Empty::new(
                 IconName::CircleX,
-                "Steam didn't answer",
-                "Close this and try again in a bit.",
+                t!("Steam didn't answer"),
+                t!("Close this and try again in a bit."),
             )
             .into_any_element(),
             History::Ready(changes) if changes.is_empty() => Empty::new(
                 IconName::Inbox,
-                "No versions to show",
-                "Steam has no history for this one.",
+                t!("No versions to show"),
+                t!("Steam has no history for this one."),
             )
             .into_any_element(),
             History::Ready(_) => div()
@@ -372,10 +382,10 @@ impl Render for Versions {
             .flex()
             .flex_col()
             .gap_4()
-            .child(div().text_sm().text_color(theme.muted_foreground).child(
+            .child(div().text_sm().text_color(theme.muted_foreground).child(t!(
                 "Pick the version to play with. An older one stays put when updates come, \
-                 until you pick the newest again.",
-            ))
+                 until you pick the newest again."
+            )))
             .child(body)
             .when_some(status, |this, status| {
                 this.child(

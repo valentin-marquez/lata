@@ -47,11 +47,11 @@ enum Sort {
 impl Sort {
     fn label(self) -> &'static str {
         match self {
-            Sort::Name => "Name",
+            Sort::Name => t!("Name"),
             // "On first" was read as install order.
-            Sort::EnabledFirst => "Enabled first",
-            Sort::Added => "Recently installed",
-            Sort::Updated => "Recently updated",
+            Sort::EnabledFirst => t!("Enabled first"),
+            Sort::Added => t!("Recently installed"),
+            Sort::Updated => t!("Recently updated"),
         }
     }
 }
@@ -68,10 +68,10 @@ enum Filter {
 impl Filter {
     fn label(self) -> &'static str {
         match self {
-            Filter::All => "All mods",
-            Filter::On => "On",
-            Filter::Off => "Off",
-            Filter::Updates => "Updates available",
+            Filter::All => t!("All mods"),
+            Filter::On => t!("On"),
+            Filter::Off => t!("Off"),
+            Filter::Updates => t!("Updates available"),
         }
     }
 }
@@ -124,7 +124,7 @@ impl Mods {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search mods"));
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Search mods")));
         let on_search = cx.subscribe(&search, |_, _, event: &InputEvent, cx| {
             if let InputEvent::Change = event {
                 cx.notify();
@@ -304,12 +304,12 @@ impl Mods {
     fn toggle(&mut self, id: &str, on: bool, window: &mut Window, cx: &mut Context<Self>) {
         match mods::set_enabled(&self.instance, id, on) {
             Ok(missing) if !missing.is_empty() => window.push_notification(
-                toast::heads_up("It needs mods you don't have yet", missing.join(", ")),
+                toast::heads_up(t!("It needs mods you don't have yet"), missing.join(", ")),
                 cx,
             ),
             Ok(_) => {}
             Err(err) => window.push_notification(
-                toast::failed_because("Hmm, that switch didn't stick", err),
+                toast::failed_because(t!("Hmm, that switch didn't stick"), err),
                 cx,
             ),
         }
@@ -318,10 +318,11 @@ impl Mods {
 
     fn remove(&mut self, folder: &str, window: &mut Window, cx: &mut Context<Self>) {
         match mods::remove(&self.instance, folder) {
-            Ok(()) => window.push_notification(toast::done("Poof! That mod is gone"), cx),
-            Err(err) => {
-                window.push_notification(toast::failed_because("That mod wouldn't budge", err), cx)
-            }
+            Ok(()) => window.push_notification(toast::done(t!("Poof! That mod is gone")), cx),
+            Err(err) => window.push_notification(
+                toast::failed_because(t!("That mod wouldn't budge"), err),
+                cx,
+            ),
         }
         self.refresh(cx);
     }
@@ -441,7 +442,7 @@ impl Mods {
                     .when(self.mods.iter().filter(|m| m.enabled).count() > 1, |this| {
                         let (instance, mods) = (self.instance.clone(), cx.entity().downgrade());
                         this.child(
-                            pick("mods-order", IconName::ListOrdered, "Load order").on_click(
+                            pick("mods-order", IconName::ListOrdered, t!("Load order")).on_click(
                                 move |_, window, cx| {
                                     let mods = mods.clone();
                                     super::order::open(
@@ -467,8 +468,8 @@ impl Mods {
                                 .h(CONTROL)
                                 .cursor_pointer()
                                 .icon(Icon::empty().path("icons/undo-2.svg"))
-                                .label("Undo update")
-                                .tooltip("Put back the versions from before the last update")
+                                .label(t!("Undo update"))
+                                .tooltip(t!("Put back the versions from before the last update"))
                                 .on_click(
                                     cx.listener(|this, _, window, cx| this.undo(None, window, cx)),
                                 ),
@@ -476,7 +477,7 @@ impl Mods {
                     })
                     .child(self.updates(outdated, cx))
                     .child(
-                        FancyButton::new("mod-add", "Install mod")
+                        FancyButton::new("mod-add", t!("Install mod"))
                             .small()
                             .icon(IconName::Plus)
                             .on_click(move |_, window, cx| {
@@ -491,8 +492,8 @@ impl Mods {
     /// the instance's settings: once on there is nothing left to decide here.
     fn turn_on_java(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let note = match super::store::set_java_mods(&self.instance.dir, true) {
-            Ok(()) => toast::done("Java mods are on! Each one asks you before it loads"),
-            Err(err) => toast::failed_because("Hmm, that didn't save", err),
+            Ok(()) => toast::done(t!("Java mods are on! Each one asks you before it loads")),
+            Err(err) => toast::failed_because(t!("Hmm, that didn't save"), err),
         };
         window.push_notification(note, cx);
         self.refresh(cx);
@@ -514,12 +515,13 @@ impl Mods {
             java::State::NeedsLoader(names) => {
                 let (instance, shell) = (self.instance.clone(), self.shell.clone());
                 (
-                    match names.len() {
-                        1 => "1 Java mod needs ZombieBuddy to run".to_owned(),
-                        many => format!("{many} Java mods need ZombieBuddy to run"),
-                    },
+                    tn!(
+                        names.len(),
+                        "{n} Java mod needs ZombieBuddy to run",
+                        "{n} Java mods need ZombieBuddy to run"
+                    ),
                     names.join(", "),
-                    FancyButton::new("java-add-loader", "Install ZombieBuddy")
+                    FancyButton::new("java-add-loader", t!("Install ZombieBuddy"))
                         .small()
                         .icon(IconName::Plus)
                         .on_click(move |_, window, cx| {
@@ -532,11 +534,13 @@ impl Mods {
                 )
             }
             java::State::Off => (
-                "Java mods are off in this instance".to_owned(),
-                "ZombieBuddy is here, but it only loads Java mods when the game starts with \
+                t!("Java mods are off in this instance").to_owned(),
+                t!(
+                    "ZombieBuddy is here, but it only loads Java mods when the game starts with \
                  it hooked in."
-                    .to_owned(),
-                FancyButton::new("java-on", "Turn on")
+                )
+                .to_owned(),
+                FancyButton::new("java-on", t!("Turn on"))
                     .small()
                     .on_click(cx.listener(|this, _, window, cx| this.confirm_java(window, cx)))
                     .into_any_element(),
@@ -602,21 +606,16 @@ impl Mods {
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(ui::warning_text(cx))
                         .child(Icon::new(IconName::TriangleAlert).size_4().flex_none())
-                        .child(match gone.len() {
-                            1 => "Heads up! 1 mod left the Workshop, your copy is the only one"
-                                .to_owned(),
-                            many => format!(
-                                "Heads up! {many} mods left the Workshop, your copies are the only ones"
-                            ),
-                        }),
+                        .child(tn!(
+                            gone.len(),
+                            "Heads up! {n} mod left the Workshop, your copy is the only one",
+                            "Heads up! {n} mods left the Workshop, your copies are the only ones"
+                        )),
                 )
                 .child(div().pl_6().child(gone.join(", ")))
-                .child(
-                    div()
-                        .pl_6()
-                        .text_color(theme.muted_foreground)
-                        .child("They still work, but can't update or change version. Removing one is for good."),
-                ),
+                .child(div().pl_6().text_color(theme.muted_foreground).child(t!(
+                    "They still work, but can't update or change version. Removing one is for good."
+                ))),
         )
     }
 
@@ -642,13 +641,11 @@ impl Mods {
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(ui::warning_text(cx))
                         .child(Icon::new(IconName::TriangleAlert).size_4().flex_none())
-                        .child(match self.too_new.len() {
-                            1 => "Heads up! 1 mod needs a newer game, update this instance"
-                                .to_owned(),
-                            many => format!(
-                                "Heads up! {many} mods need a newer game, update this instance"
-                            ),
-                        }),
+                        .child(tn!(
+                            self.too_new.len(),
+                            "Heads up! {n} mod needs a newer game, update this instance",
+                            "Heads up! {n} mods need a newer game, update this instance"
+                        )),
                 )
                 .child(div().pl_6().child(self.too_new.join(", "))),
         )
@@ -685,20 +682,17 @@ impl Mods {
                                     |icon, t| icon.rotate(percentage(t)),
                                 ),
                         )
-                        .child("Checking for updates"),
+                        .child(t!("Checking for updates")),
                 )
                 .into_any_element(),
             (Check::Done, 0) => button
                 .icon(IconName::Check)
-                .label("Up to date")
-                .tooltip("Check again")
+                .label(t!("Up to date"))
+                .tooltip(t!("Check again"))
                 .on_click(cx.listener(|this, _, _, cx| this.check_updates(cx)))
                 .into_any_element(),
             (Check::Done, count) => {
-                let label = match count {
-                    1 => "Update 1 mod".to_owned(),
-                    many => format!("Update {many} mods"),
-                };
+                let label = tn!(count, "Update {n} mod", "Update {n} mods");
                 button
                     .icon(IconName::Download)
                     .label(label)
@@ -710,8 +704,8 @@ impl Mods {
             }
             (Check::Failed, _) => button
                 .icon(Icon::empty().path("icons/history.svg"))
-                .label("Couldn't check")
-                .tooltip("Steam didn't answer. Click to try again")
+                .label(t!("Couldn't check"))
+                .tooltip(t!("Steam didn't answer. Click to try again"))
                 .on_click(cx.listener(|this, _, _, cx| this.check_updates(cx)))
                 .into_any_element(),
         }
@@ -729,12 +723,12 @@ impl Mods {
         let ids: Vec<String> = self.chosen().iter().map(|m| m.id.clone()).collect();
         match mods::set_enabled_all(&self.instance, &ids, on) {
             Ok(missing) if !missing.is_empty() => window.push_notification(
-                toast::heads_up("Some need mods you don't have yet", missing.join(", ")),
+                toast::heads_up(t!("Some need mods you don't have yet"), missing.join(", ")),
                 cx,
             ),
             Ok(_) => {}
             Err(err) => window.push_notification(
-                toast::failed_because("Hmm, those switches didn't stick", err),
+                toast::failed_because(t!("Hmm, those switches didn't stick"), err),
                 cx,
             ),
         }
@@ -749,13 +743,13 @@ impl Mods {
         match failed {
             None => window.push_notification(
                 toast::done(match folders.len() {
-                    1 => "Poof! That mod is gone".to_owned(),
-                    many => format!("Poof! {many} mods are gone"),
+                    1 => t!("Poof! That mod is gone").to_owned(),
+                    many => t!("Poof! {many} mods are gone", many = many),
                 }),
                 cx,
             ),
             Some(err) => {
-                window.push_notification(toast::failed_because("A mod wouldn't budge", err), cx)
+                window.push_notification(toast::failed_because(t!("A mod wouldn't budge"), err), cx)
             }
         }
         self.refresh(cx);
@@ -798,9 +792,9 @@ impl Mods {
                         cx.notify();
                     })),
             )
-            .child(name("Mod").flex_1())
-            .child(name("Version").w(VERSION))
-            .child(name("Actions").w(ACTIONS).flex().justify_end())
+            .child(name(t!("Mod")).flex_1())
+            .child(name(t!("Version")).w(VERSION))
+            .child(name(t!("Actions")).w(ACTIONS).flex().justify_end())
     }
 
     fn row(&self, item: &Mod, last: bool, cx: &mut Context<Self>) -> AnyElement {
@@ -854,10 +848,10 @@ impl Mods {
         let author = if item.author.is_empty() {
             item.id.clone()
         } else {
-            format!("by {}", item.author)
+            t!("by {author}", author = item.author)
         };
         // A mod read from `common/`, or a Build 41 one, isn't tied to one version folder.
-        let version = item.version.clone().unwrap_or("Any version".into());
+        let version = item.version.clone().unwrap_or(t!("Any version").into());
         let key = |what: &str| SharedString::from(format!("{what}-{}", item.folder));
         let (id, folder, pick) = (item.id.clone(), item.folder.clone(), item.folder.clone());
         let (dir, mod_id, workshop) = (item.dir.clone(), item.id.clone(), item.workshop);
@@ -932,7 +926,7 @@ impl Mods {
                                 .cursor_pointer()
                                 .icon(IconName::Download)
                                 .text_color(theme.primary)
-                                .tooltip("Update available")
+                                .tooltip(t!("Update available"))
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.update(vec![update], window, cx)
                                 })),
@@ -945,7 +939,7 @@ impl Mods {
                                 .ghost()
                                 .cursor_pointer()
                                 .icon(Icon::empty().path("icons/history.svg"))
-                                .tooltip("Staying on an older version. Click to change it")
+                                .tooltip(t!("Staying on an older version. Click to change it"))
                                 .on_click(move |_, window, cx| held_versions(window, cx)),
                         )
                     })
@@ -962,7 +956,7 @@ impl Mods {
                             .ghost()
                             .cursor_pointer()
                             .icon(IconName::Trash)
-                            .tooltip("Remove")
+                            .tooltip(t!("Remove"))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.remove(&folder, window, cx)
                             })),
@@ -979,7 +973,7 @@ impl Mods {
                                 // then its files here, then Steam outside lata.
                                 menu.when_some(workshop.filter(|_| !gone), |menu, workshop| {
                                     menu.item(
-                                        PopupMenuItem::new("View in Workshop")
+                                        PopupMenuItem::new(t!("View in Workshop"))
                                             .icon(IconName::Compass)
                                             .on_click(move |_, window, cx| {
                                                 Shell::view_mod(
@@ -991,33 +985,33 @@ impl Mods {
                                             }),
                                     )
                                     .item(
-                                        PopupMenuItem::new("Change version")
+                                        PopupMenuItem::new(t!("Change version"))
                                             .icon(Icon::empty().path("icons/history.svg"))
                                             .on_click(move |_, window, cx| versions(window, cx)),
                                     )
                                     .separator()
                                 })
                                 .item(
-                                    PopupMenuItem::new("Open folder")
+                                    PopupMenuItem::new(t!("Open folder"))
                                         .icon(IconName::FolderOpen)
                                         .on_click(move |_, _, cx| cx.open_with_system(&dir)),
                                 )
                                 .item(
-                                    PopupMenuItem::new("Copy mod id")
+                                    PopupMenuItem::new(t!("Copy mod id"))
                                         .icon(IconName::Copy)
                                         .on_click(move |_, window, cx| {
                                             cx.write_to_clipboard(ClipboardItem::new_string(
                                                 mod_id.clone(),
                                             ));
                                             window.push_notification(
-                                                toast::done("Copied! Paste it anywhere"),
+                                                toast::done(t!("Copied! Paste it anywhere")),
                                                 cx,
                                             );
                                         }),
                                 )
                                 .when_some(workshop, |menu, workshop| {
                                     menu.separator().item(
-                                        PopupMenuItem::new("Open on Steam")
+                                        PopupMenuItem::new(t!("Open on Steam"))
                                             .icon(IconName::ExternalLink)
                                             .on_click(move |_, _, cx| {
                                                 cx.open_url(&format!(
@@ -1060,9 +1054,8 @@ impl Mods {
             + if undoable.is_empty() { 0. } else { 140. };
         let compact = room < px(needed);
         let count = match (chosen.len(), compact) {
-            (1, false) => "1 mod selected".to_owned(),
-            (many, false) => format!("{many} mods selected"),
-            (many, true) => format!("{many} selected"),
+            (many, false) => tn!(many, "{n} mod selected", "{n} mods selected"),
+            (many, true) => t!("{many} selected", many = many),
         };
         let act = |id: &'static str, label: &'static str, icon: Icon, enabled: bool| {
             div()
@@ -1127,18 +1120,22 @@ impl Mods {
                     .child(count),
             )
             .child(
-                act("selection-clear", "Clear", Icon::new(IconName::Close), true).on_click(
-                    cx.listener(|this, _, _, cx| {
-                        this.selected.clear();
-                        cx.notify();
-                    }),
-                ),
+                act(
+                    "selection-clear",
+                    t!("Clear"),
+                    Icon::new(IconName::Close),
+                    true,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.selected.clear();
+                    cx.notify();
+                })),
             )
             .child(rule())
             .child(
                 act(
                     "selection-on",
-                    "Turn on",
+                    t!("Turn on"),
                     Icon::new(IconName::Check),
                     any_off,
                 )
@@ -1151,7 +1148,7 @@ impl Mods {
             .child(
                 act(
                     "selection-off",
-                    "Turn off",
+                    t!("Turn off"),
                     Icon::new(IconName::Minus),
                     any_on,
                 )
@@ -1168,7 +1165,7 @@ impl Mods {
                 this.child(
                     act(
                         "selection-update",
-                        "Update",
+                        t!("Update"),
                         Icon::new(IconName::Download),
                         true,
                     )
@@ -1182,7 +1179,7 @@ impl Mods {
                 this.child(
                     act(
                         "selection-undo",
-                        "Undo update",
+                        t!("Undo update"),
                         Icon::empty().path("icons/undo-2.svg"),
                         true,
                     )
@@ -1195,7 +1192,7 @@ impl Mods {
             .child(
                 act(
                     "selection-remove",
-                    "Remove",
+                    t!("Remove"),
                     Icon::new(IconName::Trash),
                     true,
                 )
@@ -1231,11 +1228,11 @@ impl Render for Mods {
                 .child(
                     Empty::new(
                         IconName::Puzzle,
-                        "No mods yet",
-                        "Install one from the Workshop and it lands here.",
+                        t!("No mods yet"),
+                        t!("Install one from the Workshop and it lands here."),
                     )
                     .action(
-                        FancyButton::new("mod-add-first", "Install mod")
+                        FancyButton::new("mod-add-first", t!("Install mod"))
                             .small()
                             .icon(IconName::Plus)
                             .on_click(move |_, window, cx| {
@@ -1248,8 +1245,8 @@ impl Render for Mods {
         let list = if shown.is_empty() {
             Empty::new(
                 IconName::Search,
-                "No mods match",
-                "Try another name, or change the filter.",
+                t!("No mods match"),
+                t!("Try another name, or change the filter."),
             )
             .into_any_element()
         } else {
@@ -1334,11 +1331,15 @@ impl Render for Mods {
             .when(!self.mods.is_empty(), |this| {
                 // How many show (the search and filter apply), and how many the game loads.
                 let total = self.mods.len();
-                let noun = if total == 1 { "mod" } else { "mods" };
                 let count = if shown.len() == total {
-                    format!("{total} {noun}")
+                    tn!(total, "{n} mod", "{n} mods")
                 } else {
-                    format!("{} of {total} {noun}", shown.len())
+                    tn!(
+                        total,
+                        "{shown} of {n} mod",
+                        "{shown} of {n} mods",
+                        shown = shown.len()
+                    )
                 };
                 this.child(
                     div()
@@ -1347,7 +1348,7 @@ impl Render for Mods {
                         .text_sm()
                         .text_color(cx.theme().muted_foreground)
                         .child(count)
-                        .child(format!("{on} enabled")),
+                        .child(t!("{on} enabled", on = on)),
                 )
             })
             .child(measure)

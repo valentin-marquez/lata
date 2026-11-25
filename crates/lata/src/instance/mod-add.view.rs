@@ -27,7 +27,7 @@ pub fn open(instance: Instance, shell: WeakEntity<Shell>, window: &mut Window, c
         // Fades in settling from just above, and back out (the default drops from the window top).
         let dialog = dialog.entrance(DialogEntrance::FadeSlide);
         dialog
-            .title("Install mod")
+            .title(t!("Install mod"))
             .centered()
             .w(px(WIDTH))
             .child(view.clone())
@@ -68,7 +68,8 @@ impl AddMod {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let link = cx.new(|cx| InputState::new(window, cx).placeholder("Workshop link or mod id"));
+        let link =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("Workshop link or mod id")));
         let on_link = cx.subscribe(&link, |this, _, event: &InputEvent, cx| {
             if let InputEvent::Change = event {
                 this.typed(cx);
@@ -90,7 +91,7 @@ impl AddMod {
             self.lookup = if typed.trim().is_empty() {
                 Lookup::Empty
             } else {
-                Lookup::Failed("Hmm, that doesn't look like a Workshop link".into())
+                Lookup::Failed(t!("Hmm, that doesn't look like a Workshop link").into())
             };
             return cx.notify();
         };
@@ -113,7 +114,7 @@ impl AddMod {
                 }
                 this.lookup = match found {
                     Ok(found) if found.item.manifest == 0 => Lookup::Failed(
-                        "That one is a collection. Install those when you create an instance"
+                        t!("That one is a collection. Install those when you create an instance")
                             .into(),
                     ),
                     Ok(found) => Lookup::Found(Box::new(found)),
@@ -249,7 +250,7 @@ pub(crate) fn summary(found: &Listing, cx: &App) -> Div {
                         .children(item.updated.map(|at| {
                             Meta::new(
                                 IconName::Clock,
-                                format!("Updated {}", branches::date(at as u64)),
+                                t!("Updated {when}", when = branches::date(at as u64)),
                             )
                         })),
                 )
@@ -271,7 +272,9 @@ pub(crate) fn summary(found: &Listing, cx: &App) -> Div {
                                 .child(tag.to_string())
                         }))
                         .children(others.iter().take(SHOWN).map(|tag| quiet(tag.to_string())))
-                        .when(more > 0, |this| this.child(quiet(format!("+{more} more")))),
+                        .when(more > 0, |this| {
+                            this.child(quiet(t!("+{more} more", more = more)))
+                        }),
                 ),
         )
 }
@@ -341,7 +344,7 @@ pub(crate) fn card(found: &Listing, instance: Option<&Instance>, cx: &App) -> Di
                         .children(item.updated.map(|at| {
                             Meta::new(
                                 IconName::Clock,
-                                format!("Updated {}", branches::date(at as u64)),
+                                t!("Updated {when}", when = branches::date(at as u64)),
                             )
                         })),
                 )
@@ -361,8 +364,9 @@ pub(crate) fn card(found: &Listing, instance: Option<&Instance>, cx: &App) -> Di
                         .text_sm()
                         .text_color(ui::warning_text(cx))
                         .child(Icon::new(IconName::TriangleAlert).size_4().flex_none())
-                        .child(format!(
-                            "Heads up! It's for {build} only, not this instance's"
+                        .child(t!(
+                            "Heads up! It's for {build} only, not this instance's",
+                            build = build
                         ))
                 })),
         )
@@ -376,13 +380,18 @@ impl Render for AddMod {
             Lookup::Empty => self
                 .waiting(
                     IconName::Puzzle,
-                    "Paste a mod's Workshop link and it shows up here".into(),
+                    t!("Paste a mod's Workshop link and it shows up here").into(),
                     false,
                     cx,
                 )
                 .into_any_element(),
             Lookup::Loading(_) => self
-                .waiting(IconName::Search, "Asking Steam about it".into(), false, cx)
+                .waiting(
+                    IconName::Search,
+                    t!("Asking Steam about it").into(),
+                    false,
+                    cx,
+                )
                 .child(div().w(px(160.)).child(Loader))
                 .into_any_element(),
             Lookup::Failed(why) => self
@@ -423,12 +432,12 @@ impl Render for AddMod {
                     .justify_end()
                     .gap_2()
                     .child(
-                        ui::secondary("mod-add-cancel", "Cancel")
+                        ui::secondary("mod-add-cancel", t!("Cancel"))
                             .on_click(|_, window, cx| window.close_dialog(cx)),
                     )
                     .when(ready, |this| {
                         this.child(
-                            FancyButton::new("mod-add-confirm", "Install mod")
+                            FancyButton::new("mod-add-confirm", t!("Install mod"))
                                 .small()
                                 .icon(IconName::Plus)
                                 .on_click(cx.listener(|this, _, window, cx| this.add(window, cx))),

@@ -44,10 +44,10 @@ impl Fit {
         let v = |v: &Version| format!("{}.{}", v.build, v.major);
         match self {
             Fit::Yes => None,
-            Fit::Needs(min) => Some(format!("Needs {}+", v(min))),
-            Fit::UpTo(max) => Some(format!("Up to {}", v(max))),
-            Fit::Build41 => Some("Build 41 only".into()),
-            Fit::Build42 => Some("Build 42 only".into()),
+            Fit::Needs(min) => Some(t!("Needs {version}+", version = v(min))),
+            Fit::UpTo(max) => Some(t!("Up to {version}", version = v(max))),
+            Fit::Build41 => Some(t!("Build 41 only").into()),
+            Fit::Build42 => Some(t!("Build 42 only").into()),
         }
     }
 }

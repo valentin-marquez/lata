@@ -536,7 +536,7 @@ pub fn remove(instance: &Instance, folder: &str) -> io::Result<()> {
     if Path::new(folder).file_name() != Some(std::ffi::OsStr::new(folder)) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "not a mod folder",
+            t!("not a mod folder"),
         ));
     }
     let gone: Vec<String> = list(instance)
@@ -756,7 +756,7 @@ pub async fn lookup(id: u64) -> Result<Listing, String> {
     .await
     .map_err(|err| err.to_string())?
     .map_err(|err| err.to_string())?;
-    found.ok_or_else(|| "Steam has no Project Zomboid item with that id".to_owned())
+    found.ok_or_else(|| t!("Steam has no Project Zomboid item with that id").to_owned())
 }
 
 /// Turns several mods on or off; the ids they need that aren't installed come back.
@@ -943,10 +943,10 @@ pub async fn install(
     }
     if !items.iter().any(|item| ids.contains(&item.id)) {
         return Err(if ids.len() == 1 {
-            "That isn't a Project Zomboid mod. Collections get installed when you create an instance"
+            t!("That isn't a Project Zomboid mod. Collections get installed when you create an instance")
                 .into()
         } else {
-            "None of those are Project Zomboid mods Steam still has".into()
+            t!("None of those are Project Zomboid mods Steam still has").into()
         });
     }
 
