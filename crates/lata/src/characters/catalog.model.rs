@@ -38,6 +38,8 @@ pub struct Catalog {
     pub beards: Vec<Choice>,
     pub skins: Vec<Rgb>,
     pub hair_colors: Vec<Rgb>,
+    /// The build's `media/` folder, for the preview's models and textures.
+    pub media: PathBuf,
     names: HashMap<String, String>,
 }
 
@@ -147,6 +149,7 @@ impl Catalog {
             beards: styles(beards, "IGUI_Beard_", "IGUI_Beard_None"),
             skins: skin_colors(&screen),
             hair_colors: hair_colors(&creation),
+            media,
             names,
         })
     }
@@ -385,6 +388,33 @@ fn skin_colors(text: &str) -> Vec<Rgb> {
         .collect()
 }
 
+/// The model and texture of the `<tag>` entry called `name` in a styles file
+/// (`skinned/hair/m_hair_picard`, `F_Hair_White`); the model is empty for bald.
+pub fn style(xml: &str, tag: &str, name: &str) -> Option<(String, String)> {
+    let (open, close) = (format!("<{tag}>"), format!("</{tag}>"));
+    let field = |entry: &str, field: &str| {
+        let value = entry.split(&format!("<{field}>")).nth(1)?;
+        Some(
+            value
+                .split(&format!("</{field}>"))
+                .next()?
+                .trim()
+                .to_owned(),
+        )
+    };
+    xml.split(&open).skip(1).find_map(|entry| {
+        let entry = entry.split(&close).next()?;
+        field(entry, "name")
+            .filter(|n| n.eq_ignore_ascii_case(name))
+            .map(|_| {
+                (
+                    field(entry, "model").unwrap_or_default(),
+                    field(entry, "texture").unwrap_or_default(),
+                )
+            })
+    })
+}
+
 /// The names of `<tag>` entries in a styles file, leaving out the ones the game doesn't
 /// offer on its character screen (`noChoose`).
 fn xml_styles(xml: &str, tag: &str) -> Vec<String> {
@@ -536,6 +566,17 @@ mod tests {
             \t<female>\n\t\t<name>Bob</name>\n\t</female>\n</hairStyles>";
         assert_eq!(xml_styles(xml, "male"), ["Bald"]);
         assert_eq!(xml_styles(xml, "female"), ["Bob"]);
+        let picard = "<male>\n\t<name>Picard</name>\n\t<model>skinned/hair/m_hair_picard</model>\n\
+            \t<texture>F_Hair_White</texture>\n</male>";
+        assert_eq!(
+            style(picard, "male", "picard"),
+            Some(("skinned/hair/m_hair_picard".into(), "F_Hair_White".into()))
+        );
+        assert_eq!(
+            style(xml, "male", "Bald"),
+            Some((String::new(), String::new()))
+        );
+        assert_eq!(style(xml, "female", "Picard"), None);
         let lua = "\tself.skinColors = { {r=1,g=0.91,b=0.72},\n\t\t{r=0.98,g=0.79,b=0.49},\n\t\t{r=0.36,g=0.25,b=0.14} }\n\tlocal skinColorBtn = ISButton:new()";
         assert_eq!(
             skin_colors(lua),

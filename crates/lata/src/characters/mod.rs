@@ -11,10 +11,16 @@ mod catalog;
 mod character;
 #[path = "editor.view.rs"]
 mod editor;
+#[path = "model.model.rs"]
+mod model;
 #[path = "page.view.rs"]
 mod page;
 #[path = "presets.model.rs"]
 pub mod presets;
+#[path = "preview.view.rs"]
+mod preview;
+#[path = "render.model.rs"]
+mod render;
 
 pub use page::Characters;
 
