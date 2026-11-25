@@ -57,6 +57,8 @@ pub struct Preview {
     /// this one lands, so none queue up behind a slow one.
     drawing: Option<Task<()>>,
     size: Size<Pixels>,
+    /// The picture's size in device pixels when last laid out.
+    pixels: Size<u32>,
 }
 
 type Drawn = (u32, f32, Size<u32>, u64);
@@ -97,6 +99,7 @@ impl Preview {
             image: None,
             drawing: None,
             size,
+            pixels: Size::default(),
         }
     }
 
@@ -165,6 +168,27 @@ impl Preview {
         }));
     }
 
+    /// Starts the picture for how things are now, unless one is drawing or the shown one is
+    /// it. Returns the step of the walk, while it walks.
+    fn refresh(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) -> Option<u64> {
+        let walking = self.walking(cx);
+        let step = walking.then(|| (self.start.elapsed().as_secs_f32() * FPS) as u64);
+        let drawn = (self.loads, self.yaw, self.pixels, step.unwrap_or(0));
+        if self.drawing.is_none() && self.image.as_ref().is_none_or(|(_, at)| *at != drawn) {
+            match self.parts.clone() {
+                Some(parts) => self.draw(parts, walking, drawn, cx),
+                // The window being drawn is out of GPUI's list: it has to be named to drop
+                // the picture from it.
+                None => {
+                    if let Some((old, _)) = self.image.take() {
+                        cx.drop_image(old, window);
+                    }
+                }
+            }
+        }
+        step
+    }
+
     fn walking(&self, cx: &App) -> bool {
         !cx.reduce_motion() && self.walk.length > 0. && self.parts.is_some()
     }
@@ -178,33 +202,24 @@ impl Render for Preview {
             (f32::from(area.width) * scale) as u32,
             (f32::from(area.height) * scale) as u32,
         );
-        let walking = self.walking(cx);
-        let step = if walking {
-            (self.start.elapsed().as_secs_f32() * FPS) as u64
-        } else {
-            0
-        };
-        let drawn = (self.loads, self.yaw, pixels, step);
-        if self.drawing.is_none() && self.image.as_ref().is_none_or(|(_, at)| *at != drawn) {
-            match self.parts.clone() {
-                Some(parts) => self.draw(parts, walking, drawn, cx),
-                None => {
-                    if let Some((old, _)) = self.image.take() {
-                        cx.drop_image(old, Some(window));
-                    }
-                }
-            }
-        }
+        self.pixels = pixels;
+        let step = self.refresh(Some(window), cx);
         // The next step is asked for only while this is drawn, so the walk stops when the
         // preview is hidden or closed.
-        if walking && self.tick.is_none() {
+        if let Some(step) = step
+            && self.tick.is_none()
+        {
             let next = Duration::from_secs_f32((step + 1) as f32 / FPS);
             let wait = next.saturating_sub(self.start.elapsed());
             self.tick = Some(cx.spawn(async move |this, cx| {
                 cx.background_executor().timer(wait).await;
                 this.update(cx, |this, cx| {
                     this.tick = None;
-                    cx.notify();
+                    // Without redrawing the window: the picture does that when it lands.
+                    this.refresh(None, cx);
+                    if this.drawing.is_none() {
+                        cx.notify();
+                    }
                 })
                 .ok();
             }));
