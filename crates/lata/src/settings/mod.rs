@@ -12,12 +12,15 @@ use std::time::Instant;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::dialog::DialogEntrance;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{ActiveTheme, Disableable, Icon};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use serde::{Deserialize, Serialize};
 
+use crate::instance::settings::{DEFAULT_MEMORY, MIN_MEMORY, installed_memory};
 use crate::theme::{self, Mode};
 use crate::ui::FancyButton;
 
@@ -92,14 +95,16 @@ pub fn set_install_target(instance: &str) {
 enum Section {
     Appearance,
     Behavior,
+    Overrides,
     Storage,
     About,
 }
 
 impl Section {
-    const ALL: [Section; 4] = [
+    const ALL: [Section; 5] = [
         Section::Appearance,
         Section::Behavior,
+        Section::Overrides,
         Section::Storage,
         Section::About,
     ];
@@ -108,6 +113,7 @@ impl Section {
         match self {
             Section::Appearance => "Appearance",
             Section::Behavior => "Behavior",
+            Section::Overrides => "Overrides",
             Section::Storage => "Storage",
             Section::About => "About",
         }
@@ -117,6 +123,7 @@ impl Section {
         match self {
             Section::Appearance => IconName::Palette,
             Section::Behavior => IconName::Settings2,
+            Section::Overrides => IconName::Layers,
             Section::Storage => IconName::HardDrive,
             Section::About => IconName::Info,
         }
@@ -145,7 +152,12 @@ pub fn open(shell: WeakEntity<crate::shell::Shell>, window: &mut Window, cx: &mu
     };
     let newer = shell.upgrade().and_then(|shell| shell.read(cx).newer());
     let storage = cx.new(|cx| crate::storage::picker::Picker::new(shell.clone(), false, cx));
-    let view = cx.new(|_| Settings {
+    let overrides = overrides::current();
+    let installed = installed_memory();
+    let view = cx.new(|cx| Settings {
+        form: Form::new(&overrides, installed, window, cx),
+        overrides,
+        installed,
         storage: storage.clone(),
         section: Section::Appearance,
         saved: now,
@@ -208,6 +220,98 @@ struct Settings {
     /// Whether lata can sit in the tray here, looked up when the dialog opened: on Linux it
     /// depends on the desktop.
     tray: bool,
+    /// The overrides in effect now; the form holds the ones being edited.
+    overrides: overrides::Overrides,
+    form: Form,
+    /// This computer's memory in GB, the memory slider's upper end.
+    installed: u32,
+}
+
+/// The Overrides section's fields.
+struct Form {
+    memory_gb: Option<u32>,
+    slider: Entity<SliderState>,
+    jvm_args: Entity<InputState>,
+    launch_args: Entity<InputState>,
+    /// Redraw as they change, so the unsaved-changes bar shows.
+    _edits: Vec<Subscription>,
+}
+
+impl Form {
+    fn new(
+        saved: &overrides::Overrides,
+        installed: u32,
+        window: &mut Window,
+        cx: &mut Context<Settings>,
+    ) -> Self {
+        let mut input = |value: Option<&String>, placeholder: &'static str| {
+            cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder(placeholder)
+                    .default_value(value.cloned().unwrap_or_default())
+            })
+        };
+        let jvm_args = input(saved.jvm_args.as_ref(), "Each instance's own");
+        let launch_args = input(saved.launch_args.as_ref(), "Each instance's own");
+        let slider = cx.new(|_| {
+            SliderState::new()
+                .min(MIN_MEMORY as f32)
+                .max(
+                    installed
+                        .max(saved.memory_gb.unwrap_or(0))
+                        .max(DEFAULT_MEMORY + 1) as f32,
+                )
+                .step(1.)
+                .default_value(saved.memory_gb.unwrap_or(DEFAULT_MEMORY) as f32)
+        });
+        let mut edits: Vec<Subscription> = [&jvm_args, &launch_args]
+            .into_iter()
+            .map(|input| {
+                cx.subscribe(input, |_, _, event: &InputEvent, cx| {
+                    if let InputEvent::Change = event {
+                        cx.notify();
+                    }
+                })
+            })
+            .collect();
+        edits.push(cx.subscribe(&slider, |this, _, event: &SliderEvent, cx| {
+            let (SliderEvent::Change(value) | SliderEvent::Release(value)) = event;
+            this.form.memory_gb = Some(value.start().round() as u32);
+            cx.notify();
+        }));
+        Self {
+            memory_gb: saved.memory_gb,
+            slider,
+            jvm_args,
+            launch_args,
+            _edits: edits,
+        }
+    }
+
+    /// The overrides as the fields have them.
+    fn value(&self, cx: &App) -> overrides::Overrides {
+        let text = |input: &Entity<InputState>| overrides::args(&input.read(cx).value());
+        overrides::Overrides {
+            memory_gb: self.memory_gb,
+            jvm_args: text(&self.jvm_args),
+            launch_args: text(&self.launch_args),
+        }
+    }
+
+    /// Puts the fields back to `saved`.
+    fn reset(&mut self, saved: &overrides::Overrides, window: &mut Window, cx: &mut App) {
+        self.memory_gb = saved.memory_gb;
+        let memory = saved.memory_gb.unwrap_or(DEFAULT_MEMORY) as f32;
+        self.slider
+            .update(cx, |slider, cx| slider.set_value(memory, window, cx));
+        for (input, value) in [
+            (&self.jvm_args, &saved.jvm_args),
+            (&self.launch_args, &saved.launch_args),
+        ] {
+            let value = value.clone().unwrap_or_default();
+            input.update(cx, |input, cx| input.set_value(value, window, cx));
+        }
+    }
 }
 
 /// The few colors of a theme preview, fixed so each card shows its own theme.
@@ -549,12 +653,19 @@ impl Settings {
             theme::choose(self.draft.theme, window, cx);
             self.saved.theme = self.draft.theme;
         }
+        let overrides = self.form.value(cx);
+        if overrides != self.overrides {
+            let kept = overrides.clone();
+            update(|saved| saved.overrides = kept);
+            self.overrides = overrides;
+        }
         cx.notify();
     }
 
     fn reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.draft = self.saved;
         theme::preview(self.saved.theme, Some(window), cx);
+        self.form.reset(&self.overrides, window, cx);
         cx.notify();
     }
 
@@ -691,6 +802,114 @@ impl Settings {
             .child(div().flex().gap_3().children(cards))
     }
 
+    /// Launch options for every instance, over what each one has. Empty fields leave them be.
+    fn overrides(&self, cx: &mut Context<Self>) -> Div {
+        let theme = cx.theme();
+        let form = &self.form;
+        let value = match form.memory_gb {
+            Some(gb) => format!("{gb} GB"),
+            None => "Each instance's own".to_owned(),
+        };
+        let memory = div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    // Fixed, so the Clear button showing up doesn't push the slider down.
+                    .h(px(36.))
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Memory"),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .when(form.memory_gb.is_none(), |this| {
+                                        this.text_color(theme.muted_foreground)
+                                    })
+                                    .child(value),
+                            )
+                            .when(form.memory_gb.is_some(), |this| {
+                                this.child(
+                                    Button::new("memory-clear")
+                                        .ghost()
+                                        .cursor_pointer()
+                                        .icon(IconName::Undo2)
+                                        .label("Clear")
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.form.memory_gb = None;
+                                            this.form.slider.update(cx, |slider, cx| {
+                                                slider.set_value(DEFAULT_MEMORY as f32, window, cx)
+                                            });
+                                            cx.notify();
+                                        })),
+                                )
+                            }),
+                    ),
+            )
+            .child(Slider::new(&form.slider).cursor_pointer())
+            .child(
+                div()
+                    .flex()
+                    .justify_between()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child(format!("{MIN_MEMORY} GB"))
+                    .child(format!("This computer has {} GB", self.installed)),
+            );
+        let field = |name: &'static str, input: &Entity<InputState>, line: &'static str| {
+            div()
+                .flex()
+                .flex_col()
+                .gap_1p5()
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(name),
+                )
+                .child(Input::new(input))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(line),
+                )
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap_5()
+            .child(heading(
+                "Overrides",
+                "Set something here and every instance starts with it, whatever its own settings say. Leave it empty and each one keeps its own.",
+                cx,
+            ))
+            .child(memory)
+            .child(field(
+                "Launch arguments",
+                &form.launch_args,
+                "Options for the game, used instead of each instance's.",
+            ))
+            .child(field(
+                "Java arguments",
+                &form.jvm_args,
+                "Options for the Java VM, used instead of each instance's.",
+            ))
+    }
+
     fn behavior(&self, cx: &mut Context<Self>) -> Div {
         let this = cx.entity();
         let startup = Switch::new("startup")
@@ -787,6 +1006,7 @@ impl Render for Settings {
         let content = match self.section {
             Section::Appearance => self.appearance(cx),
             Section::Behavior => self.behavior(cx),
+            Section::Overrides => self.overrides(cx),
             Section::Storage => div()
                 .flex()
                 .flex_col()
@@ -799,7 +1019,7 @@ impl Render for Settings {
                 .child(self.storage.clone()),
             Section::About => self.about(cx),
         };
-        let dirty = self.draft != self.saved;
+        let dirty = self.draft != self.saved || self.form.value(cx) != self.overrides;
         if self.was_dirty && !dirty {
             self.left_at = Some(Instant::now());
             // Draw once more when the bar has finished leaving, so it goes away.
