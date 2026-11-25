@@ -21,21 +21,38 @@ pub struct Preview {
     skins: Vec<Rgb>,
     /// What the parts were loaded for, to load them again only when the look changes.
     shown: Option<String>,
+    /// Counts loads, so a new look draws a new picture.
+    loads: u32,
     parts: Vec<Part>,
     yaw: f32,
     /// Where a drag started, and the turn then.
     drag: Option<(Pixels, f32)>,
-    /// The picture, and the turn, size and smoothing it was drawn at.
-    image: Option<(Arc<RenderImage>, f32, Size<u32>, bool)>,
+    /// The picture, and what it was drawn for: the load, turn, size and smoothing.
+    image: Option<(Arc<RenderImage>, Drawn)>,
     size: Size<Pixels>,
 }
 
+type Drawn = (u32, f32, Size<u32>, bool);
+
 impl Preview {
-    pub fn new(media: PathBuf, skins: Vec<Rgb>, size: Size<Pixels>) -> Self {
+    pub fn new(
+        media: PathBuf,
+        skins: Vec<Rgb>,
+        size: Size<Pixels>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        // GPUI keeps a drawn picture until told to drop it.
+        cx.on_release(|this, cx| {
+            if let Some((image, _)) = this.image.take() {
+                cx.drop_image(image, None);
+            }
+        })
+        .detach();
         Self {
             media,
             skins,
             shown: None,
+            loads: 0,
             parts: Vec::new(),
             yaw: 0.,
             drag: None,
@@ -50,7 +67,15 @@ impl Preview {
         if key != self.shown {
             self.parts = look.map_or_else(Vec::new, |l| parts(&self.media, l, &self.skins));
             self.shown = key;
-            self.image = None;
+            self.loads += 1;
+        }
+    }
+}
+
+impl Preview {
+    fn release(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.drag.take().is_some() {
+            cx.notify();
         }
     }
 }
@@ -64,20 +89,21 @@ impl Render for Preview {
         );
         // Rough while dragging, so it keeps up; smoothed once it stops.
         let smooth = self.drag.is_none();
-        let key = (self.yaw, pixels, smooth);
-        let stale = self
-            .image
-            .as_ref()
-            .is_none_or(|(_, yaw, at, s)| (*yaw, *at, *s) != key);
-        if stale && !self.parts.is_empty() {
-            let mut frame =
-                render::render(&self.parts, self.yaw, pixels.width, pixels.height, smooth);
-            // GPUI keeps images in BGRA.
-            for p in frame.pixels_mut() {
-                p.0.swap(0, 2);
-            }
-            let image = Arc::new(RenderImage::new(vec![image::Frame::new(frame)]));
-            if let Some((old, ..)) = self.image.replace((image, self.yaw, pixels, smooth)) {
+        let drawn = (self.loads, self.yaw, pixels, smooth);
+        if self.image.as_ref().is_none_or(|(_, at)| *at != drawn) {
+            let image = (!self.parts.is_empty()).then(|| {
+                let mut frame =
+                    render::render(&self.parts, self.yaw, pixels.width, pixels.height, smooth);
+                // GPUI keeps images in BGRA.
+                for p in frame.pixels_mut() {
+                    p.0.swap(0, 2);
+                }
+                (
+                    Arc::new(RenderImage::new(vec![image::Frame::new(frame)])),
+                    drawn,
+                )
+            });
+            if let Some((old, _)) = std::mem::replace(&mut self.image, image) {
                 cx.drop_image(old, Some(window));
             }
         }
@@ -89,7 +115,7 @@ impl Render for Preview {
             .h(self.size.height)
             .flex_none()
             .cursor_grab()
-            .children(self.image.as_ref().map(|(image, ..)| {
+            .children(self.image.as_ref().map(|(image, _)| {
                 img(ImageSource::Render(image.clone()))
                     .w(self.size.width)
                     .h(self.size.height)
@@ -120,13 +146,9 @@ impl Render for Preview {
                     cx.notify();
                 }
             }))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.drag = None;
-                    cx.notify();
-                }),
-            )
+            .on_mouse_up(MouseButton::Left, cx.listener(Self::release))
+            // Let go over the rest of the dialog.
+            .on_mouse_up_out(MouseButton::Left, cx.listener(Self::release))
     }
 }
 

@@ -181,11 +181,12 @@ impl Editor {
                         .default_value(value)
                 })
             };
-        let preview = cx.new(|_| {
+        let preview = cx.new(|cx| {
             Preview::new(
                 catalog.media.clone(),
                 catalog.skins.clone(),
                 size(px(PREVIEW), px(HEIGHT)),
+                cx,
             )
         });
         let mut editor = Self {
