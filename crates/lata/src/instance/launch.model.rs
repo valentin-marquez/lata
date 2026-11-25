@@ -70,7 +70,7 @@ pub fn command(instance: &Instance, connect: Option<&str>) -> io::Result<Command
 
 /// The argument that points the game at the instance's `zomboid/`; it tells which instance a
 /// running game belongs to.
-fn cachedir(instance: &Instance) -> String {
+pub(super) fn cachedir(instance: &Instance) -> String {
     format!("-cachedir={}", instance.dir.join("zomboid").display())
 }
 
@@ -87,7 +87,8 @@ pub fn stop(instance: &Instance) {
     });
 }
 
-/// Calls `f` on each process started with the instance's cachedir; true if there was one.
+/// Calls `f` on each game started with the instance's cachedir; true if there was one. A coop
+/// server it hosts carries the cachedir too, and isn't the game.
 fn games(instance: &Instance, mut f: impl FnMut(&sysinfo::Process)) -> bool {
     use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
     let arg = cachedir(instance);
@@ -98,7 +99,11 @@ fn games(instance: &Instance, mut f: impl FnMut(&sysinfo::Process)) -> bool {
     );
     let mut found = false;
     for p in system.processes().values() {
-        if p.thread_kind().is_none() && p.cmd().iter().any(|a| *a == *arg) {
+        let cmd = p.cmd();
+        if p.thread_kind().is_none()
+            && cmd.iter().any(|a| *a == *arg)
+            && !cmd.iter().any(|a| a == "zombie.network.GameServer")
+        {
             f(p);
             found = true;
         }
@@ -290,6 +295,20 @@ mod tests {
             launch_args: String::new(),
         };
         assert!(!alive(&instance));
+        // A coop server the instance hosts carries it too, and isn't the game.
+        let mut server = Command::new("sh")
+            .args([
+                "-c",
+                "while :; do sleep 1; done",
+                "sh",
+                "zombie.network.GameServer",
+                &cachedir(&instance),
+            ])
+            .spawn()
+            .unwrap();
+        assert!(!alive(&instance));
+        server.kill().unwrap();
+        server.wait().unwrap();
         // A stand-in for the game: any process carrying the argument.
         let mut game = Command::new("sh")
             .args([
