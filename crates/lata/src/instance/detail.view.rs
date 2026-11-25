@@ -44,6 +44,8 @@ pub struct Detail {
     worlds: Option<Vec<super::worlds::World>>,
     /// The servers it has joined, read along with the worlds.
     servers: Option<Vec<super::servers::Server>>,
+    /// The coop servers it hosts, read along with the worlds.
+    hosted: Option<Vec<super::host::Hosted>>,
     /// What each server said when asked for its players, by address. Kept while the
     /// instance changes, so a download's progress doesn't ask again every tick.
     counts: HashMap<String, super::servers::Count>,
@@ -59,6 +61,7 @@ impl Detail {
             mods: None,
             worlds: None,
             servers: None,
+            hosted: None,
             counts: HashMap::new(),
         }
     }
@@ -74,6 +77,7 @@ impl Detail {
         }
         self.worlds = None;
         self.servers = None;
+        self.hosted = None;
         cx.notify();
     }
 
@@ -92,6 +96,7 @@ impl Detail {
         }
         self.worlds = None;
         self.servers = None;
+        self.hosted = None;
         self.instance = instance;
         cx.notify();
     }
@@ -262,6 +267,7 @@ impl Detail {
                 this.tab = Tab::ALL[*ix];
                 this.worlds = None;
                 this.servers = None;
+                this.hosted = None;
                 // Opening the tab again asks the servers again.
                 this.counts.clear();
                 cx.notify();
@@ -344,13 +350,19 @@ impl Render for Detail {
                 for (address, host, port) in asks {
                     self.ask(address, host, port, cx);
                 }
+                self.hosted
+                    .get_or_insert_with(|| super::host::list(&cachedir));
+                let blocked = self.join_blocked(cx);
+                let shell = self.shell.upgrade();
                 let join = super::worlds_view::Join {
                     shell: self.shell.clone(),
                     id: self.instance.id.clone(),
-                    blocked: self.join_blocked(cx),
+                    blocked,
+                    hosting: shell.as_ref().and_then(|shell| shell.read(cx).hosting()),
                 };
                 let (worlds, servers) = (self.worlds.as_deref(), self.servers.as_deref());
                 super::worlds_view::worlds(
+                    self.hosted.as_deref().unwrap_or_default(),
                     worlds.unwrap_or_default(),
                     servers.unwrap_or_default(),
                     &self.counts,

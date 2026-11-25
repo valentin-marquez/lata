@@ -15,7 +15,7 @@ const INSET: Pixels = px(if cfg!(target_os = "macos") { 80. } else { 12. });
 
 #[derive(IntoElement)]
 pub struct Topbar {
-    /// Name of the game running, if any.
+    /// What runs ("Running <game>", "Hosting <server>"), if anything.
     pub running: Option<SharedString>,
     /// The label and icon of the update button, when a newer lata is out or ready.
     pub update: Option<(SharedString, gpui_kit::assets::IconName)>,
@@ -139,9 +139,10 @@ impl Topbar {
                     .size_4()
                     .text_color(theme.muted_foreground),
             })
-            .child(match &self.running {
-                Some(name) => format!("Running {name}"),
-                None => "Nothing running".into(),
-            })
+            .child(
+                self.running
+                    .clone()
+                    .unwrap_or_else(|| "Nothing running".into()),
+            )
     }
 }

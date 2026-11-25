@@ -48,6 +48,8 @@ pub struct Shell {
     /// Games running, by instance id, with the process lata spawned if it started the game in
     /// this run (kept to reap it).
     running: HashMap<SharedString, Option<std::process::Child>>,
+    /// The coop server lata hosts, and the last one after it stops, for its row.
+    hosting: Option<instance::host::Hosting>,
     /// News and trending mods for the panel on the right; `None` until Steam answers.
     feed: Option<crate::discover::Feed>,
     /// The banner the last run showed, for the Library until the feed lands.
@@ -102,6 +104,7 @@ impl Shell {
             latest: HashMap::new(),
             installs: HashMap::new(),
             running: HashMap::new(),
+            hosting: None,
             instances: store::list(&root),
             root,
             page: Page::Library,
@@ -120,6 +123,15 @@ impl Shell {
         shell.check_updates(cx);
         shell.check_builds(cx);
         shell.find_games(cx);
+        // A server outliving lata keeps its world open, so it goes too; both ways save it.
+        cx.on_app_quit(|shell, _| {
+            if let Some(server) = shell.hosting.as_mut().and_then(|h| h.server.as_mut()) {
+                server.stop();
+                server.terminate();
+            }
+            async {}
+        })
+        .detach();
         shell
     }
 
@@ -415,6 +427,191 @@ impl Shell {
         Self::start(shell, instance, Some(&address), window, cx);
     }
 
+    /// The coop server lata hosts or last hosted.
+    pub fn hosting(&self) -> Option<&instance::host::Hosting> {
+        self.hosting.as_ref()
+    }
+
+    /// Starts the instance's coop server `name` with the instance's mods; first says which
+    /// of them friends can't download, if any.
+    pub fn host(
+        shell: WeakEntity<Shell>,
+        id: SharedString,
+        name: String,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        use gpui_kit::component::WindowExt;
+        let Ok(Some(instance)) = shell.read_with(cx, |shell, _| {
+            shell.instances.iter().find(|i| i.id == id).cloned()
+        }) else {
+            return;
+        };
+        // The server signs in to Steam to fetch the mods and let friends in.
+        if !launch::steam_running() {
+            return window.push_notification(crate::ui::toast::steam_closed(), cx);
+        }
+        let plan = instance::host::plan(&instance);
+        if plan.local.is_empty() {
+            return Self::host_now(shell, instance, name, plan, window, cx);
+        }
+        crate::instance::host_view::local_mods(
+            plan.local.clone(),
+            window,
+            cx,
+            move |window, cx| {
+                Self::host_now(
+                    shell.clone(),
+                    instance.clone(),
+                    name.clone(),
+                    plan.clone(),
+                    window,
+                    cx,
+                )
+            },
+        );
+    }
+
+    fn host_now(
+        shell: WeakEntity<Shell>,
+        instance: Instance,
+        name: String,
+        plan: instance::host::Plan,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        use gpui_kit::component::WindowExt;
+        use instance::host;
+        let cachedir = instance.dir.join("zomboid");
+        let modern = instance::mods::is_modern(&instance);
+        let (events, mut heard) = tokio::sync::mpsc::unbounded_channel();
+        // Spawned here, on the UI thread, which lives as long as lata: the parent-death signal
+        // fires when the thread that started the server ends.
+        let started = host::write(&cachedir, &name, &plan, modern)
+            .and_then(|()| host::command(&instance, &name))
+            .and_then(|command| {
+                host::start(command, move |event| {
+                    let _ = events.send(event);
+                })
+            });
+        let server = match started {
+            Ok(server) => server,
+            Err(err) => {
+                return window.push_notification(
+                    crate::ui::toast::failed_because("The server wouldn't start", err),
+                    cx,
+                );
+            }
+        };
+        let _ = shell.update(cx, |shell, cx| {
+            shell.hosting = Some(host::Hosting::new(instance.id.clone(), name, server));
+            shell.changed(cx);
+            cx.spawn(async move |this, cx| {
+                while let Some(event) = heard.recv().await {
+                    let Ok(()) = this.update(cx, |shell, cx| shell.heard(event, cx)) else {
+                        break;
+                    };
+                }
+            })
+            .detach();
+            cx.spawn(async move |this, cx| {
+                loop {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_secs(1))
+                        .await;
+                    let Ok(done) = this.update(cx, |shell, cx| shell.tick_hosting(cx)) else {
+                        break;
+                    };
+                    if done {
+                        break;
+                    }
+                }
+            })
+            .detach();
+        });
+    }
+
+    /// What the hosted server said; once it is up, it learns who hosts it.
+    fn heard(&mut self, event: instance::host::Event, cx: &mut Context<Self>) {
+        let Some(hosting) = self.hosting.as_mut() else {
+            return;
+        };
+        if hosting.heard(event) {
+            // The first to join becomes the host either way; these tell the server who that is
+            // meant to be, as the game's Host screen does.
+            if let (Some(account), Some(server)) = (&self.account, &hosting.server) {
+                let _ = server.send(&format!("set-host-user@{}", account.display()));
+                let _ = server.send(&format!("set-host-steamid@{}", account.steamid));
+            }
+        }
+        self.changed(cx);
+    }
+
+    /// Steps the hosted server's stop along and notices when it has exited; true once it has.
+    fn tick_hosting(&mut self, cx: &mut Context<Self>) -> bool {
+        use instance::host::State;
+        let Some(hosting) = self.hosting.as_mut() else {
+            return true;
+        };
+        let Some(server) = hosting.server.as_mut() else {
+            return true;
+        };
+        if server.tick().is_none() {
+            return false;
+        }
+        let was = hosting.state.clone();
+        hosting.exited();
+        match (&was, &hosting.state) {
+            (State::Running, _) => notify(cx, || {
+                crate::ui::toast::done("It closes when its host leaves the game. World's saved!")
+                    .title("The server is down")
+            }),
+            (_, State::Failed(doing)) => {
+                let doing = doing.clone();
+                notify(cx, move || {
+                    crate::ui::toast::failed(format!(
+                        "It stopped while {}. Its log is coop-console.txt in the instance's \
+                         zomboid folder.",
+                        doing.to_lowercase()
+                    ))
+                    .title("The server didn't make it")
+                })
+            }
+            _ => {}
+        }
+        self.changed(cx);
+        true
+    }
+
+    /// Stops the hosted server, saving its world.
+    pub fn stop_hosting(&mut self, cx: &mut Context<Self>) {
+        let Some(hosting) = self.hosting.as_mut() else {
+            return;
+        };
+        if let Some(server) = hosting.server.as_mut() {
+            server.stop();
+            hosting.state = instance::host::State::Stopping;
+            self.changed(cx);
+        }
+    }
+
+    /// Lets the friend with Steam ID `friend` join the hosted server.
+    pub fn invite(&mut self, friend: u64, cx: &mut Context<Self>) -> std::io::Result<()> {
+        let hosting = self
+            .hosting
+            .as_mut()
+            .filter(|h| h.alive())
+            .ok_or_else(|| std::io::Error::other("The server isn't running"))?;
+        if let Some(server) = &hosting.server {
+            server.send(&format!("invite-add@{friend}"))?;
+        }
+        if !hosting.invited.contains(&friend) {
+            hosting.invited.push(friend);
+        }
+        self.changed(cx);
+        Ok(())
+    }
+
     /// Asks before updating an outdated instance: a new build can break saves and mods.
     pub fn confirm_update(
         shell: WeakEntity<Shell>,
@@ -524,13 +721,21 @@ impl Shell {
         .detach();
     }
 
-    /// Name of a running game, for the title bar.
+    /// What runs, for the title bar: a game, or else the coop server lata hosts.
     pub fn running(&self) -> Option<SharedString> {
-        let id = self.running.keys().next()?;
-        self.instances
-            .iter()
-            .find(|i| &i.id == id)
-            .map(|i| i.name.clone())
+        let game = self.running.keys().next().and_then(|id| {
+            self.instances
+                .iter()
+                .find(|i| &i.id == id)
+                .map(|i| format!("Running {}", i.name))
+        });
+        let server = || {
+            self.hosting
+                .as_ref()
+                .filter(|h| h.alive())
+                .map(|h| format!("Hosting {}", h.name))
+        };
+        game.or_else(server).map(SharedString::from)
     }
 
     fn install(
@@ -959,6 +1164,12 @@ impl Shell {
         // added all stop in different places.
         let busy = if self.running.contains_key(id) {
             Some("Whoa! Stop the game before deleting it")
+        } else if self
+            .hosting
+            .as_ref()
+            .is_some_and(|h| h.alive() && h.instance == *id)
+        {
+            Some("Whoa! Stop its server before deleting it")
         } else if self.installs.contains_key(id) {
             Some("Whoa! Cancel the download before deleting it")
         } else if self.adding_mods(id) {
@@ -1120,9 +1331,12 @@ impl Shell {
         }
     }
 
-    /// Whether a game runs or anything downloads, deletes or copies: the library can't move.
+    /// Whether a game or server runs, or anything downloads, deletes or copies: the library
+    /// can't move.
     pub fn busy(&self) -> bool {
-        !self.running.is_empty() || !self.installs.is_empty()
+        !self.running.is_empty()
+            || !self.installs.is_empty()
+            || self.hosting.as_ref().is_some_and(|h| h.alive())
     }
 
     /// The library moved: instances are read from its new place.
