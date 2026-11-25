@@ -18,7 +18,7 @@ pub fn confirm(
         let muted = cx.theme().muted_foreground;
         dialog
             .entrance(DialogEntrance::FadeSlide)
-            .title("Turn on Java mods?")
+            .title(t!("Turn on Java mods?"))
             .w(px(460.))
             .child(
                 div()
@@ -26,16 +26,16 @@ pub fn confirm(
                     .flex_col()
                     .gap_3()
                     .text_sm()
-                    .child(
+                    .child(t!(
                         "Java mods change the game itself, and can do anything on your \
                          computer that you can: read your files, use the network, run \
-                         programs. Only turn this on for mods you trust.",
-                    )
-                    .child(div().text_color(muted).child(
+                         programs. Only turn this on for mods you trust."
+                    ))
+                    .child(div().text_color(muted).child(t!(
                         "lata starts the game with ZombieBuddy hooked in, in this instance \
                          only. ZombieBuddy then asks you about every Java mod before loading \
-                         it. You can turn this off in the instance's settings any time.",
-                    )),
+                         it. You can turn this off in the instance's settings any time."
+                    ))),
             )
             .child(
                 div()
@@ -44,11 +44,11 @@ pub fn confirm(
                     .gap_2()
                     .pt_4()
                     .child(
-                        ui::secondary("java-keep-off", "Keep off")
+                        ui::secondary("java-keep-off", t!("Keep off"))
                             .on_click(|_, window, cx| window.close_dialog(cx)),
                     )
                     .child(
-                        FancyButton::new("java-turn-on", "Turn on")
+                        FancyButton::new("java-turn-on", t!("Turn on"))
                             .small()
                             .on_click(move |_, window, cx| {
                                 window.close_dialog(cx);

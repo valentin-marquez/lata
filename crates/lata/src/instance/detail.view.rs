@@ -25,9 +25,9 @@ impl Tab {
 
     fn label(self) -> &'static str {
         match self {
-            Tab::Mods => "Mods",
-            Tab::Worlds => "Worlds",
-            Tab::Logs => "Logs",
+            Tab::Mods => t!("Mods"),
+            Tab::Worlds => t!("Worlds"),
+            Tab::Logs => t!("Logs"),
         }
     }
 }
@@ -121,9 +121,11 @@ impl Detail {
             .and_then(|shell| shell.read(cx).latest_name(instance));
         let note = match (status, instance.build_name(), newest) {
             (Status::Installing(_) | Status::Bringing(_), _, _) => Some(status.label()),
-            (Status::Outdated, Some(have), Some(newest)) => {
-                Some(format!("Update available: {have} \u{2192} {newest}"))
-            }
+            (Status::Outdated, Some(have), Some(newest)) => Some(t!(
+                "Update available: {have} → {newest}",
+                have = have,
+                newest = newest
+            )),
             _ => None,
         };
 
@@ -168,7 +170,7 @@ impl Detail {
                         .outline()
                         .cursor_pointer()
                         .icon(IconName::Download)
-                        .label("Update")
+                        .label(t!("Update"))
                         .h(px(40.))
                         .rounded(px(10.))
                         .on_click(move |_, window, cx| {
@@ -212,12 +214,12 @@ impl Detail {
                 };
                 let (pack, folder) = (instance.clone(), instance.dir.clone());
                 menu.item(
-                    PopupMenuItem::new("Settings")
+                    PopupMenuItem::new(t!("Settings"))
                         .icon(IconName::Settings)
                         .on_click(on(Shell::settings)),
                 )
                 .item(
-                    PopupMenuItem::new("Edit icon")
+                    PopupMenuItem::new(t!("Edit icon"))
                         .icon(IconName::Palette)
                         .on_click(on(Shell::customize)),
                 )
@@ -225,18 +227,18 @@ impl Detail {
                 // it, and last the one that can't be undone.
                 .separator()
                 .item(
-                    PopupMenuItem::new("Open folder")
+                    PopupMenuItem::new(t!("Open folder"))
                         .icon(IconName::FolderOpen)
                         .on_click(move |_, _, cx| cx.open_with_system(&folder)),
                 )
                 .separator()
                 .item(
-                    PopupMenuItem::new("Duplicate")
+                    PopupMenuItem::new(t!("Duplicate"))
                         .icon(IconName::Copy)
                         .on_click(on(Shell::duplicate)),
                 )
                 .item(
-                    PopupMenuItem::new("Export as .lata")
+                    PopupMenuItem::new(t!("Export as .lata"))
                         .icon(IconName::Box)
                         .on_click(move |_, window, cx| {
                             crate::pack::export::open(pack.clone(), window, cx)
@@ -244,7 +246,7 @@ impl Detail {
                 )
                 .separator()
                 .item(
-                    crate::ui::danger_item("Delete", IconName::Trash, danger)
+                    crate::ui::danger_item(t!("Delete"), IconName::Trash, danger)
                         .on_click(on(Shell::confirm_delete)),
                 )
             })
@@ -304,9 +306,11 @@ impl Detail {
         });
         match status {
             Status::Ready | Status::Outdated => None,
-            Status::Running => Some("The game is already open"),
-            Status::Installing(_) | Status::Bringing(_) => Some("Hang on, it's still downloading"),
-            Status::NotInstalled => Some("Install the game first"),
+            Status::Running => Some(t!("The game is already open")),
+            Status::Installing(_) | Status::Bringing(_) => {
+                Some(t!("Hang on, it's still downloading"))
+            }
+            Status::NotInstalled => Some(t!("Install the game first")),
         }
     }
 }

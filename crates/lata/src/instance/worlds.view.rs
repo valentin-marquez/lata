@@ -70,14 +70,16 @@ pub fn worlds(
             div()
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
-                .child("Host a server and play it with your friends, mods and all."),
+                .child(t!(
+                    "Host a server and play it with your friends, mods and all."
+                )),
         )
         .child(
             Button::new("server-new")
                 .ghost()
                 .cursor_pointer()
                 .icon(IconName::Plus)
-                .label("New server")
+                .label(t!("New server"))
                 .on_click(move |_, window, cx| {
                     super::host_view::create(shell.clone(), id.clone(), window, cx)
                 }),
@@ -92,8 +94,8 @@ pub fn worlds(
             .child(bar)
             .child(Empty::new(
                 IconName::Globe,
-                "No worlds yet",
-                "Start a game, join a server or host one and it shows up here.",
+                t!("No worlds yet"),
+                t!("Start a game, join a server or host one and it shows up here."),
             ))
             .into_any_element();
     }
@@ -198,7 +200,7 @@ fn frame(picture: Div, title: String, details: impl IntoIterator<Item = Meta>) -
 
 fn played(world: &World) -> Meta {
     let ago = super::store::now().saturating_sub(world.saved);
-    Meta::new(IconName::Clock, format!("Played {}", super::ago(ago)))
+    Meta::new(IconName::Clock, t!("Played {when}", when = super::ago(ago)))
 }
 
 fn open_folder(id: (&'static str, usize), world: &World) -> Button {
@@ -207,7 +209,7 @@ fn open_folder(id: (&'static str, usize), world: &World) -> Button {
         .ghost()
         .cursor_pointer()
         .icon(IconName::FolderOpen)
-        .tooltip("Open folder")
+        .tooltip(t!("Open folder"))
         .on_click(move |_, _, cx| cx.open_with_system(&dir))
 }
 
@@ -236,9 +238,13 @@ fn server_row(
 ) -> Div {
     let address = server.address();
     let players = match counts.get(&address).copied().unwrap_or(Count::Asking) {
-        Count::Asking => "Checking who's on".to_owned(),
-        Count::Online(players) => format!("{} of {} online", players.online, players.max),
-        Count::Silent => "Not answering".to_owned(),
+        Count::Asking => t!("Checking who's on").to_owned(),
+        Count::Online(players) => t!(
+            "{online} of {max} online",
+            online = players.online,
+            max = players.max
+        ),
+        Count::Silent => t!("Not answering").to_owned(),
     };
     // Only a server in the game's list is asked (see `Detail`), so only it has a count.
     let details = server
@@ -271,7 +277,7 @@ fn server_row(
         Button::new(("server-join", ix))
             .ghost()
             .icon(IconName::Play)
-            .label("Join")
+            .label(t!("Join"))
             .map(|button| match join.blocked {
                 Some(why) => button.disabled(true).tooltip(why),
                 None => button.cursor_pointer().on_click(move |_, window, cx| {
@@ -296,21 +302,27 @@ fn hosted_row(ix: usize, hosted: &Hosted, join: &Join, cx: &App) -> Div {
         Some(State::Starting(what)) => vec![
             Meta::new(IconName::LoaderCircle, what.clone()),
             // Build 42 takes minutes, more the first time and with many mods.
-            Meta::new(IconName::Clock, "This takes a few minutes, grab a snack"),
+            Meta::new(
+                IconName::Clock,
+                t!("This takes a few minutes, grab a snack"),
+            ),
         ],
         Some(State::Running) => vec![
-            Meta::new(IconName::Radio, "Up and running"),
+            Meta::new(IconName::Radio, t!("Up and running")),
             // The first one in becomes the host, and the server closes when the host leaves.
-            Meta::new(IconName::Users, "Join first, it closes when you leave"),
+            Meta::new(IconName::Users, t!("Join first, it closes when you leave")),
         ],
         Some(State::Stopping) => vec![Meta::new(
             IconName::LoaderCircle,
-            "Saving and shutting down",
+            t!("Saving and shutting down"),
         )],
         Some(State::Failed(_)) => {
-            vec![Meta::new(IconName::TriangleAlert, "Didn't start last time")]
+            vec![Meta::new(
+                IconName::TriangleAlert,
+                t!("Didn't start last time"),
+            )]
         }
-        Some(State::Stopped) | None => [Meta::new(IconName::House, "Hosted here")]
+        Some(State::Stopped) | None => [Meta::new(IconName::House, t!("Hosted here"))]
             .into_iter()
             .chain(hosted.world.as_ref().map(played))
             .collect(),
@@ -327,7 +339,7 @@ fn hosted_row(ix: usize, hosted: &Hosted, join: &Join, cx: &App) -> Div {
                 Button::new(("hosted-play", ix))
                     .ghost()
                     .icon(IconName::Play)
-                    .label("Play")
+                    .label(t!("Play"))
                     .map(|button| match join.blocked {
                         Some(why) => button.disabled(true).tooltip(why),
                         None => button.cursor_pointer().on_click(move |_, window, cx| {
@@ -340,7 +352,7 @@ fn hosted_row(ix: usize, hosted: &Hosted, join: &Join, cx: &App) -> Div {
                     .ghost()
                     .cursor_pointer()
                     .icon(IconName::UserPlus)
-                    .tooltip("Invite a friend")
+                    .tooltip(t!("Invite a friend"))
                     .on_click(move |_, window, cx| {
                         super::host_view::invite(invite.clone(), window, cx)
                     }),
@@ -350,12 +362,14 @@ fn hosted_row(ix: usize, hosted: &Hosted, join: &Join, cx: &App) -> Div {
                     .ghost()
                     .cursor_pointer()
                     .icon(IconName::Link)
-                    .tooltip("Copy the join link for invited friends")
+                    .tooltip(t!("Copy the join link for invited friends"))
                     .on_click(move |_, window, cx| {
                         use gpui_kit::component::WindowExt;
                         cx.write_to_clipboard(ClipboardItem::new_string(link.clone()));
                         window.push_notification(
-                            crate::ui::toast::done("Join link copied! Send it to who you invited"),
+                            crate::ui::toast::done(t!(
+                                "Join link copied! Send it to who you invited"
+                            )),
                             cx,
                         );
                     }),
@@ -367,15 +381,17 @@ fn hosted_row(ix: usize, hosted: &Hosted, join: &Join, cx: &App) -> Div {
             Button::new(("hosted-stopping", ix))
                 .ghost()
                 .icon(IconName::Square)
-                .label("Stopping")
+                .label(t!("Stopping"))
                 .disabled(true),
         ),
         _ => {
             let elsewhere = join.hosting.is_some_and(|h| h.alive());
             let blocked = match join.blocked {
-                Some("The game is already open") => Some("Close the game first"),
+                Some(why) if why == t!("The game is already open") => {
+                    Some(t!("Close the game first"))
+                }
                 Some(why) => Some(why),
-                None if elsewhere => Some("Another server is running, stop it first"),
+                None if elsewhere => Some(t!("Another server is running, stop it first")),
                 None => None,
             };
             let name = hosted.name.clone();
@@ -383,7 +399,7 @@ fn hosted_row(ix: usize, hosted: &Hosted, join: &Join, cx: &App) -> Div {
                 Button::new(("hosted-start", ix))
                     .ghost()
                     .icon(IconName::Play)
-                    .label("Start")
+                    .label(t!("Start"))
                     .map(|button| match blocked {
                         Some(why) => button.disabled(true).tooltip(why),
                         None => button.cursor_pointer().on_click(move |_, window, cx| {
@@ -406,7 +422,7 @@ fn stop(ix: usize, shell: WeakEntity<Shell>) -> Button {
         .ghost()
         .cursor_pointer()
         .icon(IconName::Square)
-        .tooltip("Stop the server, it saves first")
+        .tooltip(t!("Stop the server, it saves first"))
         .on_click(move |_, _, cx| {
             let _ = shell.update(cx, |shell, cx| shell.stop_hosting(cx));
         })

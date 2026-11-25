@@ -30,10 +30,10 @@ const ROW: f32 = 22.;
 const EDGE: f32 = 24.;
 
 const FILTERS: [(&str, Option<Level>); 4] = [
-    ("All", None),
-    ("Error", Some(Level::Error)),
-    ("Warn", Some(Level::Warn)),
-    ("Info", Some(Level::Info)),
+    (n!("All"), None),
+    (n!("Error"), Some(Level::Error)),
+    (n!("Warn"), Some(Level::Warn)),
+    (n!("Info"), Some(Level::Info)),
 ];
 
 pub struct Logs {
@@ -61,7 +61,7 @@ pub struct Logs {
 
 impl Logs {
     pub fn new(cachedir: &Path, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Search")));
         let on_search = cx.subscribe(&search, |this, _, event: &InputEvent, cx| {
             if let InputEvent::Change = event {
                 this.refilter(cx);
@@ -368,12 +368,17 @@ impl Logs {
                     theme.muted_foreground
                 };
                 Tab::new().cursor_pointer().child(
-                    div().flex().items_baseline().gap_1p5().child(*label).child(
-                        div()
-                            .text_xs()
-                            .text_color(ink)
-                            .child(self.count(*level).to_string()),
-                    ),
+                    div()
+                        .flex()
+                        .items_baseline()
+                        .gap_1p5()
+                        .child(crate::i18n::tr(label))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(ink)
+                                .child(self.count(*level).to_string()),
+                        ),
                 )
             }))
             .on_click(cx.listener(|this, ix: &usize, _, cx| {
@@ -394,13 +399,13 @@ impl Logs {
             return match self.session.live {
                 true => Empty::new(
                     IconName::SquareTerminal,
-                    "Nothing logged yet",
-                    "Start the instance to follow its console here.",
+                    t!("Nothing logged yet"),
+                    t!("Start the instance to follow its console here."),
                 ),
                 false => Empty::new(
                     IconName::SquareTerminal,
-                    "Empty session",
-                    "This log file has no lines.",
+                    t!("Empty session"),
+                    t!("This log file has no lines."),
                 ),
             };
         }
@@ -408,20 +413,16 @@ impl Logs {
         if !query.is_empty() {
             return Empty::new(
                 IconName::Search,
-                format!("No lines match \"{query}\""),
-                "Try another word, or All levels.",
+                t!("No lines match \"{query}\"", query = query),
+                t!("Try another word, or All levels."),
             );
         }
         let what = match FILTERS[self.filter].1 {
-            Some(Level::Error) => "No errors",
-            Some(Level::Warn) => "No warnings",
-            _ => "No info lines",
+            Some(Level::Error) => t!("No errors in this session"),
+            Some(Level::Warn) => t!("No warnings in this session"),
+            _ => t!("No info lines in this session"),
         };
-        Empty::new(
-            IconName::Check,
-            format!("{what} in this session"),
-            "Pick All to see every line.",
-        )
+        Empty::new(IconName::Check, what, t!("Pick All to see every line."))
     }
 
     fn footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -440,8 +441,8 @@ impl Logs {
                     .flex()
                     .items_center()
                     .gap_4()
-                    .child(format!("{} lines", self.shown.len()))
-                    .children(selected.map(|n| format!("{n} selected"))),
+                    .child(tn!(self.shown.len(), "{n} lines", "{n} lines"))
+                    .children(selected.map(|n| tn!(n, "{n} selected", "{n} selected"))),
             )
             .child(
                 div()
@@ -454,8 +455,8 @@ impl Logs {
                             .cursor_pointer()
                             .icon(IconName::Copy)
                             .label(match selected {
-                                Some(_) => "Copy selection",
-                                None => "Copy all",
+                                Some(_) => t!("Copy selection"),
+                                None => t!("Copy all"),
                             })
                             .on_click(cx.listener(|this, _, _, cx| this.copy(cx))),
                     )
@@ -465,7 +466,7 @@ impl Logs {
                             .small()
                             .cursor_pointer()
                             .icon(IconName::ExternalLink)
-                            .label("Open file")
+                            .label(t!("Open file"))
                             .on_click(move |_, _, cx| cx.open_with_system(&path)),
                     ),
             )
@@ -533,7 +534,7 @@ impl Render for Logs {
                                 .small()
                                 .cursor_pointer()
                                 .icon(Icon::new(IconName::ArrowDown))
-                                .label("Latest")
+                                .label(t!("Latest"))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.scroll.scroll_to_bottom();
                                     cx.notify();

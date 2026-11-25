@@ -12,11 +12,14 @@ use super::{APP, Instance};
 pub fn command(instance: &Instance, connect: Option<&str>) -> io::Result<Command> {
     let game = instance
         .game()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "the game isn't installed"))?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, t!("the game isn't installed")))?;
     let missing = |what: &Path| {
         io::Error::new(
             io::ErrorKind::NotFound,
-            format!("{} is missing; install the instance again", what.display()),
+            t!(
+                "{what} is missing; install the instance again",
+                what = what.display()
+            ),
         )
     };
 
@@ -147,9 +150,9 @@ fn split_args(text: &str) -> Vec<String> {
 pub fn start(instance: &Instance, connect: Option<&str>) -> io::Result<Child> {
     // The game ships with `-Dzomboid.steam=1` and quits silently when SteamAPI_Init fails.
     if !steam_running() {
-        return Err(io::Error::other(
-            "Steam isn't open. Open Steam and press Play again",
-        ));
+        return Err(io::Error::other(t!(
+            "Steam isn't open. Open Steam and press Play again"
+        )));
     }
     // The overrides in Settings win over the instance's own memory and arguments. Applied once
     // here, so the Java loader is prepared for the same arguments the game gets.

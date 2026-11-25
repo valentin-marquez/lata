@@ -80,7 +80,7 @@ pub fn sessions(cachedir: &Path) -> Vec<Session> {
     }
     saved.sort_by_key(|(stamp, _)| std::cmp::Reverse(sortable(stamp)));
     let mut all = vec![Session {
-        name: "Live".into(),
+        name: t!("Live").into(),
         path: cachedir.join("console.txt"),
         live: true,
     }];
@@ -88,7 +88,7 @@ pub fn sessions(cachedir: &Path) -> Vec<Session> {
     let server = cachedir.join("coop-console.txt");
     if server.is_file() {
         all.push(Session {
-            name: "Coop server".into(),
+            name: t!("Coop server").into(),
             path: server,
             live: true,
         });
@@ -113,7 +113,18 @@ fn sortable(stamp: &str) -> String {
 /// `12-11-26_20-07-52` as "Nov 12 20:07".
 fn session_name(stamp: &str) -> String {
     const MONTHS: [&str; 12] = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        n!("Jan"),
+        n!("Feb"),
+        n!("Mar"),
+        n!("Apr"),
+        n!("May"),
+        n!("Jun"),
+        n!("Jul"),
+        n!("Aug"),
+        n!("Sep"),
+        n!("Oct"),
+        n!("Nov"),
+        n!("Dec"),
     ];
     let parts: Vec<&str> = stamp.split(['-', '_']).collect();
     if let [d, m, _, hh, mm, ..] = parts.as_slice()
@@ -122,7 +133,13 @@ fn session_name(stamp: &str) -> String {
             .ok()
             .and_then(|m| MONTHS.get(m.wrapping_sub(1)))
     {
-        return format!("{month} {} {hh}:{mm}", d.trim_start_matches('0'));
+        return t!(
+            "{month} {day} {hh}:{mm}",
+            month = crate::i18n::tr(month),
+            day = d.trim_start_matches('0'),
+            hh = hh,
+            mm = mm
+        );
     }
     stamp.to_owned()
 }

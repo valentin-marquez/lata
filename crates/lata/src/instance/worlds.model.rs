@@ -121,7 +121,7 @@ pub fn import(
 ) -> io::Result<World> {
     let (mode, name) = identify(source)?;
     if cachedir.starts_with(source) {
-        return Err(invalid("that folder holds the instance itself"));
+        return Err(invalid(t!("that folder holds the instance itself")));
     }
     let total = size(source)?;
     let staging = cachedir.join(format!(".lata-import-{}", std::process::id()));
@@ -146,23 +146,23 @@ fn invalid(why: &str) -> io::Error {
 /// The game mode and world name of a save folder, or why it isn't one.
 fn identify(source: &Path) -> io::Result<(String, String)> {
     if !source.is_dir() {
-        return Err(invalid("that isn't a folder"));
+        return Err(invalid(t!("that isn't a folder")));
     }
     // `map_t.bin` is the world's clock and `players.db` its characters: every save has them.
     if !source.join("map_t.bin").is_file() && !source.join("players.db").is_file() {
-        return Err(invalid("that folder isn't a Project Zomboid save"));
+        return Err(invalid(t!("that folder isn't a Project Zomboid save")));
     }
     let name = |path: &Path| {
         path.file_name()
             .map(|name| name.to_string_lossy().into_owned())
     };
     let (Some(world), Some(mode)) = (name(source), source.parent().and_then(name)) else {
-        return Err(invalid("a save sits in a game mode folder"));
+        return Err(invalid(t!("a save sits in a game mode folder")));
     };
     if mode == "Multiplayer" {
-        return Err(invalid(
-            "that is a server's cached copy, not a world you can load",
-        ));
+        return Err(invalid(t!(
+            "that is a server's cached copy, not a world you can load"
+        )));
     }
     Ok((mode, world))
 }

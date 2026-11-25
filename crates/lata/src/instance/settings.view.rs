@@ -38,9 +38,9 @@ impl Section {
 
     fn label(self) -> &'static str {
         match self {
-            Section::General => "General",
-            Section::Customize => "Customize",
-            Section::Game => "Game",
+            Section::General => t!("General"),
+            Section::Customize => t!("Customize"),
+            Section::Game => t!("Game"),
         }
     }
 
@@ -66,7 +66,7 @@ pub fn open(
         // Fades in settling from just above, and back out (the default drops from the window top).
         let dialog = dialog.entrance(DialogEntrance::FadeSlide);
         dialog
-            .title("Instance settings")
+            .title(t!("Instance settings"))
             .centered()
             .w(px(WIDTH))
             .child(view.clone())
@@ -164,8 +164,11 @@ fn field(
         .child(title(name))
         .child(Input::new(input).disabled(forced.is_some()))
         .child(match forced {
-            Some("") => overridden("Settings clears these for every instance", cx),
-            Some(args) => overridden(format!("Settings uses {args} for every instance"), cx),
+            Some("") => overridden(t!("Settings clears these for every instance"), cx),
+            Some(args) => overridden(
+                t!("Settings uses {args} for every instance", args = args),
+                cx,
+            ),
             None => hint(line, cx),
         })
 }
@@ -185,7 +188,7 @@ impl Settings {
                     .default_value(value)
             })
         };
-        let name = input(instance.name.to_string(), "Name");
+        let name = input(instance.name.to_string(), t!("Name"));
         let jvm_args = input(instance.jvm_args.clone(), "-XX:+AlwaysPreTouch");
         let launch_args = input(instance.launch_args.clone(), "-debug");
         // Without a chosen icon the instance shows the one picked from its id; start from that.
@@ -275,8 +278,10 @@ impl Settings {
                 window.close_dialog(cx);
                 let _ = self.shell.update(cx, |shell, cx| shell.reload(cx));
             }
-            Err(err) => window
-                .push_notification(ui::toast::failed_because("Hmm, that didn't save", err), cx),
+            Err(err) => window.push_notification(
+                ui::toast::failed_because(t!("Hmm, that didn't save"), err),
+                cx,
+            ),
         }
     }
 
@@ -286,11 +291,11 @@ impl Settings {
             Ok(()) => {
                 self.java_mods = on;
                 ui::toast::done(match on {
-                    true => "Java mods are on! Each one asks you before it loads",
-                    false => "Java mods are off. They stay installed, just asleep",
+                    true => t!("Java mods are on! Each one asks you before it loads"),
+                    false => t!("Java mods are off. They stay installed, just asleep"),
                 })
             }
-            Err(err) => ui::toast::failed_because("Hmm, that didn't save", err),
+            Err(err) => ui::toast::failed_because(t!("Hmm, that didn't save"), err),
         };
         window.push_notification(note, cx);
         let _ = self.shell.update(cx, |shell, cx| shell.reload(cx));
@@ -314,10 +319,12 @@ impl Settings {
                     .flex_col()
                     .gap_1p5()
                     .min_w_0()
-                    .child(title("Java mods"))
+                    .child(title(t!("Java mods")))
                     .child(hint(
-                        "Starts the game with ZombieBuddy hooked in, so this instance's Java \
-                         mods load.",
+                        t!(
+                            "Starts the game with ZombieBuddy hooked in, so this instance's Java \
+                            mods load."
+                        ),
                         cx,
                     )),
             )
@@ -342,8 +349,8 @@ impl Settings {
         let theme = cx.theme();
         let forced = self.overrides.memory_gb;
         let value = match forced.or(self.memory_gb) {
-            Some(gb) => format!("{gb} GB"),
-            None => format!("Game default, {DEFAULT_MEMORY} GB"),
+            Some(gb) => t!("{gb} GB", gb = gb),
+            None => t!("Game default, {gb} GB", gb = DEFAULT_MEMORY),
         };
         div()
             .flex()
@@ -356,7 +363,7 @@ impl Settings {
                     .justify_between()
                     // Fixed, so the Default button showing up doesn't push the slider down.
                     .h(CONTROL)
-                    .child(title("Memory"))
+                    .child(title(t!("Memory")))
                     .child(
                         div()
                             .flex()
@@ -377,7 +384,7 @@ impl Settings {
                                         .ghost()
                                         .cursor_pointer()
                                         .icon(IconName::Undo2)
-                                        .label("Default")
+                                        .label(t!("Default"))
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             this.memory_gb = None;
                                             this.slider.update(cx, |slider, cx| {
@@ -395,12 +402,15 @@ impl Settings {
                     .when(forced.is_none(), |slider| slider.cursor_pointer()),
             )
             .child(match forced {
-                Some(gb) => overridden(format!("Settings gives every instance {gb} GB"), cx),
+                Some(gb) => overridden(t!("Settings gives every instance {gb} GB", gb = gb), cx),
                 None => div()
                     .flex()
                     .justify_between()
-                    .child(hint(format!("{MIN_MEMORY} GB"), cx))
-                    .child(hint(format!("This computer has {} GB", self.installed), cx)),
+                    .child(hint(t!("{gb} GB", gb = MIN_MEMORY), cx))
+                    .child(hint(
+                        t!("This computer has {gb} GB", gb = self.installed),
+                        cx,
+                    )),
             })
     }
 
@@ -410,7 +420,7 @@ impl Settings {
         let instance = &self.instance;
         let build = instance
             .build_name()
-            .unwrap_or_else(|| "Not installed yet".to_owned());
+            .unwrap_or_else(|| t!("Not installed yet").to_owned());
         let fact = |name: &'static str, value: String| {
             div()
                 .flex()
@@ -445,10 +455,10 @@ impl Settings {
                 div()
                     .flex()
                     .gap_8()
-                    .child(fact("Game", build))
-                    .child(fact("Channel", instance.channel()))
-                    .children(instance.build.map(|id| fact("Build", id.to_string())))
-                    .child(fact("Activity", instance.played())),
+                    .child(fact(t!("Game"), build))
+                    .child(fact(t!("Channel"), instance.channel()))
+                    .children(instance.build.map(|id| fact(t!("Build"), id.to_string())))
+                    .child(fact(t!("Activity"), instance.played())),
             )
             .child(
                 div()
@@ -456,13 +466,13 @@ impl Settings {
                     .items_center()
                     .justify_between()
                     .gap_4()
-                    .child(fact("Folder", instance.dir.display().to_string()).flex_1())
+                    .child(fact(t!("Folder"), instance.dir.display().to_string()).flex_1())
                     .child(
                         Button::new("open-folder")
                             .ghost()
                             .cursor_pointer()
                             .icon(IconName::FolderOpen)
-                            .label("Open")
+                            .label(t!("Open"))
                             .on_click(move |_, _, cx| cx.open_with_system(&dir)),
                     ),
             )
@@ -485,11 +495,14 @@ impl Settings {
                     .flex_col()
                     .gap_0p5()
                     .min_w_0()
-                    .child(title("Delete instance"))
-                    .child(hint("Removes the instance with its saves and mods.", cx)),
+                    .child(title(t!("Delete instance")))
+                    .child(hint(
+                        t!("Removes the instance with its saves and mods."),
+                        cx,
+                    )),
             )
             .child(
-                FancyButton::new("delete", "Delete")
+                FancyButton::new("delete", t!("Delete"))
                     .small()
                     .danger()
                     .icon(IconName::Trash)
@@ -506,14 +519,14 @@ impl Render for Settings {
         let fields = div().flex().flex_col().gap_5();
         let (line, fields) = match self.section {
             Section::General => (
-                "What this instance is called and what it runs.",
+                t!("What this instance is called and what it runs."),
                 fields
                     // A name is a few words: a field the width of the dialog looked lost.
                     .child(
                         field(
-                            "Name",
+                            t!("Name"),
                             &self.name,
-                            "Renaming keeps the folder on disk as it is.",
+                            t!("Renaming keeps the folder on disk as it is."),
                             None,
                             cx,
                         )
@@ -523,11 +536,11 @@ impl Render for Settings {
                     .child(self.danger(cx)),
             ),
             Section::Customize => (
-                "The picture this instance shows in the Library.",
+                t!("The picture this instance shows in the Library."),
                 fields.child(self.picture.clone()),
             ),
             Section::Game => (
-                "How the game starts in this instance.",
+                t!("How the game starts in this instance."),
                 fields
                     .child(self.memory(cx))
                     .when(self.java_ready, |this| this.child(self.java(cx)))
@@ -538,19 +551,19 @@ impl Render for Settings {
                             .pt_4()
                             .border_t_1()
                             .border_color(border)
-                            .child(title("Advanced")),
+                            .child(title(t!("Advanced"))),
                     )
                     .child(field(
-                        "Launch arguments",
+                        t!("Launch arguments"),
                         &self.launch_args,
-                        "Options for the game, like -debug or -nosteam.",
+                        t!("Options for the game, like -debug or -nosteam."),
                         self.overrides.launch_args.as_deref(),
                         cx,
                     ))
                     .child(field(
-                        "Java arguments",
+                        t!("Java arguments"),
                         &self.jvm_args,
-                        "Options for the Java VM the game runs on. A -Xmx here wins over Memory.",
+                        t!("Options for the Java VM the game runs on. A -Xmx here wins over Memory."),
                         self.overrides.jvm_args.as_deref(),
                         cx,
                     )),
@@ -593,13 +606,14 @@ impl Render for Settings {
                     .flex_1()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .children(self.dirty(cx).then_some("You have unsaved changes")),
+                    .children(self.dirty(cx).then_some(t!("You have unsaved changes"))),
             )
             .child(
-                ui::secondary("cancel", "Cancel").on_click(|_, window, cx| window.close_dialog(cx)),
+                ui::secondary("cancel", t!("Cancel"))
+                    .on_click(|_, window, cx| window.close_dialog(cx)),
             )
             .child(
-                FancyButton::new("save", "Save")
+                FancyButton::new("save", t!("Save"))
                     .small()
                     .icon(IconName::Check)
                     .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),

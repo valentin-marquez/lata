@@ -45,7 +45,7 @@ fn prompt(
                     .gap_2()
                     .pt_4()
                     .child(
-                        crate::ui::secondary("prompt-cancel", "Cancel")
+                        crate::ui::secondary("prompt-cancel", t!("Cancel"))
                             .on_click(|_, window, cx| window.close_dialog(cx)),
                     )
                     .child(
@@ -66,14 +66,14 @@ fn prompt(
 /// Asks for a new server's name and sets it up in the instance.
 pub fn create(shell: WeakEntity<Shell>, id: SharedString, window: &mut Window, cx: &mut App) {
     prompt(
-        "New server",
-        "Your friends see this name when they join. Letters, numbers and dashes.",
+        t!("New server"),
+        t!("Your friends see this name when they join. Letters, numbers and dashes."),
         "coop",
-        "Create",
+        t!("Create"),
         move |name, _, cx| {
             let name = if name.is_empty() { "coop".into() } else { name };
             if !host::valid_name(&name) {
-                return Err("Letters, numbers and dashes only, up to 32 of them".into());
+                return Err(t!("Letters, numbers and dashes only, up to 32 of them").into());
             }
             let Ok(Some(instance)) = shell.read_with(cx, |shell, _| {
                 shell.instances().iter().find(|i| i.id == id).cloned()
@@ -92,20 +92,23 @@ pub fn create(shell: WeakEntity<Shell>, id: SharedString, window: &mut Window, c
 /// Asks for a friend's Steam ID and lets them in.
 pub fn invite(shell: WeakEntity<Shell>, window: &mut Window, cx: &mut App) {
     prompt(
-        "Invite a friend",
-        "Paste their Steam ID (17 digits) or their profile link with the number in it. \
-         Then send them the join link.",
+        t!("Invite a friend"),
+        t!(
+            "Paste their Steam ID (17 digits) or their profile link with the number in it. \
+             Then send them the join link."
+        ),
         "76561197960287930",
-        "Invite",
+        t!("Invite"),
         move |text, window, cx| {
-            let friend = host::steam_id(&text)
-                .ok_or("That doesn't look like a Steam ID. Try the number from their profile")?;
+            let friend = host::steam_id(&text).ok_or(t!(
+                "That doesn't look like a Steam ID. Try the number from their profile"
+            ))?;
             shell
                 .update(cx, |shell, cx| shell.invite(friend, cx))
                 .map_err(|err| err.to_string())?
                 .map_err(|err| err.to_string())?;
             window.push_notification(
-                toast::done("They're on the list! Send them the join link"),
+                toast::done(t!("They're on the list! Send them the join link")),
                 cx,
             );
             Ok(())
@@ -122,24 +125,20 @@ pub fn local_mods(
     cx: &mut App,
     start: impl Fn(&mut Window, &mut App) + 'static,
 ) {
-    let text = format!(
-        "{} only on this computer, so your friends can't download {}: {}. They'll need to get \
-         {} some other way to join.",
-        if names.len() == 1 {
-            "This mod is"
-        } else {
-            "These mods are"
-        },
-        if names.len() == 1 { "it" } else { "them" },
-        names.join(", "),
-        if names.len() == 1 { "it" } else { "them" },
+    let text = tn!(
+        names.len(),
+        "This mod is only on this computer, so your friends can't download it: {names}. \
+         They'll need to get it some other way to join.",
+        "These mods are only on this computer, so your friends can't download them: {names}. \
+         They'll need to get them some other way to join.",
+        names = names.join(", "),
     );
     let start = std::rc::Rc::new(start);
     window.open_dialog(cx, move |dialog, _, _| {
         let start = start.clone();
         dialog
             .entrance(DialogEntrance::FadeSlide)
-            .title("Heads up, not every mod is on the Workshop")
+            .title(t!("Heads up, not every mod is on the Workshop"))
             .w(px(460.))
             .child(text.clone())
             .child(
@@ -149,11 +148,11 @@ pub fn local_mods(
                     .gap_2()
                     .pt_4()
                     .child(
-                        crate::ui::secondary("local-cancel", "Cancel")
+                        crate::ui::secondary("local-cancel", t!("Cancel"))
                             .on_click(|_, window, cx| window.close_dialog(cx)),
                     )
                     .child(
-                        FancyButton::new("local-start", "Start anyway")
+                        FancyButton::new("local-start", t!("Start anyway"))
                             .small()
                             .on_click(move |_, window, cx| {
                                 window.close_dialog(cx);

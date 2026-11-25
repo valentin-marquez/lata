@@ -69,7 +69,7 @@ pub fn create(cachedir: &Path, name: &str) -> io::Result<()> {
     if ini.exists() {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
-            "There's already a server with that name",
+            t!("There's already a server with that name"),
         ));
     }
     std::fs::write(ini, "")
@@ -181,16 +181,16 @@ pub fn command(instance: &Instance, name: &str) -> io::Result<Command> {
 fn build(instance: &Instance, name: &str) -> io::Result<Command> {
     if cfg!(target_os = "macos") {
         // ponytail: the app bundle's layout isn't mapped yet; Linux and Windows are.
-        return Err(io::Error::other("Hosting isn't ready on macOS yet"));
+        return Err(io::Error::other(t!("Hosting isn't ready on macOS yet")));
     }
     let game = instance
         .game()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "the game isn't installed"))?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, t!("the game isn't installed")))?;
     // Linux builds keep the game in a `projectzomboid` folder beside the start script.
     let root = [game.join("projectzomboid"), game.clone()]
         .into_iter()
         .find(|dir| dir.join("ProjectZomboid64.json").is_file())
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "the game files look broken"))?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, t!("the game files look broken")))?;
     let launcher: Launcher = serde_json::from_str(&std::fs::read_to_string(
         root.join("ProjectZomboid64.json"),
     )?)
@@ -322,17 +322,17 @@ pub fn friendly(status: &str) -> String {
         return status.to_owned();
     };
     match key {
-        "Initialising" => "Getting things ready",
-        "Downloading_Workshop_Items" => "Downloading mods",
-        "Requesting_Workshop_Item_Details" => "Asking Steam about the mods",
-        "CreateBackup" => "Backing up the world",
-        "Loading_Assets" => "Loading the game's files",
-        "Initing_Checksum" => "Checking the files",
-        "Loading_Sandbox_Vars" => "Reading the world settings",
-        "LoadingWorld" => "Loading the world",
-        "Started" => "Up and running",
-        "Terminated" => "Shutting down",
-        _ => "Getting things ready",
+        "Initialising" => t!("Getting things ready"),
+        "Downloading_Workshop_Items" => t!("Downloading mods"),
+        "Requesting_Workshop_Item_Details" => t!("Asking Steam about the mods"),
+        "CreateBackup" => t!("Backing up the world"),
+        "Loading_Assets" => t!("Loading the game's files"),
+        "Initing_Checksum" => t!("Checking the files"),
+        "Loading_Sandbox_Vars" => t!("Reading the world settings"),
+        "LoadingWorld" => t!("Loading the world"),
+        "Started" => t!("Up and running"),
+        "Terminated" => t!("Shutting down"),
+        _ => t!("Getting things ready"),
     }
     .to_owned()
 }
