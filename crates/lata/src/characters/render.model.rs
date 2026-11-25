@@ -62,6 +62,8 @@ pub fn render(parts: &[Part], yaw: f32, width: u32, height: u32, smooth: bool) -
             if area.abs() < 1e-6 {
                 continue;
             }
+            // Multiplied per pixel instead of divided: this loop is most of a frame.
+            let inv_area = 1. / area;
             let x0 = a.0.min(b.0).min(c.0).floor().max(0.) as u32;
             let x1 = (a.0.max(b.0).max(c.0).ceil() as u32).min(w - 1);
             let y0 = a.1.min(b.1).min(c.1).floor().max(0.) as u32;
@@ -69,8 +71,8 @@ pub fn render(parts: &[Part], yaw: f32, width: u32, height: u32, smooth: bool) -
             for y in y0..=y1 {
                 for x in x0..=x1 {
                     let p = (x as f32 + 0.5, y as f32 + 0.5);
-                    let wa = edge((b.0, b.1), (c.0, c.1), p) / area;
-                    let wb = edge((c.0, c.1), (a.0, a.1), p) / area;
+                    let wa = edge((b.0, b.1), (c.0, c.1), p) * inv_area;
+                    let wb = edge((c.0, c.1), (a.0, a.1), p) * inv_area;
                     let wc = 1. - wa - wb;
                     if wa < 0. || wb < 0. || wc < 0. {
                         continue;
@@ -147,8 +149,8 @@ fn edge(a: (f32, f32), b: (f32, f32), p: (f32, f32)) -> f32 {
 /// The nearest texel, wrapping; V runs down the image as in Direct3D.
 fn sample(texture: &RgbaImage, u: f32, v: f32) -> [u8; 4] {
     let (tw, th) = texture.dimensions();
-    let x = ((u.rem_euclid(1.) * tw as f32) as u32).min(tw - 1);
-    let y = ((v.rem_euclid(1.) * th as f32) as u32).min(th - 1);
+    let x = (((u - u.floor()) * tw as f32) as u32).min(tw - 1);
+    let y = (((v - v.floor()) * th as f32) as u32).min(th - 1);
     texture.get_pixel(x, y).0
 }
 
