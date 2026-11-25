@@ -147,6 +147,7 @@ pub fn open(shell: WeakEntity<crate::shell::Shell>, window: &mut Window, cx: &mu
     let tray = crate::tray::supported();
     let now = Values {
         theme: theme::mode(cx),
+        language: load().language,
         startup: startup::enabled(),
         protocol: crate::link::protocol::enabled(),
         updates: !load().updates_off,
@@ -172,7 +173,11 @@ pub fn open(shell: WeakEntity<crate::shell::Shell>, window: &mut Window, cx: &mu
     });
     // However the dialog closes (X, Escape, outside click), the theme goes back to the saved one.
     cx.observe_release(&view, |settings, cx| {
-        theme::preview(settings.saved.theme, None, cx)
+        theme::preview(settings.saved.theme, None, cx);
+        if settings.draft.language != settings.saved.language {
+            crate::i18n::apply(settings.saved.language);
+            cx.refresh_windows();
+        }
     })
     .detach();
     window.open_dialog(cx, move |dialog, _, cx| {
@@ -194,6 +199,7 @@ pub fn open(shell: WeakEntity<crate::shell::Shell>, window: &mut Window, cx: &mu
 #[derive(Clone, Copy, PartialEq)]
 struct Values {
     theme: Mode,
+    language: crate::i18n::Language,
     /// Whether the system starts lata at sign in.
     startup: bool,
     /// Whether the system opens `lata://` links (the browser extension's) with this lata.
@@ -655,6 +661,11 @@ impl Settings {
             theme::choose(self.draft.theme, window, cx);
             self.saved.theme = self.draft.theme;
         }
+        if self.draft.language != self.saved.language {
+            let language = self.draft.language;
+            update(|saved| saved.language = language);
+            self.saved.language = language;
+        }
         let overrides = self.form.value(cx);
         if overrides != self.overrides {
             let kept = overrides.clone();
@@ -665,6 +676,10 @@ impl Settings {
     }
 
     fn reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.draft.language != self.saved.language {
+            crate::i18n::apply(self.saved.language);
+            cx.refresh_windows();
+        }
         self.draft = self.saved;
         theme::preview(self.saved.theme, Some(window), cx);
         self.form.reset(&self.overrides, window, cx);
@@ -792,6 +807,35 @@ impl Settings {
                     cx.notify();
                 }))
         });
+        // Shown as it is picked, all over the window, so it's easy to try one.
+        let languages = crate::i18n::Language::ALL.map(|language| {
+            let selected = language == self.draft.language;
+            div()
+                .id(SharedString::from(format!("language-{language:?}")))
+                .flex()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .py_2()
+                .rounded(theme.radius_lg)
+                .border_1()
+                .border_color(if selected {
+                    theme.primary
+                } else {
+                    theme.border
+                })
+                .bg(theme.group_box)
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .cursor_pointer()
+                .child(radio(selected, cx))
+                .child(language.label())
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.draft.language = language;
+                    crate::i18n::apply(language);
+                    cx.refresh_windows();
+                }))
+        });
         div()
             .flex()
             .flex_col()
@@ -802,6 +846,13 @@ impl Settings {
                 cx,
             ))
             .child(div().flex().gap_3().children(cards))
+            .child(div().h_2())
+            .child(heading(
+                "Language",
+                "System follows your system's language when lata speaks it.",
+                cx,
+            ))
+            .child(div().flex().flex_wrap().gap_3().children(languages))
     }
 
     /// Launch options for every instance, over what each one has. Empty fields leave them be.
