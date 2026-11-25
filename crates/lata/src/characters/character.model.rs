@@ -195,7 +195,11 @@ impl Look {
     }
 
     pub fn set_names(&mut self, first: &str, last: &str) {
-        let tidy = |s: &str| s.replace(['|', ';', '=', '\n'], "").trim().to_owned();
+        let tidy = |s: &str| {
+            s.replace(['|', ';', '=', ':', '\n', '\r'], "")
+                .trim()
+                .to_owned()
+        };
         self.set("name", &format!("{}|{}", tidy(first), tidy(last)));
     }
 
@@ -377,6 +381,10 @@ mod tests {
     #[test]
     fn names_stay_readable_and_unique() {
         assert_eq!(clean(" Kate: the nurse\n"), "Kate the nurse");
+        // The game splits a whole line at its colons, so none may hide in the value.
+        let mut look = Look::parse("gender=1;");
+        look.set_names("Dr: Kate", "Smith|Jones");
+        assert_eq!(look.names(), ("Dr Kate".into(), "SmithJones".into()));
         let taken = vec![Character {
             name: "Kate".into(),
             look: None,
