@@ -192,6 +192,7 @@ mod tests {
             mesh: Mesh {
                 triangles: vec![[vertex(-1., -1.), vertex(0., 1.), vertex(1., -1.)]],
                 texture: None,
+                skin: None,
             },
             texture: None,
             tint: [0., 0., 1.],

@@ -1,7 +1,9 @@
-//! The game's character models: DirectX `.x` files in text format (`xof 0303txt`). Only what
-//! a still preview needs is read: the frame hierarchy and its transforms, and each mesh's
-//! vertices, faces, normals, texture coordinates and texture name. Skin weights and animations
-//! are skipped, so a skinned mesh comes out in its bind pose.
+//! The game's character models and animations: DirectX `.x` files in text format
+//! (`xof 0303txt`). Only what the preview needs is read: the frame hierarchy and its
+//! transforms, each mesh's vertices, faces, normals, texture coordinates, texture name and skin
+//! weights, and an animation set's rotation, scale and position keys.
+
+use std::collections::HashMap;
 
 /// A corner of a triangle, in the model's space (Y up, left-handed like Direct3D).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -16,15 +18,120 @@ pub struct Mesh {
     pub triangles: Vec<[Vertex; 3]>,
     /// The texture its first material names; the game usually swaps in its own.
     pub texture: Option<String>,
+    /// What moves it with a skeleton, when it has skin weights.
+    pub skin: Option<Skin>,
+}
+
+/// A skinned mesh's ties to its file's skeleton.
+#[derive(Clone, Debug, Default)]
+pub struct Skin {
+    /// The triangles in the mesh's own space, which the bone offsets start from.
+    pub rest: Vec<[Vertex; 3]>,
+    /// The vertex each corner of `rest` is, to find its weights.
+    pub corners: Vec<[usize; 3]>,
+    /// Each vertex's bones (indices into `bones`) and how much each pulls.
+    pub weights: Vec<Vec<(usize, f32)>>,
+    /// The joint each bone follows, and the matrix from mesh space into that joint's space.
+    pub bones: Vec<(usize, Matrix)>,
+    pub joints: Vec<Joint>,
+}
+
+/// A frame of the file, as a joint of the skeleton.
+#[derive(Clone, Debug)]
+pub struct Joint {
+    pub name: String,
+    /// Always before this one in the list.
+    pub parent: Option<usize>,
+    /// Its transform within the parent in the bind pose.
+    pub local: Matrix,
+}
+
+/// An animation set: per joint, keys in seconds.
+#[derive(Clone, Debug, Default)]
+pub struct Clip {
+    /// When the last key is.
+    pub length: f32,
+    pub tracks: HashMap<String, Track>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Track {
+    /// Quaternions as the file writes them: w, x, y, z.
+    pub rotation: Vec<(f32, [f32; 4])>,
+    pub scale: Vec<(f32, [f32; 3])>,
+    pub position: Vec<(f32, [f32; 3])>,
+}
+
+fn root(text: &str) -> Vec<Token<'_>> {
+    tokens(text.split_once('\n').map_or("", |(_, rest)| rest))
 }
 
 /// Every mesh in `text`, placed by the frames around it. Empty when nothing reads as one.
 pub fn parse(text: &str) -> Vec<Mesh> {
-    let tokens = tokens(text.split_once('\n').map_or("", |(_, rest)| rest));
+    let tokens = root(text);
     let root = object(&tokens, &mut 0, "", "");
+    let mut skeleton = Vec::new();
+    joints(&root, None, &mut skeleton);
     let mut meshes = Vec::new();
-    walk(&root, &root, IDENTITY, &mut meshes);
+    walk(&root, &root, &skeleton, IDENTITY, &mut meshes);
     meshes
+}
+
+/// The first animation set in `text`. Matrix keys (type 4) aren't read: the game's clips only
+/// use rotation, scale and position keys.
+pub fn clip(text: &str) -> Option<Clip> {
+    let tokens = root(text);
+    let root = object(&tokens, &mut 0, "", "");
+    // Direct3D's default when a file doesn't say.
+    let ticks = root
+        .child("AnimTicksPerSecond")
+        .and_then(|t| t.data.first().copied())
+        .filter(|t| *t > 0.)
+        .unwrap_or(4800.);
+    let set = root.child("AnimationSet")?;
+    let mut clip = Clip::default();
+    for animation in set.children.iter().filter(|c| c.kind == "Animation") {
+        // The joint it moves, as a reference: `{ Bip01 }`.
+        let Some(joint) = animation
+            .children
+            .iter()
+            .find(|c| c.kind.is_empty())
+            .and_then(|c| c.words.first())
+        else {
+            continue;
+        };
+        let mut track = Track::default();
+        for key in animation
+            .children
+            .iter()
+            .filter(|c| c.kind == "AnimationKey")
+        {
+            let d = &key.data;
+            let (Some(&kind), Some(&n)) = (d.first(), d.get(1)) else {
+                continue;
+            };
+            let mut at = 2;
+            for _ in 0..n as usize {
+                let (Some(&time), Some(&count)) = (d.get(at), d.get(at + 1)) else {
+                    break;
+                };
+                let Some(v) = d.get(at + 2..at + 2 + count as usize) else {
+                    break;
+                };
+                at += 2 + count as usize;
+                let time = time / ticks;
+                clip.length = clip.length.max(time);
+                match (kind as u32, v) {
+                    (0, &[w, x, y, z]) => track.rotation.push((time, [w, x, y, z])),
+                    (1, &[x, y, z]) => track.scale.push((time, [x, y, z])),
+                    (2, &[x, y, z]) => track.position.push((time, [x, y, z])),
+                    _ => {}
+                }
+            }
+        }
+        clip.tracks.insert(joint.to_string(), track);
+    }
+    Some(clip)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -123,13 +230,13 @@ fn object<'a>(t: &[Token<'a>], i: &mut usize, kind: &'a str, name: &'a str) -> N
 }
 
 /// Row-major, for row vectors (`v * M`), as Direct3D writes them.
-type Matrix = [f32; 16];
+pub type Matrix = [f32; 16];
 
-const IDENTITY: Matrix = [
+pub const IDENTITY: Matrix = [
     1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
 ];
 
-fn multiply(a: &Matrix, b: &Matrix) -> Matrix {
+pub fn multiply(a: &Matrix, b: &Matrix) -> Matrix {
     let mut m = [0.; 16];
     for r in 0..4 {
         for c in 0..4 {
@@ -139,7 +246,7 @@ fn multiply(a: &Matrix, b: &Matrix) -> Matrix {
     m
 }
 
-fn transform(v: [f32; 3], w: f32, m: &Matrix) -> [f32; 3] {
+pub fn transform(v: [f32; 3], w: f32, m: &Matrix) -> [f32; 3] {
     let at = |c: usize| v[0] * m[c] + v[1] * m[4 + c] + v[2] * m[8 + c] + w * m[12 + c];
     [at(0), at(1), at(2)]
 }
@@ -152,17 +259,33 @@ pub fn normalize(v: [f32; 3]) -> [f32; 3] {
     [v[0] / len, v[1] / len, v[2] / len]
 }
 
-fn walk(node: &Node, root: &Node, parent: Matrix, meshes: &mut Vec<Mesh>) {
+fn local(frame: &Node) -> Matrix {
+    frame
+        .child("FrameTransformMatrix")
+        .and_then(|m| m.data.get(..16)?.try_into().ok())
+        .unwrap_or(IDENTITY)
+}
+
+/// Every frame under `node`, parents first.
+fn joints(node: &Node, parent: Option<usize>, out: &mut Vec<Joint>) {
+    for child in node.children.iter().filter(|c| c.kind == "Frame") {
+        out.push(Joint {
+            name: child.name.to_string(),
+            parent,
+            local: local(child),
+        });
+        joints(child, Some(out.len() - 1), out);
+    }
+}
+
+fn walk(node: &Node, root: &Node, skeleton: &[Joint], parent: Matrix, meshes: &mut Vec<Mesh>) {
     for child in &node.children {
         match child.kind {
             "Frame" => {
-                let local = child
-                    .child("FrameTransformMatrix")
-                    .and_then(|m| m.data.get(..16)?.try_into().ok())
-                    .unwrap_or(IDENTITY);
-                walk(child, root, multiply(&local, &parent), meshes);
+                let m = multiply(&local(child), &parent);
+                walk(child, root, skeleton, m, meshes);
             }
-            "Mesh" => meshes.extend(mesh(child, root, &parent)),
+            "Mesh" => meshes.extend(mesh(child, root, skeleton, &parent)),
             _ => {}
         }
     }
@@ -189,7 +312,7 @@ fn vectors(d: &[f32], at: &mut usize, size: usize) -> Option<Vec<Vec<f32>>> {
     Some(list.chunks(size).map(<[f32]>::to_vec).collect())
 }
 
-fn mesh(node: &Node, root: &Node, m: &Matrix) -> Option<Mesh> {
+fn mesh(node: &Node, root: &Node, skeleton: &[Joint], m: &Matrix) -> Option<Mesh> {
     let mut at = 0;
     let positions = vectors(&node.data, &mut at, 3)?;
     let polygons = faces(&node.data, &mut at)?;
@@ -204,7 +327,7 @@ fn mesh(node: &Node, root: &Node, m: &Matrix) -> Option<Mesh> {
         Some(t) => vectors(&t.data, &mut 0, 2)?,
         None => Vec::new(),
     };
-    let vertex = |face: usize, corner: usize| -> Option<Vertex> {
+    let vertex = |face: usize, corner: usize, m: &Matrix| -> Option<Vertex> {
         let i = *polygons[face].get(corner)?;
         let p = positions.get(i)?;
         let normal = normal_faces
@@ -218,11 +341,17 @@ fn mesh(node: &Node, root: &Node, m: &Matrix) -> Option<Mesh> {
             uv,
         })
     };
+    let mut skin = skin(node, skeleton, positions.len());
     let mut triangles = Vec::new();
     for (f, face) in polygons.iter().enumerate() {
         // A polygon becomes a fan from its first corner.
         for c in 2..face.len() {
-            triangles.push([vertex(f, 0)?, vertex(f, c - 1)?, vertex(f, c)?]);
+            let at = |m: &Matrix| Some([vertex(f, 0, m)?, vertex(f, c - 1, m)?, vertex(f, c, m)?]);
+            triangles.push(at(m)?);
+            if let Some(skin) = &mut skin {
+                skin.rest.push(at(&IDENTITY)?);
+                skin.corners.push([face[0], face[c - 1], face[c]]);
+            }
         }
     }
     let material = node.child("MeshMaterialList").and_then(|list| {
@@ -238,7 +367,47 @@ fn mesh(node: &Node, root: &Node, m: &Matrix) -> Option<Mesh> {
         .and_then(|m| m.child("TextureFilename"))
         .and_then(|t| t.words.first())
         .map(|s| s.to_string());
-    Some(Mesh { triangles, texture })
+    Some(Mesh {
+        triangles,
+        texture,
+        skin,
+    })
+}
+
+/// The skin weights of `node` over `count` vertices, tied to joints of `skeleton` by name. A
+/// bone the skeleton doesn't have is left out.
+fn skin(node: &Node, skeleton: &[Joint], count: usize) -> Option<Skin> {
+    let mut skin = Skin {
+        weights: vec![Vec::new(); count],
+        joints: skeleton.to_vec(),
+        ..Skin::default()
+    };
+    for weights in node.children.iter().filter(|c| c.kind == "SkinWeights") {
+        let (Some(name), Some(&n)) = (weights.words.first(), weights.data.first()) else {
+            continue;
+        };
+        let n = n as usize;
+        let d = &weights.data;
+        let (Some(indices), Some(amounts), Some(offset)) = (
+            d.get(1..1 + n),
+            d.get(1 + n..1 + 2 * n),
+            d.get(1 + 2 * n..17 + 2 * n)
+                .and_then(|m| Matrix::try_from(m).ok()),
+        ) else {
+            continue;
+        };
+        let Some(joint) = skeleton.iter().position(|j| j.name == *name) else {
+            continue;
+        };
+        let bone = skin.bones.len();
+        skin.bones.push((joint, offset));
+        for (&i, &w) in indices.iter().zip(amounts) {
+            if let Some(list) = skin.weights.get_mut(i as usize) {
+                list.push((bone, w));
+            }
+        }
+    }
+    (!skin.bones.is_empty()).then_some(skin)
 }
 
 #[cfg(test)]

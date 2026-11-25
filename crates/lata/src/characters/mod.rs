@@ -15,6 +15,8 @@ mod editor;
 mod model;
 #[path = "page.view.rs"]
 mod page;
+#[path = "pose.model.rs"]
+mod pose;
 #[path = "presets.model.rs"]
 pub mod presets;
 #[path = "preview.view.rs"]
