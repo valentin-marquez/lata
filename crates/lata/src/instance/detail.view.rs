@@ -7,6 +7,8 @@ use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use std::collections::HashMap;
+
 use super::{Instance, Status};
 use crate::shell::Shell;
 use crate::ui::{FancyButton, Meta};
@@ -40,6 +42,11 @@ pub struct Detail {
     mods: Option<Entity<super::mods_view::Mods>>,
     /// Read when the Worlds tab opens, and again after the instance changes.
     worlds: Option<Vec<super::worlds::World>>,
+    /// The servers it has joined, read along with the worlds.
+    servers: Option<Vec<super::servers::Server>>,
+    /// What each server said when asked for its players, by address. Kept while the
+    /// instance changes, so a download's progress doesn't ask again every tick.
+    counts: HashMap<String, super::servers::Count>,
 }
 
 impl Detail {
@@ -51,6 +58,8 @@ impl Detail {
             logs: None,
             mods: None,
             worlds: None,
+            servers: None,
+            counts: HashMap::new(),
         }
     }
 
@@ -64,6 +73,7 @@ impl Detail {
             mods.update(cx, |mods, cx| mods.refresh(cx));
         }
         self.worlds = None;
+        self.servers = None;
         cx.notify();
     }
 
@@ -78,8 +88,10 @@ impl Detail {
         if instance.id != self.instance.id {
             self.logs = None;
             self.mods = None;
+            self.counts.clear();
         }
         self.worlds = None;
+        self.servers = None;
         self.instance = instance;
         cx.notify();
     }
@@ -249,8 +261,47 @@ impl Detail {
             .on_click(cx.listener(|this, ix: &usize, _, cx| {
                 this.tab = Tab::ALL[*ix];
                 this.worlds = None;
+                this.servers = None;
+                // Opening the tab again asks the servers again.
+                this.counts.clear();
                 cx.notify();
             }))
+    }
+}
+
+impl Detail {
+    /// Asks the server at `host:port` how many play there, off the UI thread.
+    fn ask(&mut self, address: String, host: String, port: u16, cx: &mut Context<Self>) {
+        use super::servers::{self, Count};
+        self.counts.insert(address.clone(), Count::Asking);
+        cx.spawn(async move |this, cx| {
+            let answer = cx
+                .background_executor()
+                .spawn(async move { servers::players(&host, port) })
+                .await;
+            let count = answer.map_or(Count::Silent, Count::Online);
+            let _ = this.update(cx, |this, cx| {
+                // Gone means another instance is shown now: its rows don't want this.
+                if let Some(slot) = this.counts.get_mut(&address) {
+                    *slot = count;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Why the instance can't join a server now, if it can't.
+    fn join_blocked(&self, cx: &App) -> Option<&'static str> {
+        let status = self.shell.upgrade().map_or(Status::NotInstalled, |shell| {
+            shell.read(cx).status(&self.instance)
+        });
+        match status {
+            Status::Ready | Status::Outdated => None,
+            Status::Running => Some("The game is already open"),
+            Status::Installing(_) | Status::Bringing(_) => Some("Hang on, it's still downloading"),
+            Status::NotInstalled => Some("Install the game first"),
+        }
     }
 }
 
@@ -277,10 +328,32 @@ impl Render for Detail {
             }
             Tab::Worlds => {
                 let cachedir = self.instance.dir.join("zomboid");
-                let worlds = self
-                    .worlds
+                self.worlds
                     .get_or_insert_with(|| super::worlds::list(&cachedir));
-                super::worlds_view::worlds(worlds, cx)
+                let servers = self
+                    .servers
+                    .get_or_insert_with(|| super::servers::list(&cachedir));
+                let asks: Vec<(String, String, u16)> = servers
+                    .iter()
+                    .filter(|server| !self.counts.contains_key(&server.address()))
+                    .map(|server| (server.address(), server.host.clone(), server.port))
+                    .collect();
+                for (address, host, port) in asks {
+                    self.ask(address, host, port, cx);
+                }
+                let join = super::worlds_view::Join {
+                    shell: self.shell.clone(),
+                    id: self.instance.id.clone(),
+                    blocked: self.join_blocked(cx),
+                };
+                let (worlds, servers) = (self.worlds.as_deref(), self.servers.as_deref());
+                super::worlds_view::worlds(
+                    worlds.unwrap_or_default(),
+                    servers.unwrap_or_default(),
+                    &self.counts,
+                    &join,
+                    cx,
+                )
             }
         };
         let tabs = self.tabs(cx).into_any_element();

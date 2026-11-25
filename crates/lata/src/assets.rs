@@ -78,6 +78,7 @@ ui_icons!(
     "radio",
     "rocket",
     "search",
+    "server",
     "settings",
     "settings-2",
     "square",
@@ -86,6 +87,7 @@ ui_icons!(
     "triangle-alert",
     "undo-2",
     "usb",
+    "users",
     "wand-sparkles",
 );
 
