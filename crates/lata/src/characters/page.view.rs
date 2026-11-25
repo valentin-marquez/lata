@@ -209,9 +209,14 @@ impl Characters {
     ) -> std::io::Result<()> {
         let written = super::shared(Kind::Outfits).and_then(|mut outfits| {
             let mut builds = super::shared(Kind::Builds)?;
+            let before = outfits.clone();
             character.save(old, &mut outfits, &mut builds);
             super::keep(&outfits)?;
-            super::keep(&builds)
+            // Half a character written would be in the way of trying again under its name:
+            // the looks go back to how they were.
+            super::keep(&builds).inspect_err(|_| {
+                let _ = super::keep(&before);
+            })
         });
         self.read(cx);
         written
