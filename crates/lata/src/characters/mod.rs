@@ -5,6 +5,10 @@
 //! each instance's files (`saved_outfits.txt.lata`) holds the presets lata and that instance
 //! last agreed on, so a sync can tell who changed or deleted what since.
 
+#[path = "catalog.model.rs"]
+mod catalog;
+#[path = "character.model.rs"]
+mod character;
 #[path = "presets.model.rs"]
 pub mod presets;
 
