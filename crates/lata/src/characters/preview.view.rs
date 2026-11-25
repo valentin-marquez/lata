@@ -174,15 +174,18 @@ impl Preview {
         let walking = self.walking(cx);
         let step = walking.then(|| (self.start.elapsed().as_secs_f32() * FPS) as u64);
         let drawn = (self.loads, self.yaw, self.pixels, step.unwrap_or(0));
-        if self.drawing.is_none() && self.image.as_ref().is_none_or(|(_, at)| *at != drawn) {
-            match self.parts.clone() {
-                Some(parts) => self.draw(parts, walking, drawn, cx),
-                // The window being drawn is out of GPUI's list: it has to be named to drop
-                // the picture from it.
-                None => {
-                    if let Some((old, _)) = self.image.take() {
-                        cx.drop_image(old, window);
-                    }
+        match self.parts.clone() {
+            Some(parts) => {
+                if self.drawing.is_none() && self.image.as_ref().is_none_or(|(_, at)| *at != drawn)
+                {
+                    self.draw(parts, walking, drawn, cx);
+                }
+            }
+            // Gone at once, without waiting for a picture still drawing. The window being
+            // drawn is out of GPUI's list: it has to be named to drop the picture from it.
+            None => {
+                if let Some((old, _)) = self.image.take() {
+                    cx.drop_image(old, window);
                 }
             }
         }
