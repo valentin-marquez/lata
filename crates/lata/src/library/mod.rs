@@ -260,7 +260,7 @@ impl Library {
                         })
                         .size_4(),
                     )
-                    .child(crate::instance::build::channel(&branch))
+                    .child(crate::i18n::tr(&crate::instance::build::channel(&branch)).to_owned())
                     .child(div().text_xs().child(count.to_string()))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if !this.collapsed.remove(&branch) {

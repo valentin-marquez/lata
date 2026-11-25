@@ -792,7 +792,8 @@ impl Shell {
                                         t!("Steam won't hand out that version"),
                                         t!(
                                             "So the newest one of {channel} came instead",
-                                            channel = instance::build::channel(&branch)
+                                            channel =
+                                                crate::i18n::tr(&instance::build::channel(&branch))
                                         ),
                                     ),
                                     cx,
@@ -1802,7 +1803,7 @@ impl Shell {
                             t!("This pack follows its branch"),
                             t!(
                                 "It was made on an older version, so the newest one of {channel} is coming",
-                                channel = instance::build::channel(&index.build.branch)
+                                channel = crate::i18n::tr(&instance::build::channel(&index.build.branch))
                             ),
                         ),
                         cx,
