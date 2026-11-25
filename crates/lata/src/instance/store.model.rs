@@ -126,6 +126,22 @@ fn claimants(build: &Path) -> Vec<String> {
     text.lines().map(str::to_owned).collect()
 }
 
+/// Moves a folder, trying again a few times when it won't go. On Windows a folder with files
+/// another process has open (an antivirus scanning what was just written, the indexer) refuses
+/// to move, and lets go a moment later. It waits only after a failure.
+fn move_folder(from: &Path, to: &Path) -> io::Result<()> {
+    const PAUSES_MS: [u64; 4] = [50, 100, 200, 400];
+    let mut moved = std::fs::rename(from, to);
+    for pause in PAUSES_MS {
+        if moved.is_ok() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(pause));
+        moved = std::fs::rename(from, to);
+    }
+    moved
+}
+
 /// Moves each installed instance's own `game/` (from before builds were shared) into `builds/`,
 /// and drops empty ones. A copy whose build is already shared stays, as a detached instance.
 pub fn migrate(root: &Path) {
@@ -141,7 +157,7 @@ pub fn migrate(root: &Path) {
         let shared = builds(root).join(build.to_string());
         if !shared.exists()
             && std::fs::create_dir_all(builds(root)).is_ok()
-            && std::fs::rename(&own, &shared).is_ok()
+            && move_folder(&own, &shared).is_ok()
         {
             let _ = set_complete(&shared);
         }
@@ -482,6 +498,40 @@ mod tests {
         let base = std::env::temp_dir().join(format!("lata-store-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         base.join("instances")
+    }
+
+    #[test]
+    fn moving_a_folder_tries_again_when_it_fails_for_a_moment() {
+        let root = temp_root("move");
+        let from = root.join("from");
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::write(from.join("f"), "x").unwrap();
+
+        // The destination's parent is missing at first, so the first try fails; it appears
+        // while the retries wait, as an antivirus lets go of a folder.
+        let parent = root.join("late");
+        let appear = {
+            let parent = parent.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(70));
+                std::fs::create_dir_all(&parent).unwrap();
+            })
+        };
+        let to = parent.join("to");
+        move_folder(&from, &to).unwrap();
+        appear.join().unwrap();
+        assert!(to.join("f").is_file() && !from.exists());
+
+        // Something that never lets go: it gives up and says so, instead of waiting for good.
+        let stuck = root.join("stuck");
+        std::fs::create_dir_all(&stuck).unwrap();
+        let never = root.join("never").join("to");
+        let began = std::time::Instant::now();
+        assert!(move_folder(&stuck, &never).is_err());
+        assert!(began.elapsed() < std::time::Duration::from_secs(5));
+        assert!(stuck.is_dir());
+
+        std::fs::remove_dir_all(root.parent().unwrap()).unwrap();
     }
 
     #[test]
