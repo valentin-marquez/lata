@@ -40,9 +40,42 @@ pub fn shared(kind: Kind) -> io::Result<Presets> {
 
 /// Replaces the shared presets of their kind; instances pick the change up on their next launch.
 pub fn keep(presets: &Presets) -> io::Result<()> {
-    let store = store();
-    std::fs::create_dir_all(&store)?;
-    write(&store.join(presets.kind().file()), presets)
+    keep_in(&store(), presets)
+}
+
+/// Also notes what this drops (the name and its last value) in the store's list of deleted
+/// presets, so an instance with no note of its own (its last session ran before notes were
+/// kept, or it never ran) still lets them go.
+// ponytail: the list only grows, one line per deleted preset; trim it if that ever shows.
+fn keep_in(store: &Path, presets: &Presets) -> io::Result<()> {
+    let kind = presets.kind();
+    let path = store.join(kind.file());
+    let before = read(&path, kind)?.unwrap_or_else(|| Presets::parse(kind, ""));
+    let mut gone = deleted(store, kind)?;
+    let mut changed = false;
+    for (name, value) in before.iter() {
+        if presets.get(name).is_none() && gone.get(name) != Some(value) {
+            gone.set(name, value);
+            changed = true;
+        }
+    }
+    for (name, _) in presets.iter() {
+        changed |= gone.remove(name);
+    }
+    std::fs::create_dir_all(store)?;
+    if changed {
+        write(&store.join(graveyard(kind)), &gone)?;
+    }
+    write(&path, presets)
+}
+
+/// Presets deleted on the Characters page, with the value each had then.
+fn deleted(store: &Path, kind: Kind) -> io::Result<Presets> {
+    Ok(read(&store.join(graveyard(kind)), kind)?.unwrap_or_else(|| Presets::parse(kind, "")))
+}
+
+fn graveyard(kind: Kind) -> String {
+    format!("{}.deleted", kind.file())
 }
 
 /// Before a launch: adds the shared presets to the instance, replacing its own of the same name,
@@ -65,8 +98,10 @@ fn share(store: &Path, lua: &Path) -> io::Result<()> {
         // In the note but no longer shared: deleted in lata (on the Characters page, or in
         // another instance's game). Only an untouched copy goes; one changed in game since is
         // new again.
-        if let Some(noted) = read(&lua.join(note(kind)), kind)? {
-            for (name, value) in noted.iter() {
+        let noted = read(&lua.join(note(kind)), kind)?;
+        let gone = deleted(store, kind)?;
+        for list in noted.iter().chain([&gone]) {
+            for (name, value) in list.iter() {
                 if shared.get(name).is_none() && here.get(name) == Some(value) {
                     changed |= here.remove(name);
                 }
@@ -108,8 +143,11 @@ fn collect(lua: &Path, store: &Path) -> io::Result<()> {
                 }
             }
         }
+        let gone = deleted(store, kind)?;
         for (name, value) in here.iter() {
-            let untouched = noted.as_ref().and_then(|n| n.get(name)) == Some(value);
+            // As lata shared it, or as it was when deleted on the Characters page.
+            let untouched = noted.as_ref().and_then(|n| n.get(name)) == Some(value)
+                || gone.get(name) == Some(value);
             if !untouched && shared.get(name) != Some(value) {
                 shared.set(name, value);
                 changed = true;
@@ -315,6 +353,35 @@ mod tests {
         let left = read(&store.join(builds), Kind::Builds).unwrap().unwrap();
         let names: Vec<_> = left.iter().map(|(name, _)| name).collect();
         assert_eq!(names, ["Kate", "Zed"]);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// An instance whose last session ended before notes were kept has a copy lata can't
+    /// place: what the page deleted must still go from it, and not come back.
+    #[test]
+    fn a_preset_deleted_in_lata_leaves_an_instance_without_a_note() {
+        let root = scratch("old");
+        let (store, lua_a) = (root.join("store"), lua(&root.join("a")));
+        let builds = Kind::Builds.file();
+        std::fs::create_dir_all(&store).unwrap();
+        std::fs::create_dir_all(&lua_a).unwrap();
+        std::fs::write(store.join(builds), "Bob:nurse;\nKate:chef;\n").unwrap();
+        std::fs::write(lua_a.join(builds), "Bob:nurse;\nKate:chef;\n").unwrap();
+
+        keep_in(&store, &Presets::parse(Kind::Builds, "Kate:chef;\n")).unwrap();
+        share(&store, &lua_a).unwrap();
+        assert_eq!(get(&lua_a, Kind::Builds, "Bob"), None);
+        collect(&lua_a, &store).unwrap();
+        assert_eq!(get(&store, Kind::Builds, "Bob"), None);
+
+        // Made again, it is shared again.
+        keep_in(
+            &store,
+            &Presets::parse(Kind::Builds, "Kate:chef;\nBob:nurse;\n"),
+        )
+        .unwrap();
+        share(&store, &lua_a).unwrap();
+        assert_eq!(get(&lua_a, Kind::Builds, "Bob").as_deref(), Some("nurse;"));
         std::fs::remove_dir_all(&root).unwrap();
     }
 }
