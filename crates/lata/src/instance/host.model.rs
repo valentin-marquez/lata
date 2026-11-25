@@ -172,7 +172,13 @@ struct Launcher {
 // ponytail: with Steam the server downloads `WorkshopItems` into `<build>/steamapps/workshop`,
 // inside the build instances share. It is a per-id cache all of them reuse; a hardlink tree per
 // instance (`cp -al`) would keep builds untouched if that ever matters.
+// The memory override in Settings wins over the instance's own here too.
 pub fn command(instance: &Instance, name: &str) -> io::Result<Command> {
+    build(&crate::settings::overrides::current().apply(instance), name)
+}
+
+/// [`command`] for the instance as given.
+fn build(instance: &Instance, name: &str) -> io::Result<Command> {
     if cfg!(target_os = "macos") {
         // ponytail: the app bundle's layout isn't mapped yet; Linux and Windows are.
         return Err(io::Error::other("Hosting isn't ready on macOS yet"));

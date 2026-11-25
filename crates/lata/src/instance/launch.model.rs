@@ -8,8 +8,17 @@ use super::{APP, Instance};
 
 /// The command that starts the instance's game files with saves, mods and options in `zomboid/`.
 /// With `connect` (`host:port`), the game skips its menu for its dialog to join that server,
-/// filled with the account and password it saved for it.
+/// filled with the account and password it saved for it. The overrides in Settings win over
+/// the instance's own memory and arguments.
 pub fn command(instance: &Instance, connect: Option<&str>) -> io::Result<Command> {
+    build(
+        &crate::settings::overrides::current().apply(instance),
+        connect,
+    )
+}
+
+/// [`command`] for the instance as given.
+fn build(instance: &Instance, connect: Option<&str>) -> io::Result<Command> {
     let game = instance
         .game()
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "the game isn't installed"))?;
@@ -246,11 +255,11 @@ mod tests {
             jvm_args: "-XX:+AlwaysPreTouch".into(),
             launch_args: "-debug".into(),
         };
-        assert!(command(&instance, None).is_err(), "no game files yet");
+        assert!(build(&instance, None).is_err(), "no game files yet");
 
         std::fs::create_dir_all(dir.join("game")).unwrap();
         std::fs::write(dir.join("game/projectzomboid.sh"), "#!/bin/sh\n").unwrap();
-        let cmd = command(&instance, None).unwrap();
+        let cmd = build(&instance, None).unwrap();
         assert_eq!(
             cmd.get_program(),
             dir.join("game/projectzomboid.sh").as_os_str()
@@ -273,7 +282,7 @@ mod tests {
         );
         assert_eq!(cmd.get_current_dir(), Some(dir.join("game").as_path()));
         // Joining a server adds what `MainScreenState` reads from the command line.
-        let join = command(&instance, Some("40.160.20.9:16261")).unwrap();
+        let join = build(&instance, Some("40.160.20.9:16261")).unwrap();
         let args: Vec<_> = join.get_args().collect();
         assert_eq!(args[args.len() - 2..], ["+connect", "40.160.20.9:16261"]);
         std::fs::remove_dir_all(&dir).unwrap();
