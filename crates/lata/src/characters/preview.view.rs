@@ -1,20 +1,30 @@
 //! The character in 3D, as the game would load it: its body with the skin, hair and beard of
-//! a look, read from the installed build's models and textures and drawn by [`render`].
-//! Dragging sideways turns it.
+//! a look, read from the installed build's models and textures and drawn by [`render`]. It
+//! walks in place with the game's own walk, the one its character screen plays; with reduced
+//! motion it stands still. Dragging sideways turns it.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::*;
 
 use super::catalog;
 use super::character::{Look, Rgb};
-use super::model;
-use super::render::{self, Part};
+use super::model::{self, Clip};
+use super::pose::pose;
+use super::render::{self, Bounds, Part};
 
 /// Radians per pixel dragged.
 const TURN: f32 = 0.012;
+
+/// Pictures a second while it walks: smooth enough for a walk, and half the cost of drawing at
+/// the display's rate.
+const FPS: f32 = 30.;
+
+/// How fast the game's character screen plays the walk (`AnimSets/player-avatar/walk`).
+const SPEED: f32 = 0.8;
 
 pub struct Preview {
     media: PathBuf,
@@ -24,15 +34,24 @@ pub struct Preview {
     /// Counts loads, so a new look draws a new picture.
     loads: u32,
     parts: Vec<Part>,
+    /// The box the parts fill over the whole walk, so the camera holds still while it moves.
+    frame: Bounds,
+    walk: Clip,
+    /// Its first pose is the still one, for reduced motion.
+    idle: Clip,
+    start: Instant,
+    /// The wait for the next picture of the walk, while one is due.
+    tick: Option<Task<()>>,
     yaw: f32,
     /// Where a drag started, and the turn then.
     drag: Option<(Pixels, f32)>,
-    /// The picture, and what it was drawn for: the load, turn, size and smoothing.
+    /// The picture, and what it was drawn for: the load, turn, size, smoothing and step of the
+    /// walk.
     image: Option<(Arc<RenderImage>, Drawn)>,
     size: Size<Pixels>,
 }
 
-type Drawn = (u32, f32, Size<u32>, bool);
+type Drawn = (u32, f32, Size<u32>, bool, u64);
 
 impl Preview {
     pub fn new(
@@ -48,12 +67,23 @@ impl Preview {
             }
         })
         .detach();
+        let clip = |name: &str| {
+            find(&media.join("anims_X").join("Bob"), &format!("{name}.x"))
+                .and_then(|p| std::fs::read_to_string(p).ok())
+                .and_then(|text| model::clip(&text))
+                .unwrap_or_default()
+        };
         Self {
+            walk: clip("Bob_Walk"),
+            idle: clip("Bob_Idle"),
             media,
             skins,
             shown: None,
             loads: 0,
             parts: Vec::new(),
+            frame: ([0.; 3], [0.; 3]),
+            start: Instant::now(),
+            tick: None,
             yaw: 0.,
             drag: None,
             image: None,
@@ -66,6 +96,7 @@ impl Preview {
         let key = look.map(|l| format!("{}{:?}{:?}{}", l.female(), l.skin(), l.hair(), l.beard()));
         if key != self.shown {
             self.parts = look.map_or_else(Vec::new, |l| parts(&self.media, l, &self.skins));
+            self.frame = frame(&mut self.parts, &self.walk, &self.idle);
             self.shown = key;
             self.loads += 1;
         }
@@ -87,25 +118,60 @@ impl Render for Preview {
             (f32::from(self.size.width) * scale) as u32,
             (f32::from(self.size.height) * scale) as u32,
         );
-        // Rough while dragging, so it keeps up; smoothed once it stops.
-        let smooth = self.drag.is_none();
-        let drawn = (self.loads, self.yaw, pixels, smooth);
+        let walking = !cx.reduce_motion() && self.walk.length > 0. && !self.parts.is_empty();
+        let step = if walking {
+            (self.start.elapsed().as_secs_f32() * FPS) as u64
+        } else {
+            0
+        };
+        // Rough while it moves, so it keeps up; smoothed once it holds still.
+        let smooth = self.drag.is_none() && !walking;
+        let drawn = (self.loads, self.yaw, pixels, smooth, step);
         if self.image.as_ref().is_none_or(|(_, at)| *at != drawn) {
+            let (clip, time) = if walking {
+                let time = (step as f32 / FPS * SPEED) % self.walk.length;
+                (&self.walk, time)
+            } else {
+                (&self.idle, 0.)
+            };
+            for part in &mut self.parts {
+                pose(&mut part.mesh, clip, time);
+            }
             let image = (!self.parts.is_empty()).then(|| {
-                let mut frame =
-                    render::render(&self.parts, self.yaw, pixels.width, pixels.height, smooth);
+                let mut picture = render::render(
+                    &self.parts,
+                    self.frame,
+                    self.yaw,
+                    pixels.width,
+                    pixels.height,
+                    smooth,
+                );
                 // GPUI keeps images in BGRA.
-                for p in frame.pixels_mut() {
+                for p in picture.pixels_mut() {
                     p.0.swap(0, 2);
                 }
                 (
-                    Arc::new(RenderImage::new(vec![image::Frame::new(frame)])),
+                    Arc::new(RenderImage::new(vec![image::Frame::new(picture)])),
                     drawn,
                 )
             });
             if let Some((old, _)) = std::mem::replace(&mut self.image, image) {
                 cx.drop_image(old, Some(window));
             }
+        }
+        // The next step is asked for only while this is drawn, so the walk stops when the
+        // preview is hidden or closed.
+        if walking && self.tick.is_none() {
+            let next = Duration::from_secs_f32((step + 1) as f32 / FPS);
+            let wait = next.saturating_sub(self.start.elapsed());
+            self.tick = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(wait).await;
+                this.update(cx, |this, cx| {
+                    this.tick = None;
+                    cx.notify();
+                })
+                .ok();
+            }));
         }
         let muted = cx.theme().muted_foreground;
         div()
@@ -150,6 +216,29 @@ impl Render for Preview {
             // Let go over the rest of the dialog.
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::release))
     }
+}
+
+/// The box `parts` fill over the walk and the still pose, sampled often enough that a frame
+/// between samples doesn't stick out.
+fn frame(parts: &mut [Part], walk: &Clip, idle: &Clip) -> Bounds {
+    let steps = 16;
+    let poses = (0..steps)
+        .map(|i| (walk, walk.length * i as f32 / steps as f32))
+        .chain([(idle, 0.)]);
+    let mut sum: Option<Bounds> = None;
+    for (clip, time) in poses {
+        for part in parts.iter_mut() {
+            pose(&mut part.mesh, clip, time);
+        }
+        let (min, max) = render::bounds(parts);
+        sum = Some(sum.map_or((min, max), |(a, b)| {
+            (
+                std::array::from_fn(|i| a[i].min(min[i])),
+                std::array::from_fn(|i| b[i].max(max[i])),
+            )
+        }));
+    }
+    sum.unwrap_or_default()
 }
 
 /// The body, hair and beard of `look`, with the textures the game would give them. A part
@@ -238,7 +327,7 @@ fn find(dir: &Path, rel: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Look, Path, PathBuf, parts, render};
+    use super::{Look, Path, PathBuf, find, frame, model, parts, pose, render};
 
     /// Against the B42 build in the demo library, when it is here; `LATA_PREVIEW_OUT` names a
     /// folder to write the pictures to.
@@ -255,6 +344,11 @@ mod tests {
             [0.54, 0.38, 0.25],
             [0.36, 0.25, 0.14],
         ];
+        let clip = |name: &str| {
+            let path = find(&media.join("anims_X").join("Bob"), name).unwrap();
+            model::clip(&std::fs::read_to_string(path).unwrap()).unwrap()
+        };
+        let (walk, idle) = (clip("Bob_Walk.x"), clip("Bob_Idle.x"));
         let looks = [
             (
                 "male",
@@ -266,24 +360,27 @@ mod tests {
             ),
         ];
         for (name, look) in looks {
-            let parts = parts(&media, &Look::parse(look), &skins);
+            let mut parts = parts(&media, &Look::parse(look), &skins);
             assert!(parts.len() >= 2, "{name}: body and hair");
+            let bounds = frame(&mut parts, &walk, &idle);
             let triangles: usize = parts.iter().map(|p| p.mesh.triangles.len()).sum();
-            for (view, yaw) in [
-                ("front", 0.),
-                ("three-quarter", 0.8),
-                ("side", std::f32::consts::FRAC_PI_2),
-            ] {
-                let start = std::time::Instant::now();
-                let image = render::render(&parts, yaw, 400, 600, true);
-                eprintln!(
-                    "{name} {view}: {triangles} triangles, {:?}",
-                    start.elapsed()
-                );
-                if let Ok(out) = std::env::var("LATA_PREVIEW_OUT") {
-                    image
-                        .save(Path::new(&out).join(format!("{name}-{view}.png")))
-                        .unwrap();
+            for (view, yaw) in [("front", 0.), ("three-quarter", 0.8)] {
+                for phase in 0..4 {
+                    let start = std::time::Instant::now();
+                    for part in &mut parts {
+                        pose(&mut part.mesh, &walk, walk.length * phase as f32 / 4.);
+                    }
+                    let posed = start.elapsed();
+                    let image = render::render(&parts, bounds, yaw, 400, 600, false);
+                    eprintln!(
+                        "{name} {view} {phase}: {triangles} triangles, pose {posed:?}, total {:?}",
+                        start.elapsed()
+                    );
+                    if let Ok(out) = std::env::var("LATA_PREVIEW_OUT") {
+                        image
+                            .save(Path::new(&out).join(format!("{name}-{view}-{phase}.png")))
+                            .unwrap();
+                    }
                 }
             }
         }

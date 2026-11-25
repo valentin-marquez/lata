@@ -14,13 +14,24 @@ pub struct Part {
     pub tint: [f32; 3],
 }
 
-/// Draws `parts` turned `yaw` radians around the vertical axis, fitted to a `width` by
-/// `height` image with a transparent background. `smooth` draws at twice the size and averages,
-/// for soft edges at four times the cost.
-pub fn render(parts: &[Part], yaw: f32, width: u32, height: u32, smooth: bool) -> RgbaImage {
+/// A box: its lowest and highest corners.
+pub type Bounds = ([f32; 3], [f32; 3]);
+
+/// Draws `parts` turned `yaw` radians around the vertical axis, with the box `frame` fitted to
+/// a `width` by `height` image with a transparent background: a fixed box keeps a moving
+/// model from jumping around. `smooth` draws at twice the size and averages, for soft edges at
+/// four times the cost.
+pub fn render(
+    parts: &[Part],
+    frame: Bounds,
+    yaw: f32,
+    width: u32,
+    height: u32,
+    smooth: bool,
+) -> RgbaImage {
     let s = if smooth { 2 } else { 1 };
     let (w, h) = (width * s, height * s);
-    let (min, max) = bounds(parts);
+    let (min, max) = frame;
     let center = [
         (min[0] + max[0]) / 2.,
         (min[1] + max[1]) / 2.,
@@ -155,7 +166,7 @@ fn sample(texture: &RgbaImage, u: f32, v: f32) -> [u8; 4] {
 }
 
 /// The box around every vertex. The body sets it; hair and beards sit inside.
-fn bounds(parts: &[Part]) -> ([f32; 3], [f32; 3]) {
+pub fn bounds(parts: &[Part]) -> Bounds {
     let mut min = [f32::INFINITY; 3];
     let mut max = [f32::NEG_INFINITY; 3];
     for v in parts
@@ -208,7 +219,7 @@ mod tests {
         // The blue one is drawn last but sits behind: the depth buffer keeps the red one.
         let parts = [front, back];
         for smooth in [false, true] {
-            let image = render(&parts, 0., 40, 40, smooth);
+            let image = render(&parts, bounds(&parts), 0., 40, 40, smooth);
             assert_eq!(image.dimensions(), (40, 40));
             let middle = image.get_pixel(20, 24).0;
             assert!(middle[0] > 200 && middle[2] == 0, "{middle:?}");
