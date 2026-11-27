@@ -397,9 +397,7 @@ impl Editor {
                 // The game drops the traits the new profession's own rule out.
                 let ruled = self.ruled_out();
                 if let Some(build) = &mut self.build {
-                    build
-                        .traits
-                        .retain(|t| !ruled.iter().any(|r| r.eq_ignore_ascii_case(t)));
+                    build.traits.retain(|t| !ruled.iter().any(|r| same(r, t)));
                 }
             }
             Which::Piece(ix) => {
@@ -710,9 +708,9 @@ impl Editor {
                 .children(about),
             cx,
         );
-        let has = |id: &str| build.traits.iter().any(|t| t.eq_ignore_ascii_case(id));
+        let has = |id: &str| build.traits.iter().any(|t| same(t, id));
         let ruled = self.ruled_out();
-        let free = |id: &str| !ruled.iter().any(|r| r.eq_ignore_ascii_case(id));
+        let free = |id: &str| !ruled.iter().any(|r| same(r, id));
         let group = |title: &'static str, good: bool, cx: &mut Context<Self>| {
             let mut shown: Vec<_> = self
                 .catalog
@@ -835,14 +833,14 @@ impl Editor {
     fn toggle(&mut self, id: &str) {
         let Some(build) = &mut self.build else { return };
         let before = build.traits.len();
-        build.traits.retain(|t| !t.eq_ignore_ascii_case(id));
+        build.traits.retain(|t| !same(t, id));
         if build.traits.len() != before {
             return;
         }
         if let Some(chosen) = self.catalog.trait_(id) {
             build
                 .traits
-                .retain(|t| !chosen.exclusive.iter().any(|e| e.eq_ignore_ascii_case(t)));
+                .retain(|t| !chosen.exclusive.iter().any(|e| same(e, t)));
         }
         build.traits.push(id.to_owned());
     }
@@ -1410,4 +1408,9 @@ fn missing(
                 .icon(IconName::Plus)
                 .on_click(on_click),
         )
+}
+
+/// Whether two trait ids are the same trait, in either major's spelling.
+fn same(a: &str, b: &str) -> bool {
+    super::canon(a) == super::canon(b)
 }

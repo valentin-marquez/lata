@@ -269,7 +269,9 @@ impl Catalog {
     }
 
     pub fn trait_(&self, id: &str) -> Option<&Choice> {
-        self.traits.iter().find(|t| t.id.eq_ignore_ascii_case(id))
+        // Shared builds keep B42's spelling, a couple of which B41 wrote differently.
+        let id = super::canon(id);
+        self.traits.iter().find(|t| super::canon(&t.id) == id)
     }
 
     /// A clothing item's English name (`Base.Shirt_PoliceBlue`), else its id without the
@@ -422,6 +424,29 @@ fn lua_professions(text: &str) -> Vec<(Choice, String, bool)> {
             (choice, text_key(args[1]), false)
         })
         .collect()
+}
+
+/// Every trait id `game` knows, as it writes them in a build: B41's `Brave` from its Lua, B42's
+/// `brave` from its generated scripts. Empty when the build isn't there.
+pub fn trait_ids(game: &Path) -> Vec<String> {
+    let Some(media) = media(game) else {
+        return Vec::new();
+    };
+    let text = |path: &str| {
+        std::fs::read(media.join(path))
+            .ok()
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+    };
+    if let Some(b42) = text("scripts/generated/characters/character_traits.txt") {
+        return b42
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("character_trait_definition base:"))
+            .map(|id| id.trim().to_owned())
+            .collect();
+    }
+    text("lua/shared/NPCs/MainCreationMethods.lua")
+        .map(|lua| lua_traits(&lua).into_iter().map(|(c, ..)| c.id).collect())
+        .unwrap_or_default()
 }
 
 /// `TraitFactory.addTrait("Id", getText("name"), cost, getText("desc"), profession, ...)`.

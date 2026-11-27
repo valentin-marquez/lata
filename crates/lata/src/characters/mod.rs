@@ -84,17 +84,19 @@ fn graveyard(kind: Kind) -> String {
 /// (the game ended while lata was closed). Then adds the shared presets to the instance,
 /// replacing its own of the same name, and drops those deleted in lata since its last session,
 /// noting what it shared so [`pull`] can tell what changed in game.
-pub fn push(instance: &Path) -> io::Result<()> {
-    launch(&store(), &lua(instance))
+/// `game` is the instance's build, whose spelling of trait ids its builds get.
+pub fn push(instance: &Path, game: Option<&Path>) -> io::Result<()> {
+    let ids = game.map(catalog::trait_ids).unwrap_or_default();
+    launch(&store(), &lua(instance), &ids)
 }
 
-fn launch(store: &Path, lua: &Path) -> io::Result<()> {
+fn launch(store: &Path, lua: &Path, ids: &[String]) -> io::Result<()> {
     each(|kind| {
         // Only with a note: without one lata can't tell the player's changes from stale copies.
         if lua.join(note(kind)).exists() {
             collect_kind(lua, store, kind)?;
         }
-        share_kind(store, lua, kind)
+        share_kind(store, lua, kind, ids)
     })
 }
 
@@ -114,10 +116,11 @@ fn each(mut sync: impl FnMut(Kind) -> io::Result<()>) -> io::Result<()> {
 
 #[cfg(test)]
 fn share(store: &Path, lua: &Path) -> io::Result<()> {
-    each(|kind| share_kind(store, lua, kind))
+    each(|kind| share_kind(store, lua, kind, &[]))
 }
 
-fn share_kind(store: &Path, lua: &Path, kind: Kind) -> io::Result<()> {
+/// `ids` are the instance's trait ids; empty, a build's traits are written as lata keeps them.
+fn share_kind(store: &Path, lua: &Path, kind: Kind, ids: &[String]) -> io::Result<()> {
     let Some(shared) = read(&store.join(kind.file()), kind)? else {
         return Ok(());
     };
@@ -156,10 +159,51 @@ fn share_kind(store: &Path, lua: &Path, kind: Kind) -> io::Result<()> {
     }
     changed |= here.merge(&shared);
     std::fs::create_dir_all(lua)?;
+    if kind == Kind::Builds && !ids.is_empty() {
+        here.map(|value| spell(value, ids));
+        // A file the other major wrote (or lata, before it spelled builds per instance) is
+        // rewritten in this game's spelling even when nothing else changed.
+        changed |= std::fs::read_to_string(&path).is_ok_and(|raw| raw != here.to_string());
+    }
     if changed {
         write(&path, &here)?;
     }
     write(&lua.join(note(kind)), &shared)
+}
+
+/// Trait ids B41 spelled differently, as B42 spells them.
+const RENAMED: [(&str, &str); 2] = [
+    ("heartyappitite", "heartyappetite"),
+    ("claustophobic", "claustrophobic"),
+];
+
+/// A build's profession and traits as lata keeps and compares them: B41 writes `Brave`, B42
+/// `brave`, and each game matches only its own spelling.
+fn canon(value: &str) -> String {
+    value
+        .split(';')
+        .map(|token| {
+            let token = token.to_lowercase();
+            RENAMED
+                .iter()
+                .find(|(old, _)| *old == token)
+                .map_or(token, |(_, new)| (*new).to_owned())
+        })
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+/// A build in the spelling of the game whose trait ids are `ids`.
+fn spell(value: &str, ids: &[String]) -> String {
+    value
+        .split(';')
+        .map(|token| {
+            ids.iter()
+                .find(|id| canon(id) == token)
+                .map_or(token, String::as_str)
+        })
+        .collect::<Vec<_>>()
+        .join(";")
 }
 
 /// After the game exits: shares the presets saved or changed in game, the last one saved
@@ -244,10 +288,13 @@ fn write(path: &Path, presets: &Presets) -> io::Result<()> {
 fn read(path: &Path, kind: Kind) -> io::Result<Option<Presets>> {
     match std::fs::read_to_string(path) {
         // Some editors put a byte order mark first; the game's own files have none.
-        Ok(text) => Ok(Some(Presets::parse(
-            kind,
-            text.strip_prefix('\u{feff}').unwrap_or(&text),
-        ))),
+        Ok(text) => {
+            let mut presets = Presets::parse(kind, text.strip_prefix('\u{feff}').unwrap_or(&text));
+            if kind == Kind::Builds {
+                presets.map(canon);
+            }
+            Ok(Some(presets))
+        }
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err),
     }
@@ -310,7 +357,8 @@ mod tests {
         );
         assert_eq!(
             get(&lua_b, Kind::Builds, "Nurse").as_deref(),
-            Some("nurse;FastLearner;")
+            // Kept and compared in one spelling for both majors.
+            Some("nurse;fastlearner;")
         );
 
         // B changes Kate in game; after it exits, A's next launch gets the change.
@@ -469,7 +517,7 @@ mod tests {
         share(&store, &lua(&a)).unwrap();
         put(&lua(&a), Kind::Outfits, "VERSION=1\nKate:gender=2;\n");
 
-        launch(&store, &lua(&a)).unwrap();
+        launch(&store, &lua(&a), &[]).unwrap();
         assert_eq!(
             get(&lua(&a), Kind::Outfits, "Kate").as_deref(),
             Some("gender=2;")
@@ -581,6 +629,34 @@ mod tests {
         put(&a, Kind::Builds, "Kate:chef;\n");
         assert!(collect(&a, &store).is_err());
         assert_eq!(get(&store, Kind::Builds, "Kate").as_deref(), Some("chef;"));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// B41 writes `Brave`, B42 `brave` (and spells a couple differently): each instance gets
+    /// its game's spelling, and reading it back changes nothing in the store.
+    #[test]
+    fn a_build_gets_each_games_spelling_of_its_traits() {
+        let root = scratch("spell");
+        let (store, b41, b42) = (root.join("store"), root.join("b41"), root.join("b42"));
+        put(&store, Kind::Builds, "Kate:nurse;Brave;HeartyAppitite;\n");
+        let ids = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let raw = |dir: &Path| std::fs::read_to_string(lua(dir).join(Kind::Builds.file())).unwrap();
+        launch(&store, &lua(&b42), &ids(&["brave", "heartyappetite"])).unwrap();
+        assert_eq!(raw(&b42), "Kate:nurse;brave;heartyappetite;\n");
+        launch(&store, &lua(&b41), &ids(&["Brave", "HeartyAppitite"])).unwrap();
+        assert_eq!(raw(&b41), "Kate:nurse;Brave;HeartyAppitite;\n");
+        let before = std::fs::read_to_string(store.join(Kind::Builds.file())).unwrap();
+        collect(&lua(&b42), &store).unwrap();
+        collect(&lua(&b41), &store).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(store.join(Kind::Builds.file())).unwrap(),
+            before,
+            "untouched"
+        );
+        // Deleted in the B41 game, it goes from the store.
+        put(&lua(&b41), Kind::Builds, "Other:chef;\n");
+        collect(&lua(&b41), &store).unwrap();
+        assert_eq!(get(&store, Kind::Builds, "Kate"), None);
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

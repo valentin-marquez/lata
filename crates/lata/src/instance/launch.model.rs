@@ -169,7 +169,7 @@ pub fn start(instance: &Instance, connect: Option<&str>) -> io::Result<Child> {
     let instance = &crate::settings::overrides::current().apply(instance);
     super::java::prepare(instance)?;
     // Sharing characters is a nicety: a preset that didn't copy shouldn't keep the game shut.
-    let _ = crate::characters::push(&instance.dir);
+    let _ = crate::characters::push(&instance.dir, instance.game().as_deref());
     command(instance, connect)?
         // Lets the Steam API find the app when the game isn't started by Steam itself.
         .env("SteamAppId", APP.to_string())

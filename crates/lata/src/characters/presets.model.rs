@@ -125,6 +125,15 @@ impl Presets {
         }
     }
 
+    /// Rewrites every preset's value through `f`, in place.
+    pub fn map(&mut self, f: impl Fn(&str) -> String) {
+        for line in &mut self.lines {
+            if let Line::Preset(_, value) = line {
+                *value = f(value);
+            }
+        }
+    }
+
     /// Drops every preset named `name`. True if there was one.
     pub fn remove(&mut self, name: &str) -> bool {
         let before = self.lines.len();
