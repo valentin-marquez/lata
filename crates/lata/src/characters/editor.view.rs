@@ -974,7 +974,7 @@ impl Render for Editor {
             let color = look.hair().1.unwrap_or([0., 0., 0.]);
             look.set_hair(style, color);
         }
-        self.preview.update(cx, |p, _| p.show(look.as_ref()));
+        self.preview.update(cx, |p, cx| p.show(look.as_ref(), cx));
         let theme = cx.theme().clone();
         let (_, problem) = self.name(cx);
         let me = cx.entity();

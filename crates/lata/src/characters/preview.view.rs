@@ -53,6 +53,8 @@ pub struct Preview {
     drag: Option<(Pixels, f32)>,
     /// The picture, and what it was drawn for: the load, turn, size and step of the walk.
     image: Option<(Arc<RenderImage>, Drawn)>,
+    /// The models of the newest look, loading.
+    loading: Option<Task<()>>,
     /// The picture being drawn. Only one at a time: the next starts from where things are when
     /// this one lands, so none queue up behind a slow one.
     drawing: Option<Task<()>>,
@@ -97,22 +99,45 @@ impl Preview {
             yaw: 0.,
             drag: None,
             image: None,
+            loading: None,
             drawing: None,
             size,
             pixels: Size::default(),
         }
     }
 
-    /// Shows `look`, loading its models if they changed.
-    pub fn show(&mut self, look: Option<&Look>) {
+    /// Shows `look`, loading its models on the background if they changed. The last look
+    /// stays on screen until they land; a load overtaken by a newer look is dropped.
+    pub fn show(&mut self, look: Option<&Look>, cx: &mut Context<Self>) {
         let key = look.map(|l| format!("{}{:?}{:?}{}", l.female(), l.skin(), l.hair(), l.beard()));
-        if key != self.shown {
-            let mut parts = look.map_or_else(Vec::new, |l| parts(&self.media, l, &self.skins));
-            self.frame = frame(&mut parts, &self.walk, &self.idle);
-            self.parts = (!parts.is_empty()).then(|| Arc::new(Mutex::new(parts)));
-            self.shown = key;
-            self.loads += 1;
+        if key == self.shown {
+            return;
         }
+        self.shown = key;
+        let Some(look) = look.cloned() else {
+            self.loading = None;
+            self.parts = None;
+            self.loads += 1;
+            return;
+        };
+        let (media, skins) = (self.media.clone(), self.skins.clone());
+        let (walk, idle) = (self.walk.clone(), self.idle.clone());
+        let work = cx.background_spawn(async move {
+            let mut parts = parts(&media, &look, &skins);
+            let frame = frame(&mut parts, &walk, &idle);
+            (parts, frame)
+        });
+        self.loading = Some(cx.spawn(async move |this, cx| {
+            let (parts, frame) = work.await;
+            this.update(cx, |this, cx| {
+                this.loading = None;
+                this.frame = frame;
+                this.parts = (!parts.is_empty()).then(|| Arc::new(Mutex::new(parts)));
+                this.loads += 1;
+                cx.notify();
+            })
+            .ok();
+        }));
     }
 }
 
