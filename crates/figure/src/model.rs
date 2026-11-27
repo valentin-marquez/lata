@@ -69,7 +69,7 @@ fn root(text: &str) -> Vec<Token<'_>> {
 /// Every mesh in `text`, placed by the frames around it. Empty when nothing reads as one.
 pub fn parse(text: &str) -> Vec<Mesh> {
     let tokens = root(text);
-    let root = object(&tokens, &mut 0, "", "");
+    let root = object(&tokens, &mut 0, "", "", 0);
     let mut skeleton = Vec::new();
     joints(&root, None, &mut skeleton);
     let mut meshes = Vec::new();
@@ -81,7 +81,7 @@ pub fn parse(text: &str) -> Vec<Mesh> {
 /// use rotation, scale and position keys.
 pub fn clip(text: &str) -> Option<Clip> {
     let tokens = root(text);
-    let root = object(&tokens, &mut 0, "", "");
+    let root = object(&tokens, &mut 0, "", "", 0);
     // Direct3D's default when a file doesn't say.
     let ticks = root
         .child("AnimTicksPerSecond")
@@ -199,8 +199,19 @@ impl<'a> Node<'a> {
     }
 }
 
-/// Reads up to the `}` that closes the object (or the end, for the file itself).
-fn object<'a>(t: &[Token<'a>], i: &mut usize, kind: &'a str, name: &'a str) -> Node<'a> {
+/// How deep objects nest before the rest is skipped: real files go a few dozen levels, and a
+/// broken one that opens braces without end would overflow the stack.
+const DEPTH: usize = 256;
+
+/// Reads up to the `}` that closes the object (or the end, for the file itself), `depth`
+/// objects deep.
+fn object<'a>(
+    t: &[Token<'a>],
+    i: &mut usize,
+    kind: &'a str,
+    name: &'a str,
+    depth: usize,
+) -> Node<'a> {
     let mut node = Node {
         kind,
         name,
@@ -212,21 +223,46 @@ fn object<'a>(t: &[Token<'a>], i: &mut usize, kind: &'a str, name: &'a str) -> N
             Token::Close => break,
             Token::Num(n) => node.data.push(n),
             Token::Str(s) => node.words.push(s),
-            Token::Open => node.children.push(object(t, i, "", "")),
+            Token::Open => node.children.extend(inner(t, i, "", "", depth)),
             Token::Word(w) => match (t.get(*i), t.get(*i + 1)) {
                 (Some(Token::Open), _) => {
                     *i += 1;
-                    node.children.push(object(t, i, w, ""));
+                    node.children.extend(inner(t, i, w, "", depth));
                 }
                 (Some(Token::Word(n)), Some(Token::Open)) => {
                     *i += 2;
-                    node.children.push(object(t, i, w, n));
+                    node.children.extend(inner(t, i, w, n, depth));
                 }
                 _ => node.words.push(w),
             },
         }
     }
     node
+}
+
+/// The object opened inside one `depth` deep; past [`DEPTH`], nothing, its tokens skipped.
+fn inner<'a>(
+    t: &[Token<'a>],
+    i: &mut usize,
+    kind: &'a str,
+    name: &'a str,
+    depth: usize,
+) -> Option<Node<'a>> {
+    if depth < DEPTH {
+        return Some(object(t, i, kind, name, depth + 1));
+    }
+    let mut open = 1;
+    while open > 0
+        && let Some(token) = t.get(*i)
+    {
+        match token {
+            Token::Open => open += 1,
+            Token::Close => open -= 1,
+            _ => {}
+        }
+        *i += 1;
+    }
+    None
 }
 
 /// Row-major, for row vectors (`v * M`), as Direct3D writes them.
@@ -528,5 +564,12 @@ Frame Dummy01 {
                 .is_empty()
         );
         assert!(parse("").is_empty());
+    }
+
+    #[test]
+    fn a_file_nested_without_end_does_not_overflow_the_stack() {
+        let text = format!("xof 0303txt 0032\n{}", "Frame a {".repeat(200_000));
+        assert!(parse(&text).is_empty());
+        assert!(clip(&text).is_none());
     }
 }
