@@ -95,12 +95,14 @@ fn main() {
 
 /// Opens the main window, and delivers to it what reaches lata from outside.
 fn open(mut incoming: tokio::sync::mpsc::UnboundedReceiver<link::Incoming>, cx: &mut App) {
-    // With the tray on, closing the window can leave lata running without it.
-    tray::apply(cx);
     // Held here and not only by the window: on Linux going to the tray closes the window, and
     // the downloads, running games and the rest carry on in the shell for the next one.
     let shell = cx.new(Shell::new);
     let mut handle = window(&shell, cx);
+    // With the tray on, closing the window can leave lata running without it. After the window
+    // opens: the Windows icon is sized for the scale of the first window, and when no update
+    // splash came first there is none before this one.
+    tray::apply(cx);
     // Once the window is up: a dialog needs its root view in place.
     let first = shell.downgrade();
     let _ = handle.update(cx, |_, window, cx| {

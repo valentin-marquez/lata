@@ -656,8 +656,10 @@ impl Settings {
         if self.draft.tray != self.saved.tray {
             let on = self.draft.tray;
             update(|saved| saved.minimize_to_tray = on);
-            // The icon appears or goes away now, not at the next start.
-            crate::tray::apply(cx);
+            // The icon appears or goes away now, not at the next start. Deferred until this
+            // window's update is over, so the tray can read its scale (Windows sizes the icon
+            // by it).
+            cx.defer(crate::tray::apply);
             self.saved.tray = self.draft.tray;
         }
         if self.draft.theme != self.saved.theme {
