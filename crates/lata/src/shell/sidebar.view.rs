@@ -13,6 +13,10 @@ use crate::instance::Status;
 
 pub const WIDTH: Pixels = px(248.);
 /// An instance row's height, fixed so the highlight can slide to any row by its index.
+/// The Characters page stays out of the sidebar until its editor is ready; sharing presets
+/// between instances works without it.
+const CHARACTERS: bool = false;
+
 const ROW: f32 = 60.;
 /// Space between instance rows (`gap_1`).
 const GAP: f32 = 4.;
@@ -242,7 +246,7 @@ pub fn render(shell: &Shell, window: &mut Window, cx: &mut Context<Shell>) -> im
         .child(home)
         .child(workshop)
         .child(screenshots)
-        .child(characters)
+        .when(CHARACTERS, |this| this.child(characters))
         .child(
             div()
                 .flex()
