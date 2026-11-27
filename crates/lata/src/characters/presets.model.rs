@@ -108,8 +108,16 @@ impl Presets {
         match found {
             Some(v) => value.clone_into(v),
             None => {
-                if self.kind == Kind::Outfits && !self.lines.iter().any(|l| *l == version()) {
-                    self.lines.insert(0, version());
+                // The game reads only under `VERSION=1`: the end must be under it.
+                let last = self.lines.iter().rev().find_map(|line| match line {
+                    Line::Other(text) if text.starts_with("VERSION=") => Some(text),
+                    _ => None,
+                });
+                match last {
+                    _ if self.kind == Kind::Builds => {}
+                    None => self.lines.insert(0, version()),
+                    Some(text) if text != VERSION => self.lines.push(version()),
+                    Some(_) => {}
                 }
                 self.lines
                     .push(Line::Preset(name.to_owned(), value.to_owned()));
@@ -232,5 +240,14 @@ mod tests {
         let mut builds = Presets::parse(Kind::Builds, "");
         builds.set("A", "nurse;");
         assert_eq!(builds.to_string(), "A:nurse;\n");
+    }
+
+    #[test]
+    fn a_new_outfit_lands_under_version_one() {
+        let mut presets = Presets::parse(Kind::Outfits, "VERSION=1\nA:gender=1;\nVERSION=2\n");
+        presets.set("B", "gender=2;");
+        assert_eq!(presets.get("B"), Some("gender=2;"));
+        let again = Presets::parse(Kind::Outfits, &presets.to_string());
+        assert_eq!(again.get("B"), Some("gender=2;"), "the game reads it");
     }
 }
