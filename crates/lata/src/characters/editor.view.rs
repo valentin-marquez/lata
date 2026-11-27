@@ -103,6 +103,17 @@ enum Which {
     Hair,
     Beard,
     Profession,
+    /// A body slot, by its place in [`Editor::wear`].
+    Piece(usize),
+}
+
+/// A body slot's dropdown in the Clothes section.
+struct Wear {
+    slot: String,
+    state: Entity<SelectState<Vec<Pick>>>,
+    /// Whether the character screen offers what is worn there now; when it doesn't, the game
+    /// leaves the slot empty on load.
+    offered: bool,
 }
 
 pub struct Editor {
@@ -125,6 +136,8 @@ pub struct Editor {
     hover_hair: Option<String>,
     beard: Option<Entity<SelectState<Vec<Pick>>>>,
     profession: Option<Entity<SelectState<Vec<Pick>>>>,
+    /// The slots the character screen shows this character, then any other slot it wears.
+    wear: Vec<Wear>,
     preview: Entity<Preview>,
     /// Why the last Save didn't go through; the draft stays for another try.
     error: Option<String>,
@@ -192,6 +205,7 @@ impl Editor {
             hover_hair: None,
             beard: None,
             profession: None,
+            wear: Vec::new(),
             preview,
             error: None,
             _subscriptions: Vec::new(),
@@ -231,6 +245,58 @@ impl Editor {
                 cx,
             )
         });
+        self.wear = self.wardrobe(window, cx);
+    }
+
+    /// A dropdown per body slot. What the screen offers depends on gender, profession and
+    /// (B42) traits, the profession's own included.
+    fn wardrobe(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Vec<Wear> {
+        let Some(look) = &self.look else {
+            return Vec::new();
+        };
+        let (profession, mut traits) = self
+            .build
+            .as_ref()
+            .map(|b| (b.profession.clone(), b.traits.clone()))
+            .unwrap_or_default();
+        if let Some(p) = self.catalog.profession(&profession) {
+            traits.extend(p.granted.iter().cloned());
+        }
+        let mut slots = self.catalog.clothes(look.female(), &profession, &traits);
+        let pieces = look.pieces();
+        for piece in &pieces {
+            if !slots.iter().any(|(slot, _)| *slot == piece.slot) {
+                slots.push((piece.slot.clone(), Vec::new()));
+            }
+        }
+        slots
+            .into_iter()
+            .enumerate()
+            .map(|(ix, (slot, mut choices))| {
+                let worn = pieces
+                    .iter()
+                    .find(|p| p.slot == slot)
+                    .map(|p| p.item.clone());
+                let offered = worn
+                    .as_ref()
+                    .is_none_or(|item| choices.iter().any(|c| c.id == *item));
+                if let Some(item) = worn.as_ref().filter(|_| !offered) {
+                    // Shown so it can be seen and changed or taken off.
+                    choices.push(Choice {
+                        id: item.clone(),
+                        name: self.catalog.item(item),
+                        ..Choice::default()
+                    });
+                }
+                let current = worn.unwrap_or_default();
+                let state = self.select(Which::Piece(ix), &choices, &current, false, window, cx);
+                Wear {
+                    slot,
+                    state,
+                    offered,
+                }
+            })
+            .collect()
     }
 
     fn select(
@@ -283,9 +349,13 @@ impl Editor {
         self._subscriptions.push(cx.subscribe_in(
             &state,
             window,
-            move |this, _, event: &SelectEvent<Vec<Pick>>, _, cx| {
+            move |this, _, event: &SelectEvent<Vec<Pick>>, window, cx| {
                 if let SelectEvent::Confirm(Some(id)) = event {
                     this.picked(which, id.clone());
+                    // A profession brings its own clothes to pick from.
+                    if matches!(which, Which::Profession) {
+                        this.lists(window, cx);
+                    }
                     cx.notify();
                 }
             },
@@ -331,6 +401,22 @@ impl Editor {
                         .traits
                         .retain(|t| !ruled.iter().any(|r| r.eq_ignore_ascii_case(t)));
                 }
+            }
+            Which::Piece(ix) => {
+                let (Some(look), Some(wear)) = (&mut self.look, self.wear.get(ix)) else {
+                    return;
+                };
+                let worn = look.pieces().into_iter().find(|p| p.slot == wear.slot);
+                if worn.as_ref().map(|p| p.item.as_str()) == Some(id.as_str()) {
+                    return;
+                }
+                let item = (!id.is_empty()).then_some(id.as_str());
+                // A piece that takes a tint keeps the color the last one had, else white
+                // like the game's color button.
+                let tint = item
+                    .filter(|i| self.catalog.tinted(i))
+                    .map(|_| worn.and_then(|p| p.tint).unwrap_or([1., 1., 1.]));
+                look.set_piece(&wear.slot, item, tint);
             }
         }
     }
@@ -528,54 +614,53 @@ impl Editor {
         let Some(look) = &self.look else {
             return self.no_look(cx);
         };
-        let theme = cx.theme();
-        let hover = ui::hovered(theme.title_bar, cx);
-        let rows = look.pieces().into_iter().enumerate().map(|(ix, piece)| {
-            div()
-                .id(("piece", ix))
-                .flex()
-                .items_center()
-                .gap_3()
-                .px_2()
-                .py_2()
-                .rounded(theme.radius)
-                .hover(|s| s.bg(hover))
-                .child(match piece.tint {
-                    Some(tint) => dot(tint, 14., theme.border),
-                    None => div().flex_none().size(px(14.)),
-                })
-                .child(
+        let theme = cx.theme().clone();
+        let pieces = look.pieces();
+        let rows: Vec<_> = self
+            .wear
+            .iter()
+            .enumerate()
+            .map(|(ix, wear)| {
+                let name = self.catalog.slot(&wear.slot);
+                let worn = pieces.iter().find(|p| p.slot == wear.slot);
+                let tint = worn
+                    .filter(|p| self.catalog.tinted(&p.item))
+                    .map(|p| {
+                        let slot = wear.slot.clone();
+                        swatches(
+                            "tint",
+                            &TINTS,
+                            p.tint,
+                            20.,
+                            &theme,
+                            cx,
+                            move |look, color| look.set_tint(&slot, color),
+                        )
+                    });
+                let stray = (!wear.offered).then(|| {
+                    div().text_xs().text_color(ui::warning_text(cx)).child(t!(
+                        "The game doesn't offer this here for this character, so it loads without it."
+                    ))
+                });
+                div().id(("slot", ix)).child(field(
+                    name.clone(),
+                    "",
                     div()
                         .flex()
                         .flex_col()
-                        .flex_1()
-                        .min_w_0()
+                        .gap_3()
                         .child(
-                            div()
-                                .truncate()
-                                .text_sm()
-                                .child(self.catalog.item(&piece.item)),
+                            Select::new(&wear.state)
+                                .menu_max_h(px(280.))
+                                .accessibility_label(name),
                         )
-                        .child(
-                            div()
-                                .truncate()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .child(piece.slot),
-                        ),
-                )
-        });
-        div()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(theme.muted_foreground)
-                    .child(t!("Clothes are picked in the game for now. Change them on its character screen, save the look, and it shows up here.")),
-            )
-            .child(div().flex().flex_col().children(rows))
+                        .children(tint)
+                        .children(stray),
+                    cx,
+                ))
+            })
+            .collect();
+        div().flex().flex_col().gap_5().children(rows)
     }
 
     fn build(&self, cx: &mut Context<Self>) -> Div {
@@ -651,8 +736,10 @@ impl Editor {
                         cx,
                     );
                     if free(&id) {
-                        row.on_click(cx.listener(move |this, _, _, cx| {
+                        row.on_click(cx.listener(move |this, _, window, cx| {
                             this.toggle(&id);
+                            // Some traits bring clothes to pick from (B42).
+                            this.lists(window, cx);
                             cx.notify();
                         }))
                     } else {
@@ -1096,6 +1183,27 @@ fn first_look(catalog: &Catalog) -> Look {
     )
 }
 
+/// Colors offered for a piece's tint. The game's picker has 216, too many for the panel;
+/// a color saved from it still shows, first and ringed.
+const TINTS: [Rgb; 16] = [
+    [1., 1., 1.],
+    [0.75, 0.75, 0.75],
+    [0.45, 0.45, 0.45],
+    [0.12, 0.12, 0.12],
+    [0.13, 0.17, 0.32],
+    [0.2, 0.35, 0.6],
+    [0.5, 0.7, 0.85],
+    [0.15, 0.45, 0.45],
+    [0.2, 0.4, 0.2],
+    [0.4, 0.4, 0.2],
+    [0.75, 0.7, 0.5],
+    [0.4, 0.26, 0.15],
+    [0.65, 0.13, 0.13],
+    [0.9, 0.6, 0.7],
+    [0.4, 0.25, 0.5],
+    [0.9, 0.8, 0.3],
+];
+
 /// "+4", "-2", "0".
 fn points(n: i32) -> String {
     if n > 0 {
@@ -1221,7 +1329,12 @@ fn chip(
 }
 
 /// A labelled control, with an optional line under the label.
-fn field(title: &'static str, line: &'static str, control: impl IntoElement, cx: &App) -> Div {
+fn field(
+    title: impl Into<SharedString>,
+    line: &'static str,
+    control: impl IntoElement,
+    cx: &App,
+) -> Div {
     labelled(title, false, line, control, cx)
 }
 
@@ -1236,7 +1349,7 @@ fn required_field(
 }
 
 fn labelled(
-    title: &'static str,
+    title: impl Into<SharedString>,
     required: bool,
     line: &'static str,
     control: impl IntoElement,
@@ -1257,7 +1370,7 @@ fn labelled(
                         .gap_1()
                         .text_sm()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(title)
+                        .child(title.into())
                         .when(required, |this| {
                             this.child(div().text_color(cx.theme().danger).child("*"))
                         }),

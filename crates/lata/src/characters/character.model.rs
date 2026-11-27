@@ -71,7 +71,7 @@ pub fn unique(name: &str, taken: &[Character]) -> String {
         .unwrap_or_default()
 }
 
-/// A look: `key=value;` entries in the game's order. Keys lata doesn't edit (clothing, voice,
+/// A look: `key=value;` entries in the game's order. Keys lata doesn't edit (voice, chest hair,
 /// stubble) are kept as written.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Look(Vec<String>);
@@ -244,6 +244,30 @@ impl Look {
             })
             .collect()
     }
+
+    /// Puts `item` on `slot` in place of what was there, with `tint` if the item takes one;
+    /// `None` takes the piece off.
+    pub fn set_piece(&mut self, slot: &str, item: Option<&str>, tint: Option<Rgb>) {
+        match (item, tint) {
+            (None, _) => self.remove(slot),
+            (Some(item), None) => self.set(slot, item),
+            (Some(item), Some(tint)) => self.set(slot, &format!("{item}|{}", text(tint))),
+        }
+    }
+
+    /// Recolors the piece on `slot`, keeping its texture choice. The game writes the tint
+    /// first, then the texture.
+    pub fn set_tint(&mut self, slot: &str, tint: Rgb) {
+        let Some(value) = self.get(slot) else { return };
+        let mut parts = value.split('|');
+        let item = parts.next().unwrap_or_default();
+        let texture = parts.find(|p| rgb(p).is_none());
+        let value = match texture {
+            Some(texture) => format!("{item}|{}|{texture}", text(tint)),
+            None => format!("{item}|{}", text(tint)),
+        };
+        self.set(slot, &value);
+    }
 }
 
 impl std::fmt::Display for Look {
@@ -339,6 +363,43 @@ mod tests {
     fn a_texture_choice_is_not_a_tint() {
         let look = Look::parse("gender=1;Pants=Base.Trousers_Denim|2;");
         assert_eq!(look.pieces()[0].tint, None);
+    }
+
+    #[test]
+    fn changes_clothes_and_writes_lines_the_game_reads() {
+        let mut look = Look::parse(OUTFIT);
+        // A new tint, read back the way the game splits it (`|`, then `,`).
+        look.set_tint("Socks", [0.5, 0.25, 1.]);
+        look.set_piece("Shirt", None, None);
+        look.set_piece("Hat", Some("Base.Hat_BaseballCap"), None);
+        look.set_piece(
+            "Pants",
+            Some("Base.Trousers_DefaultTEXTURE_TINT"),
+            Some([1., 1., 1.]),
+        );
+        let text = look.to_string();
+        assert!(
+            text.contains(";Socks=Base.Socks_Long|0.5,0.25,1;"),
+            "{text}"
+        );
+        assert!(text.contains(";Hat=Base.Hat_BaseballCap;"), "{text}");
+        assert!(text.contains(";Pants=Base.Trousers_DefaultTEXTURE_TINT|1,1,1;"));
+        assert!(!text.contains("Shirt="), "{text}");
+        assert!(text.starts_with("gender=2;"), "the game reads gender first");
+        let again = Look::parse(&text);
+        assert_eq!(again, look, "read back as written");
+        let pieces = again.pieces();
+        let socks = pieces.iter().find(|p| p.slot == "Socks").unwrap();
+        assert_eq!(socks.tint, Some([0.5, 0.25, 1.]));
+        assert_eq!(pieces.len(), 5);
+
+        // A texture choice stays when the tint changes.
+        let mut look = Look::parse("gender=1;Pants=Base.Trousers_Denim|0.1,0.2,0.3|2;");
+        look.set_tint("Pants", [1., 0., 0.]);
+        assert_eq!(
+            look.to_string(),
+            "gender=1;Pants=Base.Trousers_Denim|1,0,0|2;"
+        );
     }
 
     #[test]

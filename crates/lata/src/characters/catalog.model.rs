@@ -2,13 +2,14 @@
 //! each get their own lists: professions and traits (B41 defines them in
 //! `lua/shared/NPCs/MainCreationMethods.lua`, B42 in
 //! `scripts/generated/characters/character_*.txt`), hair and beard styles
-//! (`hairStyles/*.xml`), the skin and hair colors the character screen offers, and the English
-//! names of all of these and of clothing items (`lua/shared/Translate/EN/`).
+//! (`hairStyles/*.xml`), the skin and hair colors the character screen offers, the clothes it
+//! offers per body slot and which take a tint, and the English names of all of these
+//! (`lua/shared/Translate/EN/`).
 //!
 //! Only the base game: mods add professions, traits and clothes in their own files, which
 //! aren't read (a modded id shows as it is written).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use super::character::Rgb;
@@ -41,6 +42,24 @@ pub struct Catalog {
     /// The build's `media/` folder, for the preview's models and textures.
     pub media: PathBuf,
     names: HashMap<String, String>,
+    /// What the character screen offers to wear.
+    wear: Vec<Offer>,
+    /// Offered items whose color can be picked.
+    tinted: HashSet<String>,
+}
+
+/// Items the character screen lists on one body slot for one gender, for everyone
+/// (`default`), a profession or (B42) a trait: `ClothingSelectionDefinitions.lua` and
+/// `TraitClothingSelectionDefinitions.lua`. A saved piece that isn't offered there doesn't
+/// load: the game picks it in its list or not at all.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Offer {
+    owner: String,
+    by_trait: bool,
+    female: bool,
+    slot: String,
+    /// As the game saves them, mostly `Base.Hat_BaseballCap`, a few without the module.
+    items: Vec<String>,
 }
 
 impl Catalog {
@@ -141,6 +160,16 @@ impl Catalog {
             "style",
         ));
         let screen = text("lua/client/OptionScreens/CharacterCreationMain.lua").unwrap_or_default();
+        let definitions = |file: &str| text(&format!("lua/shared/Definitions/{file}"));
+        let mut wear = offers(
+            &definitions("ClothingSelectionDefinitions.lua").unwrap_or_default(),
+            false,
+        );
+        wear.extend(offers(
+            &definitions("TraitClothingSelectionDefinitions.lua").unwrap_or_default(),
+            true,
+        ));
+        let tinted = tinted(&media, &wear);
         Some(Self {
             professions,
             traits,
@@ -151,7 +180,76 @@ impl Catalog {
             hair_colors: hair_colors(&creation),
             media,
             names,
+            wear,
+            tinted,
         })
+    }
+
+    /// The body slots the character screen shows a character, each with "None" (an empty
+    /// id) then its items, as the game merges them: everyone's, the profession's, then each
+    /// trait's (B42). A definition without a men's list dresses men from the women's.
+    pub fn clothes(
+        &self,
+        female: bool,
+        profession: &str,
+        traits: &[String],
+    ) -> Vec<(String, Vec<Choice>)> {
+        // `CharacterTrait.SHORT_SIGHTED` is `shortsighted`, `fitnessInstructor` is
+        // `fitnessinstructor` in B42.
+        let key = |s: &str| s.replace('_', "").to_lowercase();
+        let mut owners = vec![("default".to_owned(), false), (key(profession), false)];
+        owners.extend(traits.iter().map(|t| (key(t), true)));
+        let mut slots: Vec<(String, Vec<Choice>)> = Vec::new();
+        for (owner, by_trait) in owners {
+            let theirs: Vec<&Offer> = self
+                .wear
+                .iter()
+                .filter(|o| o.by_trait == by_trait && key(&o.owner) == owner)
+                .collect();
+            let female = female || !theirs.iter().any(|o| !o.female);
+            for offer in theirs.into_iter().filter(|o| o.female == female) {
+                let at = match slots.iter().position(|(slot, _)| *slot == offer.slot) {
+                    Some(at) => at,
+                    None => {
+                        let none = Choice {
+                            name: self.name("UI_characreation_clothing_none", t!("None")),
+                            ..Choice::default()
+                        };
+                        slots.push((offer.slot.clone(), vec![none]));
+                        slots.len() - 1
+                    }
+                };
+                let items = &mut slots[at].1;
+                for item in &offer.items {
+                    if !items.iter().any(|c| c.id == *item) {
+                        items.push(Choice {
+                            id: item.clone(),
+                            name: self.item(item),
+                            ..Choice::default()
+                        });
+                    }
+                }
+            }
+        }
+        slots
+    }
+
+    /// Whether the character screen lets a player color `item`: its clothing file allows a
+    /// tint (`m_AllowRandomTint`).
+    pub fn tinted(&self, item: &str) -> bool {
+        self.tinted.contains(item)
+    }
+
+    /// A body slot's English name (`Tshirt` is "T-shirt").
+    pub fn slot(&self, slot: &str) -> String {
+        self.name(&format!("UI_ClothingType_{slot}"), slot)
+    }
+
+    fn name(&self, key: &str, fallback: &str) -> String {
+        self.names
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| fallback.to_owned())
     }
 
     pub fn hair(&self, female: bool) -> &[Choice] {
@@ -177,9 +275,15 @@ impl Catalog {
     /// A clothing item's English name (`Base.Shirt_PoliceBlue`), else its id without the
     /// module.
     pub fn item(&self, id: &str) -> String {
+        // The game finds an item without a module in `Base`.
+        let full = if id.contains('.') {
+            id.to_owned()
+        } else {
+            format!("Base.{id}")
+        };
         self.names
-            .get(id)
-            .or_else(|| self.names.get(&format!("ItemName_{id}")))
+            .get(&full)
+            .or_else(|| self.names.get(&format!("ItemName_{full}")))
             .cloned()
             .unwrap_or_else(|| id.rsplit('.').next().unwrap_or(id).replace('_', " "))
     }
@@ -432,6 +536,110 @@ fn xml_styles(xml: &str, tag: &str) -> Vec<String> {
         .collect()
 }
 
+/// The `items` of a clothing definitions file, a Lua table nested owner, gender, slot:
+/// `ClothingSelectionDefinitions.nurse = { Female = { Hat = { items = {"Base.Hat"} } } }`.
+/// Each table is named by the last word before its `{` (`[CharacterTrait.HIKER]` is
+/// `HIKER`). An alias (`X[A] = X[B]`) isn't followed.
+fn offers(text: &str, by_trait: bool) -> Vec<Offer> {
+    let mut found: Vec<Offer> = Vec::new();
+    let mut path: Vec<String> = Vec::new();
+    let (mut word, mut last) = (String::new(), String::new());
+    for line in text.lines() {
+        let line = line.split("--").next().unwrap_or_default();
+        let mut chars = line.chars();
+        while let Some(c) = chars.next() {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                word.push(c);
+                continue;
+            }
+            if !word.is_empty() {
+                last = std::mem::take(&mut word);
+            }
+            match c {
+                '{' => path.push(std::mem::take(&mut last)),
+                '}' => {
+                    path.pop();
+                }
+                '"' => {
+                    let item: String = chars.by_ref().take_while(|c| *c != '"').collect();
+                    let [owner, gender, slot, items] = path.as_slice() else {
+                        continue;
+                    };
+                    if items != "items" || !matches!(gender.as_str(), "Female" | "Male") {
+                        continue;
+                    }
+                    let female = gender == "Female";
+                    let at = found
+                        .iter()
+                        .position(|o| o.owner == *owner && o.female == female && o.slot == *slot)
+                        .unwrap_or_else(|| {
+                            found.push(Offer {
+                                owner: owner.clone(),
+                                by_trait,
+                                female,
+                                slot: slot.clone(),
+                                items: Vec::new(),
+                            });
+                            found.len() - 1
+                        });
+                    found[at].items.push(item);
+                }
+                _ => {}
+            }
+        }
+        if !word.is_empty() {
+            last = std::mem::take(&mut word);
+        }
+    }
+    found
+}
+
+/// The offered items whose clothing file (`clothing/clothingItems/`, named by the item
+/// script's `ClothingItem`) allows a tint. B41 keeps clothing scripts in `scripts/clothing/`,
+/// B42 in `scripts/generated/items/`.
+fn tinted(media: &Path, wear: &[Offer]) -> HashSet<String> {
+    let mut clothing = HashMap::new();
+    for dir in ["scripts/clothing", "scripts/generated/items"] {
+        let Ok(files) = std::fs::read_dir(media.join(dir)) else {
+            continue;
+        };
+        for file in files.flatten() {
+            if let Ok(bytes) = std::fs::read(file.path()) {
+                clothing.extend(clothing_items(&String::from_utf8_lossy(&bytes)));
+            }
+        }
+    }
+    wear.iter()
+        .flat_map(|o| &o.items)
+        .filter(|item| {
+            let name = item.rsplit('.').next().unwrap_or(item);
+            clothing.get(name).is_some_and(|file| {
+                let path = media.join(format!("clothing/clothingItems/{file}.xml"));
+                std::fs::read_to_string(path)
+                    .is_ok_and(|xml| xml.contains("<m_AllowRandomTint>true</m_AllowRandomTint>"))
+            })
+        })
+        .cloned()
+        .collect()
+}
+
+/// Each `item Name { ... ClothingItem = File, ... }` in an item script.
+fn clothing_items(text: &str) -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    let mut item = None;
+    for line in text.lines().map(str::trim) {
+        if let Some(name) = line.strip_prefix("item ") {
+            item = Some(name.trim().to_owned());
+        } else if let Some((field, value)) = line.trim_end_matches(',').split_once('=')
+            && field.trim() == "ClothingItem"
+            && let Some(name) = item.take()
+        {
+            found.push((name, value.trim().to_owned()));
+        }
+    }
+    found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -584,6 +792,118 @@ mod tests {
         );
     }
 
+    /// From Build 41.78's `ClothingSelectionDefinitions.lua`, shortened.
+    const B41_CLOTHES: &str = r#"
+ClothingSelectionDefinitions = ClothingSelectionDefinitions or {};
+
+ClothingSelectionDefinitions.default = {
+	Female = {
+		-- this is the bodyLocation (defined in BodyLocations.lua)
+		Hat = {
+			chance = 10,
+			items = {"Base.Hat_BaseballCap", "Base.Hat_BucketHat", },
+		},
+		Shirt = {
+			items = {"Base.Shirt_FormalTINT",},
+			--"Base.Dress_Normal", "Base.Dress_Knees", },
+		},
+--		Sweater = {
+--			items = {"Base.Jumper_PoloNeck"},
+--		},
+	},
+	Male = {
+		Hat = {
+			items = {"Base.Hat_BaseballCap", },
+		},
+	},
+}
+
+ClothingSelectionDefinitions.fitnessInstructor = {
+	Female = {
+		Hat = {
+			items = {"Base.Hat_Sweatband", "Base.Hat_BaseballCap"},
+		},
+		Pants = {
+			items = {"Base.Shorts_ShortSport"},
+		},
+	},
+}
+"#;
+
+    /// From Build 42.22's `TraitClothingSelectionDefinitions.lua`.
+    const B42_TRAIT_CLOTHES: &str = r#"
+TraitClothingSelectionDefinitions[CharacterTrait.SHORT_SIGHTED] = {
+	Female = {
+		Eyes = {
+			chance = 0,
+			items = {"Base.Glasses_Normal", },
+		},
+	},
+}
+TraitClothingSelectionDefinitions[CharacterTrait.WILDERNESS_KNOWLEDGE] = TraitClothingSelectionDefinitions[CharacterTrait.HUNTER]
+"#;
+
+    #[test]
+    fn reads_the_clothes_the_character_screen_offers() {
+        let mut wear = offers(B41_CLOTHES, false);
+        assert_eq!(wear.len(), 5);
+        assert_eq!(wear[0].owner, "default");
+        assert_eq!(wear[1].items, ["Base.Shirt_FormalTINT"], "comments skipped");
+        wear.extend(offers(B42_TRAIT_CLOTHES, true));
+        assert_eq!(wear.last().unwrap().owner, "SHORT_SIGHTED");
+        let catalog = Catalog {
+            wear,
+            ..Catalog::default()
+        };
+        let ids = |slots: &[(String, Vec<Choice>)]| -> Vec<(String, Vec<String>)> {
+            slots
+                .iter()
+                .map(|(slot, items)| (slot.clone(), items.iter().map(|c| c.id.clone()).collect()))
+                .collect()
+        };
+        let man = catalog.clothes(false, "", &[]);
+        assert_eq!(
+            ids(&man),
+            [("Hat".into(), vec!["".into(), "Base.Hat_BaseballCap".into()])]
+        );
+        // B42 spells the profession in lowercase; it has no men's list, so men get the women's.
+        let trainer = catalog.clothes(false, "fitnessinstructor", &["shortsighted".into()]);
+        assert_eq!(
+            ids(&trainer),
+            [
+                (
+                    "Hat".into(),
+                    vec![
+                        "".into(),
+                        "Base.Hat_BaseballCap".into(),
+                        "Base.Hat_Sweatband".into()
+                    ]
+                ),
+                (
+                    "Pants".into(),
+                    vec!["".into(), "Base.Shorts_ShortSport".into()]
+                ),
+                ("Eyes".into(), vec!["".into(), "Base.Glasses_Normal".into()]),
+            ]
+        );
+        assert_eq!(catalog.clothes(true, "", &[])[1].0, "Shirt");
+    }
+
+    #[test]
+    fn finds_each_items_clothing_file() {
+        let script = "module Base\n{\n    item Tshirt_DefaultTEXTURE_TINT\n    {\n        DisplayName = T-Shirt,\n        ClothingItem = Tshirt_DefaultTEXTURE_TINT,\n        BodyLocation = Tshirt,\n    }\n    item Belt2\n    {\n        Type = Clothing,\n        ClothingItem = Belt,\n    }\n    item Apple\n    {\n        Type = Food,\n    }\n}";
+        assert_eq!(
+            clothing_items(script),
+            [
+                (
+                    "Tshirt_DefaultTEXTURE_TINT".into(),
+                    "Tshirt_DefaultTEXTURE_TINT".into()
+                ),
+                ("Belt2".into(), "Belt".into())
+            ]
+        );
+    }
+
     /// Against the real builds, when they are installed here.
     #[test]
     #[ignore]
@@ -609,6 +929,21 @@ mod tests {
             );
             assert_eq!(catalog.skins.len(), 5);
             assert!(catalog.hair_colors.len() > 15);
+            let clothes = catalog.clothes(true, "policeofficer", &[]);
+            let tshirts = &clothes.iter().find(|(slot, _)| slot == "Tshirt").unwrap().1;
+            // B41 names it "T-shirt", B42 "T-Shirt".
+            assert!(tshirts[1].name.eq_ignore_ascii_case("T-Shirt"), "{build}");
+            // B41 offers it as a shirt, B42 as a T-shirt.
+            assert!(
+                clothes
+                    .iter()
+                    .flat_map(|(_, items)| items)
+                    .any(|c| c.id == "Base.Tshirt_PoliceBlue"),
+                "{build}"
+            );
+            assert!(catalog.tinted("Base.Tshirt_DefaultTEXTURE_TINT"));
+            assert!(!catalog.tinted("Base.Tshirt_PoliceBlue"));
+            assert_eq!(catalog.slot("Tshirt"), "T-shirt");
         }
     }
 }
