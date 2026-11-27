@@ -31,6 +31,9 @@ pub fn render(
 ) -> RgbaImage {
     let s = if smooth { 2 } else { 1 };
     let (w, h) = (width * s, height * s);
+    if w == 0 || h == 0 {
+        return RgbaImage::new(width, height);
+    }
     let (min, max) = frame;
     let center = [
         (min[0] + max[0]) / 2.,
@@ -160,6 +163,9 @@ fn edge(a: (f32, f32), b: (f32, f32), p: (f32, f32)) -> f32 {
 /// The nearest texel, wrapping; V runs down the image as in Direct3D.
 fn sample(texture: &RgbaImage, u: f32, v: f32) -> [u8; 4] {
     let (tw, th) = texture.dimensions();
+    if tw == 0 || th == 0 {
+        return [255; 4];
+    }
     let x = (((u - u.floor()) * tw as f32) as u32).min(tw - 1);
     let y = (((v - v.floor()) * th as f32) as u32).min(th - 1);
     texture.get_pixel(x, y).0
@@ -225,5 +231,25 @@ mod tests {
             assert!(middle[0] > 200 && middle[2] == 0, "{middle:?}");
             assert_eq!(image.get_pixel(0, 0).0, [0; 4], "background stays clear");
         }
+    }
+
+    #[test]
+    fn draws_nothing_at_zero_size_or_with_an_empty_texture() {
+        let part = Part {
+            mesh: Mesh {
+                triangles: vec![[vertex(-1., -1.), vertex(0., 1.), vertex(1., -1.)]],
+                texture: None,
+                skin: None,
+            },
+            texture: Some(RgbaImage::new(0, 0)),
+            tint: [1., 1., 1.],
+        };
+        let frame = bounds(std::slice::from_ref(&part));
+        for (width, height) in [(0, 0), (0, 40), (40, 0)] {
+            let image = render(std::slice::from_ref(&part), frame, 0., width, height, true);
+            assert_eq!(image.dimensions(), (width, height));
+        }
+        let image = render(std::slice::from_ref(&part), frame, 0., 40, 40, false);
+        assert_eq!(image.get_pixel(20, 24).0[3], 255, "drawn untextured");
     }
 }
