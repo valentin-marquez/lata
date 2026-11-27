@@ -1,16 +1,19 @@
 [
   {
     "version": "0.12.0",
-    "date": "November 25, 2026",
+    "date": "November 27, 2026",
     "added": [
       "Host a coop server right from an instance, no game menus needed. It loads the instance's mods and maps on its own, in the right order. Start it from the Worlds tab, hit Play to jump in as the host, and invite friends with their Steam ID or profile link.",
       "The coop server's console shows up in the Logs tab while it runs.",
       "The Worlds tab lists the servers you've played on, with how many people are on right now, the character you played there, and a Join button.",
       "Characters you save in the game's character screen now show up in every instance, and the ones you delete stay deleted.",
-      "On Linux, lata can hide in the system tray when you close it too, on desktops that show tray icons."
+      "On Linux, lata can hide in the system tray when you close it too, on desktops that show tray icons.",
+      "A Characters page to make and tune your presets: look, clothes, profession and traits with the points in view, while your character walks around in 3D as you change things.",
+      "lata speaks Simplified Chinese (简体中文) and Russian (Русский) now. They're a first pass, so if something reads odd, tell us on Discord!"
     ],
     "fixed": [
-      "On Windows, a Java agent you add to an instance's Java arguments, like PZ Optimization's, loads instead of closing the game at once. typpy(Re.) on Discord found this one, thanks a lot!"
+      "On Windows, a Java agent you add to an instance's Java arguments, like PZ Optimization's, loads instead of closing the game at once. typpy(Re.) on Discord found this one, thanks a lot!",
+      "On Windows, the tray icon looks sharp at any display scaling."
     ]
   },
   {
