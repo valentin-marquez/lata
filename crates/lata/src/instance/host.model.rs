@@ -154,7 +154,12 @@ fn ini(existing: &str, plan: &Plan, modern: bool) -> String {
 /// Writes `plan` into the server's ini, keeping the rest of what it has.
 pub fn write(cachedir: &Path, name: &str, plan: &Plan, modern: bool) -> io::Result<()> {
     let path = cachedir.join("Server").join(format!("{name}.ini"));
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    // Only a missing ini starts empty: one that can't be read (not UTF-8, say, after an edit
+    // in another encoding) would otherwise be replaced by the three lines, losing the rest.
+    let existing = match std::fs::read_to_string(&path) {
+        Err(err) if err.kind() == io::ErrorKind::NotFound => String::new(),
+        read => read?,
+    };
     std::fs::write(&path, ini(&existing, plan, modern))
 }
 
@@ -783,6 +788,20 @@ mod tests {
             ini("", &plan, false),
             "Mods=FarmingZone;LataCoopTest\nWorkshopItems=3838784593\nMap=Muldraugh, KY\n"
         );
+    }
+
+    #[test]
+    fn leaves_an_ini_it_cant_read_alone() {
+        let dir = std::env::temp_dir().join(format!("lata-host-ini-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        create(&dir, "coop").unwrap();
+        // Saved as Latin-1 by an editor: not UTF-8.
+        let latin1 = b"PublicName=Caf\xe9\nPVP=false\n";
+        let ini = dir.join("Server/coop.ini");
+        std::fs::write(&ini, latin1).unwrap();
+        assert!(write(&dir, "coop", &Plan::default(), true).is_err());
+        assert_eq!(std::fs::read(&ini).unwrap(), latin1);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
